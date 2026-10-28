@@ -1,0 +1,6 @@
+{
+  "name": "أكاديمية الإمام لتحفيظ القرآن الكريم — بالقرآن نحيا",
+  "description": "نظام ويب تقدمي متكامل (Offline-First PWA) لإدارة حلقات تحفيظ القرآن الكريم، محرك التسميع الخماسي، السبورة الذكية، الاختبارات والإجازات، والمالية وبوابة ولي الأمر.",
+  "requestFramePermissions": ["microphone"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

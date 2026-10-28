@@ -1,0 +1,103 @@
+@import "tailwindcss";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+@layer base {
+  :root {
+    --font-sans: 'Cairo', system-ui, -apple-system, sans-serif;
+    --font-quran: 'Amiri', 'Traditional Arabic', serif;
+    --font-mono: 'JetBrains Mono', monospace;
+    --bg-app: #f6f7f2;
+    --bg-surface: #ffffff;
+    --bg-elevated: #fcfaf2;
+    --text-primary: #14281d;
+    --text-secondary: #4a5d52;
+    --accent-emerald: #145a3a;
+    --accent-gold: #c59b27;
+  }
+
+  html.dark {
+    --bg-app: #0b1711;
+    --bg-surface: #12231a;
+    --bg-elevated: #182e23;
+    --text-primary: #e9f2ec;
+    --text-secondary: #9cb5a5;
+    --accent-emerald: #10b981;
+    --accent-gold: #dfbd69;
+    color-scheme: dark;
+  }
+
+  html[data-theme="sepia"] {
+    --bg-app: #f4ecd8;
+    --bg-surface: #fbf6e9;
+    --bg-elevated: #efe4c8;
+    --text-primary: #2b2114;
+    --text-secondary: #5c4b37;
+    --accent-emerald: #145a3a;
+    --accent-gold: #b88917;
+  }
+
+  html {
+    font-family: var(--font-sans);
+    direction: rtl;
+    background-color: var(--bg-app);
+    color: var(--text-primary);
+  }
+
+  body {
+    background-color: var(--bg-app);
+    color: var(--text-primary);
+    transition: background-color 0.2s ease, color 0.2s ease;
+  }
+
+  html[data-font-size="sm"] {
+    font-size: 14px;
+  }
+
+  html[data-font-size="md"] {
+    font-size: 16px;
+  }
+
+  html[data-font-size="lg"] {
+    font-size: 18px;
+  }
+
+  html[data-font-size="xl"] {
+    font-size: 20px;
+  }
+}
+
+/* Sepia paper mode harmonious overrides */
+html[data-theme="sepia"] .bg-\[\#f6f7f2\] {
+  background-color: #f4ecd8 !important;
+}
+html[data-theme="sepia"] .bg-white {
+  background-color: #fbf6e9 !important;
+}
+html[data-theme="sepia"] .bg-\[\#fcfaf2\],
+html[data-theme="sepia"] .bg-\[\#faf6ec\] {
+  background-color: #f6edd9 !important;
+}
+
+.font-quran {
+  font-family: var(--font-quran);
+  line-height: 2.3;
+}
+
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Custom print rules for Certificates and Reports */
+@media print {
+  .no-print {
+    display: none !important;
+  }
+  .print-only {
+    display: block !important;
+  }
+  body {
+    background: #ffffff !important;
+    color: #000000 !important;
+  }
+}
