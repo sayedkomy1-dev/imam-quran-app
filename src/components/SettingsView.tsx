@@ -232,7 +232,17 @@ export const SettingsView: React.FC = () => {
 
         <div className="flex flex-wrap items-center gap-2 shrink-0">
           <a
-            href="/al-imam-quran-academy-complete.zip"
+            href="/index-github-pages.html?v=12.0.3"
+            download="index.html"
+            className="px-4 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-[#14281d] text-xs font-extrabold flex items-center justify-center gap-2 shadow-sm cursor-pointer transition"
+            title="ارفع هذا الملف الواحد (index.html) فقط على GitHub مكان القديم ليعمل الموقع فوراً"
+          >
+            <Download className="w-4 h-4" />
+            <span>⚡ تحميل index.html الشامل (ملف واحد لـ GitHub)</span>
+          </a>
+
+          <a
+            href="/al-imam-quran-academy-complete.zip?v=12.0.3"
             download="al-imam-quran-academy-complete.zip"
             className="px-4 py-2.5 rounded-xl bg-gradient-to-r from-[#c59b27] to-amber-500 hover:from-amber-500 hover:to-amber-600 text-[#14281d] text-xs font-extrabold flex items-center justify-center gap-2 shadow-sm cursor-pointer transition"
             title="تحميل النسخة المضغوطة للبرنامج كاملة بدون أخطاء (Release v12.0.0)"

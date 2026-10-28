@@ -249,7 +249,18 @@ const MainShell: React.FC = () => {
         {/* Bottom Role Switcher & Logout */}
         <div className="pt-4 border-t border-neutral-200 dark:border-emerald-900/50 space-y-2">
           <a
-            href="/al-imam-quran-academy-complete.zip"
+            href="/index-github-pages.html?v=12.0.3"
+            download="index.html"
+            className="w-full flex items-center justify-between py-2 px-3 rounded-xl bg-amber-500 hover:bg-amber-600 text-[#14281d] text-xs font-extrabold transition-colors cursor-pointer shadow-xs"
+            title="ارفع هذا الملف الواحد (index.html) فقط على GitHub ليعمل الموقع فوراً"
+          >
+            <span className="flex items-center gap-1.5">
+              <span>⚡ ملف index.html الشامل (GitHub)</span>
+            </span>
+            <span className="font-mono text-[10px]">ملف واحد</span>
+          </a>
+          <a
+            href="/al-imam-quran-academy-complete.zip?v=12.0.3"
             download="al-imam-quran-academy-complete.zip"
             className="w-full flex items-center justify-between py-2 px-3 rounded-xl bg-[#145a3a] hover:bg-[#0f452c] text-white border border-[#c59b27]/60 text-xs font-extrabold transition-colors cursor-pointer shadow-xs"
           >
@@ -307,7 +318,15 @@ const MainShell: React.FC = () => {
 
           <div className="flex items-center gap-2 shrink-0 relative">
             <a
-              href="/al-imam-quran-academy-complete.zip"
+              href="/index-github-pages.html?v=12.0.3"
+              download="index.html"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-[#14281d] text-xs font-extrabold shadow-xs cursor-pointer transition"
+              title="ارفع هذا الملف الواحد (index.html) فقط على GitHub مكان القديم ليعمل الموقع فوراً بدون شاشة بيضاء"
+            >
+              <span>⚡ index.html الشامل</span>
+            </a>
+            <a
+              href="/al-imam-quran-academy-complete.zip?v=12.0.3"
               download="al-imam-quran-academy-complete.zip"
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#145a3a] hover:bg-[#0f452c] text-white border border-[#c59b27]/70 text-xs font-extrabold shadow-xs cursor-pointer transition"
               title="تحميل النسخة المضغوطة للبرنامج كاملة بدون أخطاء (ZIP - Release v12.0.0)"

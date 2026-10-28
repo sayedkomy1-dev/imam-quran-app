@@ -1319,7 +1319,17 @@ export const PublicMushafWaqfPortalView: React.FC<PublicMushafWaqfPortalViewProp
               </button>
 
               <a
-                href="/al-imam-quran-academy-complete.zip"
+                href="/index-github-pages.html?v=12.0.3"
+                download="index.html"
+                className="px-3 py-2 rounded-xl bg-amber-400 hover:bg-amber-300 text-slate-950 text-xs font-extrabold flex items-center gap-1.5 cursor-pointer transition"
+                title="ارفع هذا الملف الواحد (index.html) فقط على GitHub مكان القديم ليعمل الموقع فوراً"
+              >
+                <Download className="w-3.5 h-3.5" />
+                <span className="hidden xl:inline">⚡ index.html الشامل</span>
+              </a>
+
+              <a
+                href="/al-imam-quran-academy-complete.zip?v=12.0.3"
                 download="al-imam-quran-academy-complete.zip"
                 className="px-3 py-2 rounded-xl bg-emerald-700 hover:bg-emerald-600 text-white border border-amber-400/50 text-xs font-extrabold flex items-center gap-1.5 cursor-pointer transition"
                 title="تحميل النسخة المضغوطة الكاملة للبرنامج (ZIP)"
