@@ -1193,136 +1193,122 @@ export const PublicMushafWaqfPortalView: React.FC<PublicMushafWaqfPortalViewProp
         className="hidden"
       />
 
-      {/* Top Islamic Header Bar */}
-      <header className="sticky top-0 z-30 bg-gradient-to-r from-emerald-950 via-emerald-900 to-teal-950 text-white border-b border-amber-500/40 shadow-lg">
-        <div className="max-w-7xl mx-auto px-4 py-3 flex flex-wrap items-center justify-between gap-3">
-          <div className="flex items-center gap-3">
-            <div className="w-11 h-11 rounded-2xl bg-amber-500/20 border border-amber-400/50 flex items-center justify-center text-amber-300 font-black text-xl shadow-inner">
-              📖
-            </div>
-            <div>
-              <div className="flex flex-wrap items-center gap-2">
-                <h1 className="text-base sm:text-lg font-extrabold tracking-tight text-amber-300">
-                  بوابة المصحف العام والورد اليومي (وقف وصدقة جارية)
-                </h1>
-                <span className="hidden sm:inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-emerald-800 text-emerald-200 border border-emerald-600">
-                  طبعة المدينة المنورة • 604 صفحة
-                </span>
-                {(waqfRibbonCollapsed || distractionFreeReading) && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      handleToggleCollapseRibbon(false);
-                      setDistractionFreeReading(false);
-                    }}
-                    className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-extrabold bg-amber-500/25 hover:bg-amber-500/40 text-amber-200 border border-amber-400/60 cursor-pointer transition"
-                    title="إظهار شريط الوقف القرآني والصدقة الجارية"
-                  >
-                    <span>🌿 وقف قرآني</span>
-                  </button>
-                )}
+      {/* Top Islamic Header Bar (Automatically hidden in Immersive Reading Mode to eliminate visual distraction) */}
+      {!distractionFreeReading && (
+        <header className="sticky top-0 z-30 bg-gradient-to-r from-emerald-950 via-emerald-900 to-teal-950 text-white border-b border-amber-500/40 shadow-lg">
+          <div className="max-w-7xl mx-auto px-4 py-3 flex flex-wrap items-center justify-between gap-3">
+            <div className="flex items-center gap-3">
+              <div className="w-11 h-11 rounded-2xl bg-amber-500/20 border border-amber-400/50 flex items-center justify-center text-amber-300 font-black text-xl shadow-inner">
+                📖
               </div>
-              <p className="text-xs text-emerald-200/90">
-                {settings.academyName} — متاح لعموم المسلمين أونلاين وبدون إنترنت 100%
-              </p>
-            </div>
-          </div>
-
-          <div className="flex flex-wrap items-center gap-2">
-            {/* Font Size Controls (أ+ / أ-) */}
-            <div className="flex items-center rounded-xl bg-white/10 border border-white/20 overflow-hidden">
-              <button
-                type="button"
-                onClick={() => adjustPublicFontSize(1)}
-                className="px-2.5 py-1.5 text-xs font-extrabold text-amber-300 hover:bg-white/15 cursor-pointer"
-                title="تكبير حجم الخط القرآني (أ+)"
-              >
-                أ+
-              </button>
-              <span className="w-px h-4 bg-white/20" />
-              <button
-                type="button"
-                onClick={() => adjustPublicFontSize(-1)}
-                className="px-2.5 py-1.5 text-xs font-extrabold text-white hover:bg-white/15 cursor-pointer"
-                title="تصغير حجم الخط القرآني (أ-)"
-              >
-                أ-
-              </button>
-            </div>
-
-            {/* 3-Mode Mushaf Theme Switcher (☀️ نهاري / 🌙 ليلي / 📜 كريمي للمصحف) */}
-            <div className="flex items-center rounded-xl bg-white/10 border border-white/20 p-0.5">
-              <button
-                type="button"
-                onClick={() => {
-                  setMushafNightMode(false);
-                  setMushafSepiaMode(false);
-                  updateSettings({ theme: 'light' });
-                }}
-                className={`px-2 py-1 rounded-lg text-[11px] font-extrabold cursor-pointer transition ${
-                  !mushafNightMode && !mushafSepiaMode
-                    ? 'bg-amber-400 text-slate-950'
-                    : 'text-white hover:bg-white/10'
-                }`}
-              >
-                ☀️ نهاري
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setMushafNightMode(true);
-                  setMushafSepiaMode(false);
-                  updateSettings({ theme: 'dark' });
-                }}
-                className={`px-2 py-1 rounded-lg text-[11px] font-extrabold cursor-pointer transition ${
-                  mushafNightMode
-                    ? 'bg-amber-400 text-slate-950'
-                    : 'text-white hover:bg-white/10'
-                }`}
-              >
-                🌙 ليلي
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setMushafNightMode(false);
-                  setMushafSepiaMode(true);
-                  updateSettings({ theme: 'sepia' });
-                }}
-                className={`px-2 py-1 rounded-lg text-[11px] font-extrabold cursor-pointer transition ${
-                  mushafSepiaMode
-                    ? 'bg-amber-400 text-slate-950'
-                    : 'text-white hover:bg-white/10'
-                }`}
-              >
-                📜 كريمي
-              </button>
+              <div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <h1 className="text-base sm:text-lg font-extrabold tracking-tight text-amber-300">
+                    بوابة المصحف العام والورد اليومي (وقف وصدقة جارية)
+                  </h1>
+                  <span className="hidden sm:inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-emerald-800 text-emerald-200 border border-emerald-600">
+                    طبعة المدينة المنورة • 604 صفحة
+                  </span>
+                  {waqfRibbonCollapsed && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        handleToggleCollapseRibbon(false);
+                      }}
+                      className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-extrabold bg-amber-500/25 hover:bg-amber-500/40 text-amber-200 border border-amber-400/60 cursor-pointer transition"
+                      title="إظهار شريط الوقف القرآني والصدقة الجارية"
+                    >
+                      <span>🌿 وقف قرآني</span>
+                    </button>
+                  )}
+                </div>
+                <p className="text-xs text-emerald-200/90">
+                  {settings.academyName} — متاح لعموم المسلمين أونلاين وبدون إنترنت 100%
+                </p>
+              </div>
             </div>
 
-            <button
-              type="button"
-              onClick={handleToggleImmersiveReadingMode}
-              className={`px-3 py-2 rounded-xl text-xs font-extrabold cursor-pointer transition border flex items-center gap-1.5 ${
-                distractionFreeReading
-                  ? 'bg-amber-400 text-slate-950 border-amber-300 shadow-md'
-                  : 'bg-white/10 hover:bg-white/20 text-white border-white/20'
-              }`}
-              title="وضع القراءة الخاشعة بضغطة واحدة — التركيز على الآية الحالية وإخفاء عناصر التصفح غير الضرورية"
-            >
-              {distractionFreeReading ? (
-                <>
-                  <Minimize2 className="w-3.5 h-3.5" />
-                  <span>🧘 إنهاء وضع الخشوع</span>
-                </>
-              ) : (
-                <>
-                  <Maximize2 className="w-3.5 h-3.5" />
-                  <span>🧘 وضع القراءة الخاشعة</span>
-                </>
-              )}
-            </button>
+            <div className="flex flex-wrap items-center gap-2">
+              {/* Font Size Controls (أ+ / أ-) */}
+              <div className="flex items-center rounded-xl bg-white/10 border border-white/20 overflow-hidden">
+                <button
+                  type="button"
+                  onClick={() => adjustPublicFontSize(1)}
+                  className="px-2.5 py-1.5 text-xs font-extrabold text-amber-300 hover:bg-white/15 cursor-pointer"
+                  title="تكبير حجم الخط القرآني (أ+)"
+                >
+                  أ+
+                </button>
+                <span className="w-px h-4 bg-white/20" />
+                <button
+                  type="button"
+                  onClick={() => adjustPublicFontSize(-1)}
+                  className="px-2.5 py-1.5 text-xs font-extrabold text-white hover:bg-white/15 cursor-pointer"
+                  title="تصغير حجم الخط القرآني (أ-)"
+                >
+                  أ-
+                </button>
+              </div>
 
-            {!distractionFreeReading && (
+              {/* 3-Mode Mushaf Theme Switcher (☀️ نهاري / 🌙 ليلي / 📜 كريمي للمصحف) */}
+              <div className="flex items-center rounded-xl bg-white/10 border border-white/20 p-0.5">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMushafNightMode(false);
+                    setMushafSepiaMode(false);
+                    updateSettings({ theme: 'light' });
+                  }}
+                  className={`px-2 py-1 rounded-lg text-[11px] font-extrabold cursor-pointer transition ${
+                    !mushafNightMode && !mushafSepiaMode
+                      ? 'bg-amber-400 text-slate-950'
+                      : 'text-white hover:bg-white/10'
+                  }`}
+                >
+                  ☀️ نهاري
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMushafNightMode(true);
+                    setMushafSepiaMode(false);
+                    updateSettings({ theme: 'dark' });
+                  }}
+                  className={`px-2 py-1 rounded-lg text-[11px] font-extrabold cursor-pointer transition ${
+                    mushafNightMode
+                      ? 'bg-amber-400 text-slate-950'
+                      : 'text-white hover:bg-white/10'
+                  }`}
+                >
+                  🌙 ليلي
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMushafNightMode(false);
+                    setMushafSepiaMode(true);
+                    updateSettings({ theme: 'sepia' });
+                  }}
+                  className={`px-2 py-1 rounded-lg text-[11px] font-extrabold cursor-pointer transition ${
+                    mushafSepiaMode
+                      ? 'bg-amber-400 text-slate-950'
+                      : 'text-white hover:bg-white/10'
+                  }`}
+                >
+                  📜 كريمي
+                </button>
+              </div>
+
+              <button
+                type="button"
+                onClick={handleToggleImmersiveReadingMode}
+                className="px-3 py-2 rounded-xl text-xs font-extrabold cursor-pointer transition border flex items-center gap-1.5 bg-white/10 hover:bg-white/20 text-white border-white/20"
+                title="وضع القراءة الخاشعة بضغطة واحدة — إخفاء شريط التنقل العلوي وتوسيع مساحة عرض الآيات لتقليل التشتت البصري"
+              >
+                <Maximize2 className="w-3.5 h-3.5" />
+                <span>🧘 وضع القراءة الخاشعة</span>
+              </button>
+
               <button
                 type="button"
                 onClick={handleTriggerPwaInstall}
@@ -1331,23 +1317,39 @@ export const PublicMushafWaqfPortalView: React.FC<PublicMushafWaqfPortalViewProp
                 <Smartphone className="w-4 h-4" />
                 <span className="hidden md:inline">📱 تثبيت المصحف العام</span>
               </button>
-            )}
 
-            {handleCloseOrBack && (
-              <button
-                type="button"
-                onClick={handleCloseOrBack}
-                className="px-3.5 py-2 rounded-xl bg-white/15 hover:bg-white/25 text-white text-xs font-extrabold flex items-center gap-1.5 cursor-pointer"
+              <a
+                href="/al-imam-quran-academy-complete.zip"
+                download="al-imam-quran-academy-complete.zip"
+                className="px-3 py-2 rounded-xl bg-emerald-700 hover:bg-emerald-600 text-white border border-amber-400/50 text-xs font-extrabold flex items-center gap-1.5 cursor-pointer transition"
+                title="تحميل النسخة المضغوطة الكاملة للبرنامج (ZIP)"
               >
-                <span>العودة لبوابة الأكاديمية</span>
-                <ChevronLeft className="w-4 h-4" />
-              </button>
-            )}
-          </div>
-        </div>
-      </header>
+                <Download className="w-3.5 h-3.5 text-amber-300" />
+                <span className="hidden xl:inline">📦 النسخة المضغوطة (ZIP)</span>
+              </a>
 
-      <div className="max-w-7xl mx-auto px-3 sm:px-6 py-5 space-y-5">
+              {handleCloseOrBack && (
+                <button
+                  type="button"
+                  onClick={handleCloseOrBack}
+                  className="px-3.5 py-2 rounded-xl bg-white/15 hover:bg-white/25 text-white text-xs font-extrabold flex items-center gap-1.5 cursor-pointer"
+                >
+                  <span>العودة لبوابة الأكاديمية</span>
+                  <ChevronLeft className="w-4 h-4" />
+                </button>
+              )}
+            </div>
+          </div>
+        </header>
+      )}
+
+      <div
+        className={`mx-auto transition-all duration-300 ${
+          distractionFreeReading
+            ? 'max-w-[96rem] px-3 sm:px-8 py-3 space-y-4'
+            : 'max-w-7xl px-3 sm:px-6 py-5 space-y-5'
+        }`}
+      >
         {/* Owner Encouragement Celebration Banner (Hidden in Immersive Reading Mode) */}
         {!distractionFreeReading &&
           unreadEncouragements.map((enc) => (
@@ -1795,10 +1797,14 @@ export const PublicMushafWaqfPortalView: React.FC<PublicMushafWaqfPortalViewProp
               </div>
             )}
 
-            {/* Madinah Mushaf Ornate Page Frame (Hidden only if Immersive Mode is in Single-Ayah Zen mode) */}
+            {/* Madinah Mushaf Ornate Page Frame (Expanded in Immersive Mode for wider, clearer verse reading) */}
             {(!distractionFreeReading || immersiveFocusStyle === 'spotlight_page') && (
               <div
-                className={`rounded-[32px] border-4 p-4 sm:p-8 shadow-2xl transition-colors ${
+                className={`rounded-[32px] border-4 shadow-2xl transition-all duration-300 ${
+                  distractionFreeReading
+                    ? 'p-6 sm:p-10 md:p-12'
+                    : 'p-4 sm:p-8'
+                } ${
                   mushafNightMode
                     ? 'bg-[#0c1322] border-amber-600/60 text-amber-50'
                     : 'bg-[#fffdf7] dark:bg-slate-900 border-amber-500/70 text-slate-900 dark:text-slate-100'
@@ -1838,8 +1844,14 @@ export const PublicMushafWaqfPortalView: React.FC<PublicMushafWaqfPortalViewProp
                           )}
                         </div>
 
-                        {/* Continuous Uthmani Mushaf Flow with Immersive Current-Ayah Focus */}
-                        <div className="leading-[2.65] text-xl sm:text-2xl md:text-3xl font-serif text-justify select-text">
+                        {/* Continuous Uthmani Mushaf Flow with Immersive Current-Ayah Focus & Expanded Verse Area */}
+                        <div
+                          className={`font-serif text-justify select-text transition-all duration-300 ${
+                            distractionFreeReading
+                              ? 'leading-[2.9] text-2xl sm:text-3xl md:text-4xl'
+                              : 'leading-[2.65] text-xl sm:text-2xl md:text-3xl'
+                          }`}
+                        >
                           {sec.verses.map((v) => {
                             const isCurrentFocusedAyah =
                               activeAudioSurahId === sec.surahId &&

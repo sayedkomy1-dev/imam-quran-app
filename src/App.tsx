@@ -72,11 +72,9 @@ const MainShell: React.FC = () => {
   if (publicMushafPortalOpen) {
     return (
       <div className="min-h-screen bg-[#f6f7f2] dark:bg-[#0b1711] text-[#14281d] dark:text-[#e9f2ec]">
-        <div className="max-w-7xl mx-auto p-4 md:p-6">
-          <PublicMushafWaqfPortalView
-            onBackToAcademy={() => setPublicMushafPortalOpen(false)}
-          />
-        </div>
+        <PublicMushafWaqfPortalView
+          onBackToAcademy={() => setPublicMushafPortalOpen(false)}
+        />
         <OfflineIndicator />
         {toastMessage && (
           <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 px-5 py-2.5 rounded-2xl bg-[#145a3a] text-white text-xs font-extrabold shadow-xl border border-[#c59b27]">
@@ -251,6 +249,17 @@ const MainShell: React.FC = () => {
         {/* Bottom Role Switcher & Logout */}
         <div className="pt-4 border-t border-neutral-200 dark:border-emerald-900/50 space-y-2">
           <a
+            href="/al-imam-quran-academy-complete.zip"
+            download="al-imam-quran-academy-complete.zip"
+            className="w-full flex items-center justify-between py-2 px-3 rounded-xl bg-[#145a3a] hover:bg-[#0f452c] text-white border border-[#c59b27]/60 text-xs font-extrabold transition-colors cursor-pointer shadow-xs"
+          >
+            <span className="flex items-center gap-1.5">
+              <FolderDown className="w-3.5 h-3.5 text-[#dfbd69]" />
+              <span>تحميل النسخة المضغوطة (ZIP)</span>
+            </span>
+            <span className="font-mono text-[10px] text-[#dfbd69]">v12.0.0</span>
+          </a>
+          <a
             href={`https://wa.me/${OFFICIAL_ACADEMY_WHATSAPP}`}
             target="_blank"
             rel="noopener noreferrer"
@@ -297,6 +306,15 @@ const MainShell: React.FC = () => {
           </div>
 
           <div className="flex items-center gap-2 shrink-0 relative">
+            <a
+              href="/al-imam-quran-academy-complete.zip"
+              download="al-imam-quran-academy-complete.zip"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#145a3a] hover:bg-[#0f452c] text-white border border-[#c59b27]/70 text-xs font-extrabold shadow-xs cursor-pointer transition"
+              title="تحميل النسخة المضغوطة للبرنامج كاملة بدون أخطاء (ZIP - Release v12.0.0)"
+            >
+              <FolderDown className="w-3.5 h-3.5 text-[#dfbd69]" />
+              <span className="hidden sm:inline">📦 النسخة المضغوطة (ZIP)</span>
+            </a>
             <PWAInstallButton />
 
             {/* Local Push Notification Center Button */}

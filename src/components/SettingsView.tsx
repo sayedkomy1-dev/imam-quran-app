@@ -232,6 +232,16 @@ export const SettingsView: React.FC = () => {
 
         <div className="flex flex-wrap items-center gap-2 shrink-0">
           <a
+            href="/al-imam-quran-academy-complete.zip"
+            download="al-imam-quran-academy-complete.zip"
+            className="px-4 py-2.5 rounded-xl bg-gradient-to-r from-[#c59b27] to-amber-500 hover:from-amber-500 hover:to-amber-600 text-[#14281d] text-xs font-extrabold flex items-center justify-center gap-2 shadow-sm cursor-pointer transition"
+            title="تحميل النسخة المضغوطة للبرنامج كاملة بدون أخطاء (Release v12.0.0)"
+          >
+            <Download className="w-4 h-4" />
+            <span>📦 تحميل النسخة المضغوطة للبرنامج كاملة (ZIP)</span>
+          </a>
+
+          <a
             href={`https://wa.me/${settings.officialWhatsappPhone || OFFICIAL_ACADEMY_WHATSAPP}`}
             target="_blank"
             rel="noopener noreferrer"

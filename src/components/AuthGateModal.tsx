@@ -79,6 +79,14 @@ export const AuthGateModal: React.FC = () => {
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <a
+            href="/al-imam-quran-academy-complete.zip"
+            download="al-imam-quran-academy-complete.zip"
+            className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-[#145a3a] hover:bg-[#0f452c] text-white border border-[#c59b27] text-xs font-extrabold shadow-xs cursor-pointer transition"
+            title="تحميل النسخة المضغوطة للبرنامج كاملة بدون أخطاء (ZIP - v12.0.0)"
+          >
+            <span>📦 تحميل النسخة المضغوطة الكاملة (ZIP)</span>
+          </a>
+          <a
             href={`https://wa.me/${OFFICIAL_ACADEMY_WHATSAPP}`}
             target="_blank"
             rel="noopener noreferrer"
