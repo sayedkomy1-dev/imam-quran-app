@@ -116,83 +116,108 @@ const MainShell: React.FC = () => {
     );
   }
 
-  const navItems: { id: ActiveTab; label: string; icon: React.ReactNode }[] = [
+  const navGroups: {
+    groupTitle: string;
+    items: { id: ActiveTab; label: string; icon: React.ReactNode }[];
+  }[] = [
     {
-      id: 'dashboard',
-      label: 'الرئيسية',
-      icon: <LayoutDashboard className="w-4 h-4" />,
+      groupTitle: 'التعليم والحلقات',
+      items: [
+        {
+          id: 'dashboard',
+          label: 'الرئيسية',
+          icon: <LayoutDashboard className="w-4 h-4" />,
+        },
+        {
+          id: 'session',
+          label: 'محرك الحصة الخماسي',
+          icon: <BookOpen className="w-4 h-4" />,
+        },
+        {
+          id: 'smartboard',
+          label: 'السبورة الذكية',
+          icon: <Sparkles className="w-4 h-4" />,
+        },
+        {
+          id: 'circles',
+          label: 'إدارة الحلقات والحضور',
+          icon: <Users className="w-4 h-4" />,
+        },
+      ],
     },
     {
-      id: 'students',
-      label: 'الطلاب وملف الطالب',
-      icon: <Users className="w-4 h-4" />,
+      groupTitle: 'شؤون الطلاب والمناهج',
+      items: [
+        {
+          id: 'students',
+          label: 'الطلاب وملف الطالب',
+          icon: <Users className="w-4 h-4" />,
+        },
+        {
+          id: 'foundation',
+          label: 'منهج الإمام للتأسيس',
+          icon: <Layers className="w-4 h-4" />,
+        },
+        {
+          id: 'tajweed',
+          label: 'مخارج الحروف والتجويد',
+          icon: <Compass className="w-4 h-4" />,
+        },
+        {
+          id: 'struggling',
+          label: 'متابعة المتعثرين',
+          icon: <AlertTriangle className="w-4 h-4" />,
+        },
+        {
+          id: 'exams',
+          label: 'الاختبارات والإجازات',
+          icon: <GraduationCap className="w-4 h-4" />,
+        },
+      ],
     },
     {
-      id: 'session',
-      label: 'محرك الحصة الخماسي',
-      icon: <BookOpen className="w-4 h-4" />,
+      groupTitle: 'الإدارة والتواصل',
+      items: [
+        {
+          id: 'tasks',
+          label: 'المهام والمتابعة',
+          icon: <CheckSquare className="w-4 h-4" />,
+        },
+        {
+          id: 'finance',
+          label: 'الإدارة المالية',
+          icon: <Wallet className="w-4 h-4" />,
+        },
+        {
+          id: 'broadcast',
+          label: 'رسائل واتساب الجماعية',
+          icon: <MessageSquare className="w-4 h-4" />,
+        },
+      ],
     },
     {
-      id: 'smartboard',
-      label: 'السبورة الذكية',
-      icon: <Sparkles className="w-4 h-4" />,
-    },
-    {
-      id: 'foundation',
-      label: 'منهج الإمام للتأسيس',
-      icon: <Layers className="w-4 h-4" />,
-    },
-    {
-      id: 'tajweed',
-      label: 'مخارج الحروف والتجويد',
-      icon: <Compass className="w-4 h-4" />,
-    },
-    {
-      id: 'circles',
-      label: 'إدارة الحلقات والحضور',
-      icon: <Users className="w-4 h-4" />,
-    },
-    {
-      id: 'exams',
-      label: 'الاختبارات والإجازات',
-      icon: <GraduationCap className="w-4 h-4" />,
-    },
-    {
-      id: 'struggling',
-      label: 'متابعة المتعثرين',
-      icon: <AlertTriangle className="w-4 h-4" />,
-    },
-    {
-      id: 'tasks',
-      label: 'المهام والمتابعة',
-      icon: <CheckSquare className="w-4 h-4" />,
-    },
-    {
-      id: 'finance',
-      label: 'الإدارة المالية',
-      icon: <Wallet className="w-4 h-4" />,
-    },
-    {
-      id: 'resources',
-      label: 'المواد والعمل أوفلاين',
-      icon: <FolderDown className="w-4 h-4" />,
-    },
-    {
-      id: 'public_mushaf',
-      label: 'مصحف المدينة العام والوقف',
-      icon: <BookOpen className="w-4 h-4" />,
-    },
-    {
-      id: 'broadcast',
-      label: 'رسائل واتساب الجماعية',
-      icon: <MessageSquare className="w-4 h-4" />,
-    },
-    {
-      id: 'settings',
-      label: 'الإعدادات والنسخ',
-      icon: <Settings className="w-4 h-4" />,
+      groupTitle: 'الوقف والنظام',
+      items: [
+        {
+          id: 'public_mushaf',
+          label: 'مصحف المدينة العام والوقف',
+          icon: <BookOpen className="w-4 h-4" />,
+        },
+        {
+          id: 'resources',
+          label: 'المواد والعمل أوفلاين',
+          icon: <FolderDown className="w-4 h-4" />,
+        },
+        {
+          id: 'settings',
+          label: 'الإعدادات والنسخ',
+          icon: <Settings className="w-4 h-4" />,
+        },
+      ],
     },
   ];
+
+  const navItems = navGroups.flatMap((g) => g.items);
 
   const adjustFontSize = (delta: 1 | -1) => {
     const order: ('sm' | 'md' | 'lg' | 'xl')[] = ['sm', 'md', 'lg', 'xl'];
@@ -205,9 +230,9 @@ const MainShell: React.FC = () => {
     <div className="min-h-screen bg-[#f6f7f2] dark:bg-[#0b1711] text-[#14281d] dark:text-[#e9f2ec] flex">
       {/* Desktop RTL Sidebar */}
       <aside className="hidden lg:flex flex-col justify-between w-64 shrink-0 bg-white dark:bg-[#12231a] border-l border-neutral-200 dark:border-emerald-900/50 p-4 sticky top-0 h-screen overflow-y-auto no-print">
-        <div className="space-y-6">
+        <div className="space-y-5">
           {/* Brand Lockup */}
-          <div className="flex items-center gap-3 px-2 pt-1">
+          <div className="flex items-center gap-3 px-2 pt-1 pb-2 border-b border-neutral-100 dark:border-emerald-900/40">
             <img
               src="/assets/aistudio/icon-192_29a1c2ce.png"
               alt="شعار أكاديمية الإمام"
@@ -224,52 +249,37 @@ const MainShell: React.FC = () => {
             </div>
           </div>
 
-          {/* Navigation Links */}
-          <nav className="space-y-1">
-            {navItems.map((item) => {
-              const isActive = activeTab === item.id;
-              return (
-                <button
-                  key={item.id}
-                  onClick={() => setActiveTab(item.id)}
-                  className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
-                    isActive
-                      ? 'bg-[#145a3a] text-white shadow-xs'
-                      : 'text-neutral-600 dark:text-neutral-300 hover:bg-[#f6f7f2] dark:hover:bg-[#0b1711] hover:text-[#145a3a] dark:hover:text-[#dfbd69]'
-                  }`}
-                >
-                  <span className={isActive ? 'text-[#dfbd69]' : ''}>{item.icon}</span>
-                  <span>{item.label}</span>
-                </button>
-              );
-            })}
+          {/* Grouped Navigation Links */}
+          <nav className="space-y-4">
+            {navGroups.map((group) => (
+              <div key={group.groupTitle} className="space-y-1">
+                <div className="px-3 text-[11px] font-extrabold text-neutral-400 dark:text-emerald-400/70">
+                  {group.groupTitle}
+                </div>
+                {group.items.map((item) => {
+                  const isActive = activeTab === item.id;
+                  return (
+                    <button
+                      key={item.id}
+                      onClick={() => setActiveTab(item.id)}
+                      className={`w-full flex items-center gap-3 px-3.5 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
+                        isActive
+                          ? 'bg-[#145a3a] text-white shadow-xs'
+                          : 'text-neutral-600 dark:text-neutral-300 hover:bg-[#f6f7f2] dark:hover:bg-[#0b1711] hover:text-[#145a3a] dark:hover:text-[#dfbd69]'
+                      }`}
+                    >
+                      <span className={isActive ? 'text-[#dfbd69]' : ''}>{item.icon}</span>
+                      <span>{item.label}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            ))}
           </nav>
         </div>
 
         {/* Bottom Role Switcher & Logout */}
         <div className="pt-4 border-t border-neutral-200 dark:border-emerald-900/50 space-y-2">
-          <a
-            href="/index-github-pages.html?v=12.0.3"
-            download="index.html"
-            className="w-full flex items-center justify-between py-2 px-3 rounded-xl bg-amber-500 hover:bg-amber-600 text-[#14281d] text-xs font-extrabold transition-colors cursor-pointer shadow-xs"
-            title="ارفع هذا الملف الواحد (index.html) فقط على GitHub ليعمل الموقع فوراً"
-          >
-            <span className="flex items-center gap-1.5">
-              <span>⚡ ملف index.html الشامل (GitHub)</span>
-            </span>
-            <span className="font-mono text-[10px]">ملف واحد</span>
-          </a>
-          <a
-            href="/al-imam-quran-academy-complete.zip?v=12.0.3"
-            download="al-imam-quran-academy-complete.zip"
-            className="w-full flex items-center justify-between py-2 px-3 rounded-xl bg-[#145a3a] hover:bg-[#0f452c] text-white border border-[#c59b27]/60 text-xs font-extrabold transition-colors cursor-pointer shadow-xs"
-          >
-            <span className="flex items-center gap-1.5">
-              <FolderDown className="w-3.5 h-3.5 text-[#dfbd69]" />
-              <span>تحميل النسخة المضغوطة (ZIP)</span>
-            </span>
-            <span className="font-mono text-[10px] text-[#dfbd69]">v12.0.0</span>
-          </a>
           <a
             href={`https://wa.me/${OFFICIAL_ACADEMY_WHATSAPP}`}
             target="_blank"
@@ -303,13 +313,13 @@ const MainShell: React.FC = () => {
       {/* Main Content Area */}
       <div className="flex-1 flex flex-col min-w-0 pb-20 lg:pb-8">
         {/* Top Sticky Header */}
-        <header className="sticky top-0 z-30 bg-white/90 dark:bg-[#12231a]/90 backdrop-blur-md border-b border-neutral-200 dark:border-emerald-900/50 px-4 md:px-6 py-3 flex items-center justify-between gap-4 no-print">
+        <header className="sticky top-0 z-30 bg-white/90 dark:bg-[#12231a]/90 backdrop-blur-md border-b border-neutral-200 dark:border-emerald-900/50 px-4 md:px-6 py-3 flex items-center justify-between gap-3 no-print">
           <div className="flex items-center gap-3 min-w-0">
             <img
               src="/assets/aistudio/icon-96_3bce66e2.png"
               alt="أيقونة"
               referrerPolicy="no-referrer"
-              className="w-9 h-9 rounded-xl lg:hidden border border-[#c59b27]/40"
+              className="w-9 h-9 rounded-xl lg:hidden border border-[#c59b27]/40 shrink-0"
             />
             <span className="text-sm md:text-base font-extrabold text-[#145a3a] dark:text-[#dfbd69] truncate">
               {navItems.find((n) => n.id === activeTab)?.label || 'أكاديمية الإمام'}
@@ -317,23 +327,6 @@ const MainShell: React.FC = () => {
           </div>
 
           <div className="flex items-center gap-2 shrink-0 relative">
-            <a
-              href="/index-github-pages.html?v=12.0.3"
-              download="index.html"
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-[#14281d] text-xs font-extrabold shadow-xs cursor-pointer transition"
-              title="ارفع هذا الملف الواحد (index.html) فقط على GitHub مكان القديم ليعمل الموقع فوراً بدون شاشة بيضاء"
-            >
-              <span>⚡ index.html الشامل</span>
-            </a>
-            <a
-              href="/al-imam-quran-academy-complete.zip?v=12.0.3"
-              download="al-imam-quran-academy-complete.zip"
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#145a3a] hover:bg-[#0f452c] text-white border border-[#c59b27]/70 text-xs font-extrabold shadow-xs cursor-pointer transition"
-              title="تحميل النسخة المضغوطة للبرنامج كاملة بدون أخطاء (ZIP - Release v12.0.0)"
-            >
-              <FolderDown className="w-3.5 h-3.5 text-[#dfbd69]" />
-              <span className="hidden sm:inline">📦 النسخة المضغوطة (ZIP)</span>
-            </a>
             <PWAInstallButton />
 
             {/* Local Push Notification Center Button */}
@@ -564,9 +557,9 @@ const MainShell: React.FC = () => {
                 setActiveTab(t.id as ActiveTab);
                 setMobileMoreOpen(false);
               }}
-              className={`flex flex-col items-center justify-center gap-0.5 py-1 text-[10px] font-bold cursor-pointer ${
+              className={`flex flex-col items-center justify-center gap-0.5 py-1.5 min-h-[44px] rounded-xl text-[11px] font-bold cursor-pointer transition ${
                 active
-                  ? 'text-[#145a3a] dark:text-[#dfbd69]'
+                  ? 'text-[#145a3a] dark:text-[#dfbd69] bg-[#145a3a]/10 dark:bg-[#dfbd69]/10'
                   : 'text-neutral-500 dark:text-neutral-400'
               }`}
             >
@@ -578,10 +571,10 @@ const MainShell: React.FC = () => {
 
         <button
           onClick={() => setMobileMoreOpen(true)}
-          className="flex flex-col items-center justify-center gap-0.5 py-1 text-[10px] font-bold text-neutral-500 dark:text-neutral-400 cursor-pointer"
+          className="flex flex-col items-center justify-center gap-0.5 py-1.5 min-h-[44px] rounded-xl text-[11px] font-bold text-neutral-500 dark:text-neutral-400 cursor-pointer"
         >
           <Menu className="w-5 h-5" />
-          <span>المزيد</span>
+          <span>الأقسام</span>
         </button>
       </nav>
 
@@ -597,30 +590,42 @@ const MainShell: React.FC = () => {
           >
             <div className="flex items-center justify-between pb-3 border-b border-neutral-200 dark:border-emerald-900">
               <span className="text-sm font-extrabold text-[#145a3a] dark:text-[#dfbd69]">
-                جميع وحدات أكاديمية الإمام
+                أقسام ووحدات أكاديمية الإمام
               </span>
-              <button onClick={() => setMobileMoreOpen(false)}>
+              <button
+                onClick={() => setMobileMoreOpen(false)}
+                className="p-2 rounded-xl hover:bg-neutral-100 dark:hover:bg-emerald-950"
+              >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
-            <div className="grid grid-cols-2 gap-2.5">
-              {navItems.map((item) => (
-                <button
-                  key={item.id}
-                  onClick={() => {
-                    setActiveTab(item.id);
-                    setMobileMoreOpen(false);
-                  }}
-                  className={`flex items-center gap-2.5 p-3 rounded-xl border text-right text-xs font-bold ${
-                    activeTab === item.id
-                      ? 'bg-[#145a3a] text-white border-[#145a3a]'
-                      : 'border-neutral-200 dark:border-emerald-900/50'
-                  }`}
-                >
-                  {item.icon}
-                  <span>{item.label}</span>
-                </button>
+            <div className="space-y-4">
+              {navGroups.map((group) => (
+                <div key={group.groupTitle} className="space-y-2">
+                  <div className="text-xs font-extrabold text-neutral-400 dark:text-emerald-400/80">
+                    {group.groupTitle}
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    {group.items.map((item) => (
+                      <button
+                        key={item.id}
+                        onClick={() => {
+                          setActiveTab(item.id);
+                          setMobileMoreOpen(false);
+                        }}
+                        className={`flex items-center gap-2.5 p-3 min-h-[44px] rounded-xl border text-right text-xs font-bold ${
+                          activeTab === item.id
+                            ? 'bg-[#145a3a] text-white border-[#145a3a]'
+                            : 'border-neutral-200 dark:border-emerald-900/50'
+                        }`}
+                      >
+                        {item.icon}
+                        <span>{item.label}</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
               ))}
             </div>
 
@@ -630,7 +635,7 @@ const MainShell: React.FC = () => {
                   setMobileMoreOpen(false);
                   loginAsGuardianDirect(students[0]?.id || 'st-1');
                 }}
-                className="flex-1 py-2.5 rounded-xl bg-[#c59b27] text-[#14281d] text-xs font-extrabold"
+                className="flex-1 py-2.5 min-h-[44px] rounded-xl bg-[#c59b27] text-[#14281d] text-xs font-extrabold"
               >
                 بوابة ولي الأمر
               </button>
@@ -639,7 +644,7 @@ const MainShell: React.FC = () => {
                   setMobileMoreOpen(false);
                   logout();
                 }}
-                className="py-2.5 px-4 rounded-xl border border-red-200 text-red-600 text-xs font-bold"
+                className="py-2.5 px-4 min-h-[44px] rounded-xl border border-red-200 text-red-600 text-xs font-bold"
               >
                 خروج
               </button>

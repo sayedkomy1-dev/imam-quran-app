@@ -33,9 +33,11 @@ export const AuthGateModal: React.FC = () => {
   const [selectedMode, setSelectedMode] = useState<
     'teacher' | 'guardian' | 'guest' | 'admission'
   >('teacher');
-  const [phoneInput, setPhoneInput] = useState('01012345601');
-  const [pinInput, setPinInput] = useState('123456');
+  const [phoneInput, setPhoneInput] = useState('');
+  const [pinInput, setPinInput] = useState('');
   const [authError, setAuthError] = useState('');
+  const [showWaqfDetailsOnGate, setShowWaqfDetailsOnGate] = useState(false);
+  const [showDemoSwitcher, setShowDemoSwitcher] = useState(false);
 
   // Admission Funnel Form State
   const [admName, setAdmName] = useState('');
@@ -53,7 +55,7 @@ export const AuthGateModal: React.FC = () => {
   const handleGuardianSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     setAuthError('');
-    const res = loginAsGuardian(phoneInput, pinInput);
+    const res = loginAsGuardian(phoneInput.trim(), pinInput.trim());
     if (!res.ok) {
       setAuthError(res.error || 'بيانات الدخول غير صحيحة');
     }
@@ -62,7 +64,7 @@ export const AuthGateModal: React.FC = () => {
   return (
     <div className="min-h-screen bg-[#f6f7f2] dark:bg-[#0b1711] text-[#14281d] dark:text-[#e9f2ec] flex flex-col justify-between p-4 md:p-8">
       {/* Top Bar */}
-      <header className="max-w-5xl w-full mx-auto flex items-center justify-between">
+      <header className="max-w-5xl w-full mx-auto flex flex-wrap items-center justify-between gap-3 pb-2 border-b border-neutral-200/70 dark:border-emerald-900/40">
         <div className="flex items-center gap-3">
           <img
             src="/assets/aistudio/icon-192_29a1c2ce.png"
@@ -71,34 +73,20 @@ export const AuthGateModal: React.FC = () => {
             className="w-11 h-11 rounded-xl border border-[#c59b27]/40 shadow-xs object-cover"
           />
           <div>
-            <span className="font-bold text-base text-[#145a3a] dark:text-[#dfbd69] block">
+            <span className="font-extrabold text-base md:text-lg text-[#145a3a] dark:text-[#dfbd69] block tracking-tight">
               أكاديمية الإمام لتحفيظ القرآن الكريم
             </span>
-            <span className="text-xs text-neutral-500 dark:text-neutral-400">بالقرآن نحيا</span>
+            <span className="text-xs text-neutral-500 dark:text-neutral-400">
+              بالقرآن نحيا · منصة الحلقات والإسناد والمصحف الوقفي
+            </span>
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <a
-            href="/index-github-pages.html?v=12.0.3"
-            download="index.html"
-            className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-amber-500 hover:bg-amber-600 text-[#14281d] border border-[#145a3a]/30 text-xs font-extrabold shadow-xs cursor-pointer transition"
-            title="ارفع هذا الملف الواحد (index.html) فقط على GitHub مكان القديم ليعمل الموقع فوراً بدون شاشة بيضاء"
-          >
-            <span>⚡ تحميل index.html المدمج (إصلاح GitHub بملف واحد)</span>
-          </a>
-          <a
-            href="/al-imam-quran-academy-complete.zip?v=12.0.3"
-            download="al-imam-quran-academy-complete.zip"
-            className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-[#145a3a] hover:bg-[#0f452c] text-white border border-[#c59b27] text-xs font-extrabold shadow-xs cursor-pointer transition"
-            title="تحميل النسخة المضغوطة للبرنامج كاملة بدون أخطاء (ZIP - v12.0.0)"
-          >
-            <span>📦 تحميل النسخة المضغوطة الكاملة (ZIP)</span>
-          </a>
-          <a
             href={`https://wa.me/${OFFICIAL_ACADEMY_WHATSAPP}`}
             target="_blank"
             rel="noopener noreferrer"
-            className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-extrabold shadow-xs cursor-pointer"
+            className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-extrabold shadow-xs cursor-pointer transition"
             title="التواصل الرسمي مع إدارة الأكاديمية والدعم الفني عبر واتساب"
           >
             <MessageCircle className="w-3.5 h-3.5" />
@@ -118,7 +106,7 @@ export const AuthGateModal: React.FC = () => {
                 key={m.id}
                 type="button"
                 onClick={() => updateSettings({ theme: m.id })}
-                className={`px-2 py-1.5 rounded-lg text-[11px] font-extrabold transition cursor-pointer ${
+                className={`px-2.5 py-1.5 rounded-lg text-[11px] font-extrabold transition cursor-pointer ${
                   settings.theme === m.id
                     ? 'bg-[#145a3a] text-[#dfbd69]'
                     : 'text-neutral-600 dark:text-neutral-300'
@@ -131,39 +119,47 @@ export const AuthGateModal: React.FC = () => {
         </div>
       </header>
 
-      {/* Public Madinah Mushaf & Daily Wird (Waqf & Sadaqah Jariyah) Prominent Banner (No Login Required) */}
-      <section className="max-w-4xl w-full mx-auto mt-6 space-y-3">
-        <div className="rounded-3xl bg-gradient-to-l from-[#145a3a] via-[#0f452c] to-[#14281d] text-white p-5 border-2 border-[#c59b27] shadow-lg flex flex-col md:flex-row md:items-center justify-between gap-4">
-          <div className="space-y-1">
-            <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-[#c59b27]/25 border border-[#dfbd69]/50 text-[#dfbd69] text-[11px] font-extrabold">
+      {/* Public Madinah Mushaf & Daily Wird (Waqf & Sadaqah Jariyah) Prominent Hero Banner (No Login Required) */}
+      <section className="max-w-5xl w-full mx-auto mt-5 space-y-3">
+        <div className="rounded-3xl bg-gradient-to-l from-[#145a3a] via-[#0f452c] to-[#14281d] text-white p-5 md:p-6 border border-[#c59b27]/80 shadow-lg flex flex-col md:flex-row md:items-center justify-between gap-4">
+          <div className="space-y-1.5">
+            <div className="flex flex-wrap items-center gap-2 text-xs text-[#dfbd69] font-bold">
               <span>🌿 وقف قرآني وصدقة جارية — متاح لعموم المسلمين بدون تسجيل دخول</span>
+              <span aria-hidden="true">·</span>
+              <button
+                type="button"
+                onClick={() => setShowWaqfDetailsOnGate((prev) => !prev)}
+                className="underline decoration-[#dfbd69]/60 hover:text-white transition cursor-pointer font-extrabold"
+              >
+                {showWaqfDetailsOnGate ? 'إخفاء وثيقة الوقف والدعاء' : 'عرض أسماء المهدى إليهم والدعاء بالرحمة'}
+              </button>
             </div>
-            <h2 className="text-base md:text-lg font-extrabold text-white">
-              📖 بوابة المصحف العام والورد اليومي (مصحف المدينة المنورة 604 صفحات + التفسير الميسر + التلاوة المتزامنة)
+            <h2 className="text-base md:text-xl font-extrabold text-white tracking-tight">
+              🕌 الدخول إلى بوابة المصحف العام والورد اليومي (مصحف المدينة 604 صفحات + التلاوة المتزامنة)
             </h2>
-            <p className="text-xs text-emerald-100/90">
-              تلاوة واستماع متزامن لـ 6 قراء، فواصل ملونة متعددة، مركز تنزيل للعمل بدون إنترنت 100%، ومتتبع الختمات وشهادة الختمة الفورية.
+            <p className="text-xs text-emerald-100/90 leading-relaxed max-w-2xl">
+              تلاوة واستماع متزامن لـ 6 قراء مع وضع القراءة الخاشعة، التفسير الميسر ومعاني الكلمات، مركز تنزيل للعمل بدون إنترنت 100%، وشهادة الختمة الفورية.
             </p>
           </div>
           <button
             type="button"
             onClick={() => setPublicMushafPortalOpen(true)}
-            className="px-5 py-3.5 rounded-2xl bg-[#c59b27] hover:bg-[#b58c1e] text-[#14281d] font-extrabold text-xs md:text-sm shadow-md transition-all cursor-pointer shrink-0 flex items-center justify-center gap-2"
+            className="px-6 py-3.5 rounded-2xl bg-[#c59b27] hover:bg-[#b58c1e] text-[#14281d] font-extrabold text-xs md:text-sm shadow-md transition-all cursor-pointer shrink-0 flex items-center justify-center gap-2 min-h-[44px]"
           >
             <BookOpen className="w-4 h-4" />
             <span>فتح المصحف العام والورد اليومي الآن</span>
           </button>
         </div>
 
-        <WaqfDedicationBannerCard compact />
+        {showWaqfDetailsOnGate && <WaqfDedicationBannerCard compact />}
       </section>
 
       {/* Main Auth Card */}
-      <main className="max-w-4xl w-full mx-auto my-8 grid grid-cols-1 lg:grid-cols-12 rounded-3xl overflow-hidden border border-neutral-200 dark:border-emerald-900/50 bg-white dark:bg-[#12231a] shadow-xl">
+      <main className="max-w-5xl w-full mx-auto my-6 grid grid-cols-1 lg:grid-cols-12 rounded-3xl overflow-hidden border border-neutral-200 dark:border-emerald-900/50 bg-white dark:bg-[#12231a] shadow-xl">
         {/* Right Column: Academy Identity Banner */}
-        <div className="lg:col-span-5 bg-[#145a3a] text-white p-8 flex flex-col justify-between relative overflow-hidden">
+        <div className="lg:col-span-5 bg-[#145a3a] text-white p-7 md:p-8 flex flex-col justify-between relative overflow-hidden">
           <div className="relative z-10">
-            <div className="flex items-center gap-3 mb-6">
+            <div className="flex items-center gap-3.5 mb-6">
               <img
                 src="/assets/aistudio/icon-192_29a1c2ce.png"
                 alt="شعار الأكاديمية"
@@ -185,11 +181,11 @@ export const AuthGateModal: React.FC = () => {
             <div className="space-y-3 text-xs text-emerald-100/90 border-t border-emerald-700/60 pt-5">
               <div className="flex items-center gap-2.5">
                 <ShieldCheck className="w-4 h-4 text-[#dfbd69] shrink-0" />
-                <span>بيانات تجريبية غنية لـ 8 طلاب و3 حلقات جاهزة للتجربة فوراً</span>
+                <span>محرك الحصة الخماسي وتسجيل التلاوة مع مؤشرات الأخطاء الزمنية</span>
               </div>
               <div className="flex items-center gap-2.5">
                 <BookOpen className="w-4 h-4 text-[#dfbd69] shrink-0" />
-                <span>مصحف عثماني وتفسير ميسر وصوتيات الحصري والعفاسي والمعيقلي</span>
+                <span>مصحف عثماني وتفسير ميسر وصوتيات كبار القراء</span>
               </div>
               <div className="flex items-center gap-2.5">
                 <Sparkles className="w-4 h-4 text-[#dfbd69] shrink-0" />
@@ -207,11 +203,20 @@ export const AuthGateModal: React.FC = () => {
         {/* Left Column: Role Switcher & Login */}
         <div className="lg:col-span-7 p-6 md:p-8 flex flex-col justify-between">
           <div>
-            <h2 className="text-lg font-bold text-[#14281d] dark:text-white mb-1">
-              اختر بوابة الدخول
-            </h2>
+            <div className="flex items-center justify-between gap-2 mb-1">
+              <h2 className="text-lg font-extrabold text-[#14281d] dark:text-white">
+                بوابة الدخول للأكاديمية
+              </h2>
+              <button
+                type="button"
+                onClick={() => setShowDemoSwitcher((prev) => !prev)}
+                className="text-[11px] font-bold text-[#145a3a] dark:text-[#dfbd69] hover:underline cursor-pointer"
+              >
+                {showDemoSwitcher ? 'إخفاء أزرار التجربة السريعة' : '🧪 تجربة سريعة للنظام (Demo)'}
+              </button>
+            </div>
             <p className="text-xs text-neutral-500 dark:text-neutral-400 mb-5">
-              يمكنك التبديل بين الأدوار في أي وقت من الشريط العلوي لتجربة جميع مزايا النظام.
+              اختر المسار المناسب لك للدخول إلى حسابك أو تقديم طلب التحاق طالب جديد.
             </p>
 
             {/* Role Selector Tabs */}
@@ -219,7 +224,7 @@ export const AuthGateModal: React.FC = () => {
               <button
                 type="button"
                 onClick={() => setSelectedMode('teacher')}
-                className={`flex flex-col items-center gap-1 py-2.5 px-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                className={`flex flex-col items-center gap-1 py-2.5 px-2 rounded-xl text-xs font-bold transition-all cursor-pointer min-h-[44px] ${
                   selectedMode === 'teacher'
                     ? 'bg-[#145a3a] text-white shadow-xs'
                     : 'text-neutral-600 dark:text-neutral-300 hover:text-[#145a3a]'
@@ -231,7 +236,7 @@ export const AuthGateModal: React.FC = () => {
               <button
                 type="button"
                 onClick={() => setSelectedMode('guardian')}
-                className={`flex flex-col items-center gap-1 py-2.5 px-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                className={`flex flex-col items-center gap-1 py-2.5 px-2 rounded-xl text-xs font-bold transition-all cursor-pointer min-h-[44px] ${
                   selectedMode === 'guardian'
                     ? 'bg-[#145a3a] text-white shadow-xs'
                     : 'text-neutral-600 dark:text-neutral-300 hover:text-[#145a3a]'
@@ -243,7 +248,7 @@ export const AuthGateModal: React.FC = () => {
               <button
                 type="button"
                 onClick={() => setSelectedMode('guest')}
-                className={`flex flex-col items-center gap-1 py-2.5 px-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                className={`flex flex-col items-center gap-1 py-2.5 px-2 rounded-xl text-xs font-bold transition-all cursor-pointer min-h-[44px] ${
                   selectedMode === 'guest'
                     ? 'bg-[#145a3a] text-white shadow-xs'
                     : 'text-neutral-600 dark:text-neutral-300 hover:text-[#145a3a]'
@@ -258,7 +263,7 @@ export const AuthGateModal: React.FC = () => {
                   setSelectedMode('admission');
                   setAdmSubmitted(false);
                 }}
-                className={`flex flex-col items-center gap-1 py-2.5 px-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                className={`flex flex-col items-center gap-1 py-2.5 px-2 rounded-xl text-xs font-bold transition-all cursor-pointer min-h-[44px] ${
                   selectedMode === 'admission'
                     ? 'bg-[#c59b27] text-[#14281d] shadow-xs'
                     : 'text-amber-700 dark:text-[#dfbd69] hover:bg-amber-500/10'
@@ -280,30 +285,22 @@ export const AuthGateModal: React.FC = () => {
                     <div>
                       <div className="text-sm font-bold">{settings.teacherName}</div>
                       <div className="text-xs text-neutral-500 dark:text-neutral-400">
-                        صلاحية كاملة: الحلقات، التسميع الخماسي، السبورة، الاختبارات، والمالية
+                        إدارة الحلقات، محرك التسميع الخماسي، السبورة الذكية، الاختبارات، والمالية
                       </div>
                     </div>
                   </div>
                   <p className="text-xs text-neutral-600 dark:text-neutral-400 leading-relaxed">
-                    الحساب مجهز مسبقاً ببيانات 8 طلاب، 3 حلقات، وسجل حصص وأخطاء وشهادات لتتمكن من تجربة كل ميزة فوراً.
+                    بوابة الإدارة المركزية للمحفظين والمشرفين لمتابعة الحضور، تقييم التلاوة، وإصدار التقارير والشهادات.
                   </p>
                 </div>
 
                 <button
                   type="button"
                   onClick={loginAsTeacher}
-                  className="w-full py-3.5 px-6 rounded-xl bg-[#145a3a] hover:bg-[#0f452c] text-white font-bold text-sm shadow-md transition-colors cursor-pointer flex items-center justify-center gap-2"
+                  className="w-full py-3.5 px-6 rounded-xl bg-[#145a3a] hover:bg-[#0f452c] text-white font-bold text-sm shadow-md transition-colors cursor-pointer flex items-center justify-center gap-2 min-h-[44px]"
                 >
                   <GraduationCap className="w-5 h-5 text-[#dfbd69]" />
                   <span>الدخول إلى لوحة المعلم والمشرف</span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={loginAsTeacher}
-                  className="w-full py-2.5 px-4 rounded-xl bg-[#fcfaf2] dark:bg-[#0b1711] hover:border-[#c59b27] border border-neutral-300 dark:border-emerald-900 text-[#145a3a] dark:text-[#dfbd69] font-extrabold text-xs transition-colors cursor-pointer flex items-center justify-center gap-2"
-                >
-                  <span>🧪 وضع المعاينة والاختبار المحلي (Demo Mode — v12.0.0)</span>
                 </button>
               </div>
             )}
@@ -314,7 +311,7 @@ export const AuthGateModal: React.FC = () => {
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div>
                     <label className="block text-xs font-bold mb-1.5 text-neutral-700 dark:text-neutral-300">
-                      رقم واتساب ولي الأمر
+                      رقم هاتف / واتساب ولي الأمر
                     </label>
                     <div className="relative">
                       <Phone className="w-4 h-4 absolute right-3 top-3 text-neutral-400" />
@@ -324,25 +321,26 @@ export const AuthGateModal: React.FC = () => {
                         value={phoneInput}
                         onChange={(e) => setPhoneInput(e.target.value)}
                         className="w-full pr-9 pl-3 py-2.5 rounded-xl border border-neutral-300 dark:border-emerald-900 bg-white dark:bg-[#0b1711] text-sm tabular-nums text-left"
-                        placeholder="01012345601"
+                        placeholder="010xxxxxxxx"
                         required
                       />
                     </div>
                   </div>
                   <div>
                     <label className="block text-xs font-bold mb-1.5 text-neutral-700 dark:text-neutral-300">
-                      رمز الدخول السري (PIN)
+                      رمز الدخول السري (PIN — 6 أرقام)
                     </label>
                     <div className="relative">
                       <KeyRound className="w-4 h-4 absolute right-3 top-3 text-neutral-400" />
                       <input
-                        type="text"
+                        type="password"
+                        inputMode="numeric"
                         dir="ltr"
                         maxLength={6}
                         value={pinInput}
                         onChange={(e) => setPinInput(e.target.value)}
-                        className="w-full pr-9 pl-3 py-2.5 rounded-xl border border-neutral-300 dark:border-emerald-900 bg-white dark:bg-[#0b1711] text-sm tabular-nums text-left font-mono"
-                        placeholder="123456"
+                        className="w-full pr-9 pl-3 py-2.5 rounded-xl border border-neutral-300 dark:border-emerald-900 bg-white dark:bg-[#0b1711] text-sm tabular-nums text-left font-mono tracking-widest"
+                        placeholder="••••••"
                         required
                       />
                     </div>
@@ -357,28 +355,10 @@ export const AuthGateModal: React.FC = () => {
 
                 <button
                   type="submit"
-                  className="w-full py-3 px-6 rounded-xl bg-[#145a3a] hover:bg-[#0f452c] text-white font-bold text-sm transition-colors cursor-pointer"
+                  className="w-full py-3.5 px-6 rounded-xl bg-[#145a3a] hover:bg-[#0f452c] text-white font-bold text-sm transition-colors cursor-pointer min-h-[44px]"
                 >
                   دخول لصفحة متابعة الطالب
                 </button>
-
-                <div className="pt-2 border-t border-neutral-200 dark:border-emerald-900/40">
-                  <span className="block text-xs font-bold text-neutral-500 dark:text-neutral-400 mb-2">
-                    أو اختر طالباً للتجربة السريعة لبوابة ولي الأمر:
-                  </span>
-                  <div className="flex flex-wrap gap-1.5">
-                    {students.slice(0, 5).map((st) => (
-                      <button
-                        key={st.id}
-                        type="button"
-                        onClick={() => loginAsGuardianDirect(st.id)}
-                        className="px-2.5 py-1.5 rounded-lg text-xs font-semibold border border-neutral-200 dark:border-emerald-900/60 bg-[#f6f7f2] dark:bg-[#0b1711] hover:border-[#c59b27] transition-colors cursor-pointer"
-                      >
-                        {st.name.split(' ').slice(0, 2).join(' ')}
-                      </button>
-                    ))}
-                  </div>
-                </div>
               </form>
             )}
 
@@ -390,14 +370,14 @@ export const AuthGateModal: React.FC = () => {
                     مركز التحفيظ الحر والتلاوة (بدون حساب)
                   </h3>
                   <p className="text-xs text-neutral-600 dark:text-neutral-400 leading-relaxed">
-                    يتيح لك استعراض السور بالرسم العثماني، الاستماع للقراء الثلاثة مع تكرار الآيات، قراءة التفسير الميسر، واستخدام السبورة الذكية ووضع اختبار الحفظ الذاتي بإخفاء الكلمات.
+                    يتيح لك استعراض السور بالرسم العثماني، الاستماع للقراء مع تكرار الآيات، قراءة التفسير الميسر، واستخدام السبورة الذكية ووضع اختبار الحفظ الذاتي بإخفاء الكلمات.
                   </p>
                 </div>
 
                 <button
                   type="button"
                   onClick={loginAsGuest}
-                  className="w-full py-3.5 px-6 rounded-xl bg-[#c59b27] hover:bg-[#b38b1d] text-[#14281d] font-bold text-sm shadow-md transition-colors cursor-pointer flex items-center justify-center gap-2"
+                  className="w-full py-3.5 px-6 rounded-xl bg-[#c59b27] hover:bg-[#b38b1d] text-[#14281d] font-bold text-sm shadow-md transition-colors cursor-pointer flex items-center justify-center gap-2 min-h-[44px]"
                 >
                   <BookOpen className="w-5 h-5" />
                   <span>ابدأ التحفيظ الحر كضيف الآن</span>
@@ -406,7 +386,7 @@ export const AuthGateModal: React.FC = () => {
                 <button
                   type="button"
                   onClick={() => setPublicMushafPortalOpen(true)}
-                  className="w-full py-3 px-5 rounded-xl bg-[#145a3a] hover:bg-[#0f452c] text-white font-extrabold text-xs shadow-sm transition-colors cursor-pointer flex items-center justify-center gap-2 border border-[#c59b27]/40"
+                  className="w-full py-3 px-5 rounded-xl bg-[#145a3a] hover:bg-[#0f452c] text-white font-extrabold text-xs shadow-sm transition-colors cursor-pointer flex items-center justify-center gap-2 border border-[#c59b27]/40 min-h-[44px]"
                 >
                   <Sparkles className="w-4 h-4 text-[#dfbd69]" />
                   <span>📖 دخول بوابة المصحف العام والورد اليومي (وقف وصدقة جارية)</span>
@@ -560,6 +540,41 @@ export const AuthGateModal: React.FC = () => {
                     <MessageCircle className="w-4 h-4" />
                     <span>تأكيد واتساب ({OFFICIAL_ACADEMY_WHATSAPP})</span>
                   </a>
+                </div>
+              </div>
+            )}
+
+            {showDemoSwitcher && (
+              <div className="mt-5 p-3.5 rounded-2xl bg-[#fcfaf2] dark:bg-[#0b1711] border border-[#c59b27]/50 space-y-2.5">
+                <div className="flex items-center justify-between text-xs font-extrabold text-[#145a3a] dark:text-[#dfbd69]">
+                  <span>🧪 وضع الفحص والمعاينة الفورية (Demo Switcher)</span>
+                  <span className="text-[11px] font-normal text-neutral-500">تبديل بضغطة واحدة</span>
+                </div>
+                <div className="flex flex-wrap gap-1.5">
+                  <button
+                    type="button"
+                    onClick={loginAsTeacher}
+                    className="px-3 py-1.5 rounded-xl bg-[#145a3a] text-white text-xs font-bold cursor-pointer"
+                  >
+                    دخول تجريبي: مالك / محفظ
+                  </button>
+                  <button
+                    type="button"
+                    onClick={loginAsGuest}
+                    className="px-3 py-1.5 rounded-xl bg-[#c59b27] text-[#14281d] text-xs font-bold cursor-pointer"
+                  >
+                    دخول تجريبي: طالب / ضيف
+                  </button>
+                  {students.slice(0, 4).map((st) => (
+                    <button
+                      key={st.id}
+                      type="button"
+                      onClick={() => loginAsGuardianDirect(st.id)}
+                      className="px-2.5 py-1.5 rounded-xl text-xs font-semibold border border-neutral-200 dark:border-emerald-900/60 bg-white dark:bg-[#12231a] hover:border-[#c59b27] transition-colors cursor-pointer"
+                    >
+                      ولي أمر: {st.name.split(' ').slice(0, 2).join(' ')}
+                    </button>
+                  ))}
                 </div>
               </div>
             )}

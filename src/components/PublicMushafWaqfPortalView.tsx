@@ -1318,26 +1318,6 @@ export const PublicMushafWaqfPortalView: React.FC<PublicMushafWaqfPortalViewProp
                 <span className="hidden md:inline">📱 تثبيت المصحف العام</span>
               </button>
 
-              <a
-                href="/index-github-pages.html?v=12.0.3"
-                download="index.html"
-                className="px-3 py-2 rounded-xl bg-amber-400 hover:bg-amber-300 text-slate-950 text-xs font-extrabold flex items-center gap-1.5 cursor-pointer transition"
-                title="ارفع هذا الملف الواحد (index.html) فقط على GitHub مكان القديم ليعمل الموقع فوراً"
-              >
-                <Download className="w-3.5 h-3.5" />
-                <span className="hidden xl:inline">⚡ index.html الشامل</span>
-              </a>
-
-              <a
-                href="/al-imam-quran-academy-complete.zip?v=12.0.3"
-                download="al-imam-quran-academy-complete.zip"
-                className="px-3 py-2 rounded-xl bg-emerald-700 hover:bg-emerald-600 text-white border border-amber-400/50 text-xs font-extrabold flex items-center gap-1.5 cursor-pointer transition"
-                title="تحميل النسخة المضغوطة الكاملة للبرنامج (ZIP)"
-              >
-                <Download className="w-3.5 h-3.5 text-amber-300" />
-                <span className="hidden xl:inline">📦 النسخة المضغوطة (ZIP)</span>
-              </a>
-
               {handleCloseOrBack && (
                 <button
                   type="button"
@@ -1357,7 +1337,7 @@ export const PublicMushafWaqfPortalView: React.FC<PublicMushafWaqfPortalViewProp
         className={`mx-auto transition-all duration-300 ${
           distractionFreeReading
             ? 'max-w-[96rem] px-3 sm:px-8 py-3 space-y-4'
-            : 'max-w-7xl px-3 sm:px-6 py-5 space-y-5'
+            : 'max-w-7xl px-3 sm:px-6 py-4 space-y-4'
         }`}
       >
         {/* Owner Encouragement Celebration Banner (Hidden in Immersive Reading Mode) */}
@@ -1459,7 +1439,7 @@ export const PublicMushafWaqfPortalView: React.FC<PublicMushafWaqfPortalViewProp
 
         {/* Sub-navigation Tabs (Hidden in Immersive Reading Mode to eliminate UI clutter) */}
         {!distractionFreeReading && (
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
             {[
               {
                 id: 'mushaf',
@@ -1492,7 +1472,7 @@ export const PublicMushafWaqfPortalView: React.FC<PublicMushafWaqfPortalViewProp
                       tab.id as 'mushaf' | 'wird_khatmah' | 'offline_center' | 'waqf_card'
                     )
                   }
-                  className={`p-3.5 rounded-2xl border text-right transition-all cursor-pointer ${
+                  className={`p-3 rounded-2xl border text-right transition-all cursor-pointer ${
                     active
                       ? 'bg-emerald-800 text-white border-amber-400 shadow-md'
                       : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 hover:border-emerald-500/50'
@@ -1500,7 +1480,7 @@ export const PublicMushafWaqfPortalView: React.FC<PublicMushafWaqfPortalViewProp
                 >
                   <div className="font-extrabold text-xs sm:text-sm">{tab.label}</div>
                   <div
-                    className={`text-[11px] mt-1 font-semibold ${
+                    className={`text-[11px] mt-0.5 font-semibold ${
                       active ? 'text-amber-200' : 'text-slate-500 dark:text-slate-400'
                     }`}
                   >
@@ -1514,7 +1494,7 @@ export const PublicMushafWaqfPortalView: React.FC<PublicMushafWaqfPortalViewProp
 
         {/* TAB 1: PUBLIC MADINAH MUSHAF & SYNCHRONIZED AUDIO */}
         {(portalSubTab === 'mushaf' || distractionFreeReading) && (
-          <div className="space-y-4">
+          <div className="space-y-3.5">
             {/* Immersive Reading Mode Component (One-click toggle + Current Ayah Spotlight) */}
             <ImmersiveReadingMode
               isActive={distractionFreeReading}
@@ -1565,14 +1545,33 @@ export const PublicMushafWaqfPortalView: React.FC<PublicMushafWaqfPortalViewProp
               onChangeFocusStyle={setImmersiveFocusStyle}
             />
 
-            {/* Multi-Bookmarks Bar (Hidden in Immersive Reading Mode) */}
+            {/* Compact Collapsible Multi-Bookmarks Bar (Hidden in Immersive Reading Mode) */}
             {!distractionFreeReading && (
-              <div className="rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-3.5 shadow-sm">
-                <div className="flex flex-wrap items-center justify-between gap-2 mb-2.5">
-                  <div className="flex items-center gap-2 text-xs sm:text-sm font-extrabold text-emerald-900 dark:text-emerald-300">
+              <details className="group rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 px-3.5 py-2.5 shadow-xs">
+                <summary className="list-none flex flex-wrap items-center justify-between gap-2 cursor-pointer">
+                  <div className="flex flex-wrap items-center gap-2 text-xs font-extrabold text-emerald-900 dark:text-emerald-300">
                     <Bookmark className="w-4 h-4 text-amber-500" />
-                    <span>نظام الفواصل والعلامات المرجعية المتعددة (حفظ وانتقال فوري):</span>
+                    <span>الفواصل المرجعية السريعة:</span>
+                    {publicBookmarks.map((bm) => (
+                      <button
+                        key={bm.id}
+                        type="button"
+                        onClick={(e) => {
+                          e.preventDefault();
+                          handleGoToPage(bm.pageNumber);
+                        }}
+                        className="px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-emerald-100 dark:bg-slate-800 dark:hover:bg-emerald-950 text-[11px] font-bold text-slate-800 dark:text-slate-200 transition cursor-pointer"
+                      >
+                        {bm.label} (ص {bm.pageNumber})
+                      </button>
+                    ))}
                   </div>
+                  <span className="text-[11px] font-bold text-amber-700 dark:text-amber-300 underline">
+                    + حفظ أو إدارة الفواصل
+                  </span>
+                </summary>
+
+                <div className="pt-3 mt-2.5 border-t border-slate-100 dark:border-slate-800 space-y-2.5">
                   <div className="flex flex-wrap items-center gap-1.5">
                     <button
                       type="button"
@@ -1596,43 +1595,43 @@ export const PublicMushafWaqfPortalView: React.FC<PublicMushafWaqfPortalViewProp
                       + حفظ ⭐ آية للتدبر هنا
                     </button>
                   </div>
-                </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
-                  {publicBookmarks.map((bm) => {
-                    const badgeStyle =
-                      bm.category === 'khatmah'
-                        ? 'border-emerald-400/60 bg-emerald-50/70 dark:bg-emerald-950/30 text-emerald-950 dark:text-emerald-200'
-                        : bm.category === 'memorization'
-                        ? 'border-blue-400/60 bg-blue-50/70 dark:bg-blue-950/30 text-blue-950 dark:text-blue-200'
-                        : 'border-amber-400/60 bg-amber-50/70 dark:bg-amber-950/30 text-amber-950 dark:text-amber-200';
-                    return (
-                      <div
-                        key={bm.id}
-                        className={`flex items-center justify-between gap-2 p-2.5 rounded-xl border ${badgeStyle}`}
-                      >
-                        <button
-                          type="button"
-                          onClick={() => handleGoToPage(bm.pageNumber)}
-                          className="text-right flex-1 cursor-pointer"
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                    {publicBookmarks.map((bm) => {
+                      const badgeStyle =
+                        bm.category === 'khatmah'
+                          ? 'border-emerald-400/60 bg-emerald-50/70 dark:bg-emerald-950/30 text-emerald-950 dark:text-emerald-200'
+                          : bm.category === 'memorization'
+                          ? 'border-blue-400/60 bg-blue-50/70 dark:bg-blue-950/30 text-blue-950 dark:text-blue-200'
+                          : 'border-amber-400/60 bg-amber-50/70 dark:bg-amber-950/30 text-amber-950 dark:text-amber-200';
+                      return (
+                        <div
+                          key={bm.id}
+                          className={`flex items-center justify-between gap-2 p-2.5 rounded-xl border ${badgeStyle}`}
                         >
-                          <div className="font-extrabold text-xs">{bm.label}</div>
-                          <div className="text-[11px] opacity-85 mt-0.5">
-                            صفحة {bm.pageNumber} • سورة {bm.surahName} (آية {bm.ayahNumber}) • جزء {bm.juzNumber}
-                          </div>
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => handleGoToPage(bm.pageNumber)}
-                          className="px-2.5 py-1 rounded-lg bg-white/80 dark:bg-slate-800 text-[11px] font-extrabold shadow-sm cursor-pointer"
-                        >
-                          انتقال
-                        </button>
-                      </div>
-                    );
-                  })}
+                          <button
+                            type="button"
+                            onClick={() => handleGoToPage(bm.pageNumber)}
+                            className="text-right flex-1 cursor-pointer"
+                          >
+                            <div className="font-extrabold text-xs">{bm.label}</div>
+                            <div className="text-[11px] opacity-85 mt-0.5">
+                              صفحة {bm.pageNumber} • سورة {bm.surahName} (آية {bm.ayahNumber}) • جزء {bm.juzNumber}
+                            </div>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleGoToPage(bm.pageNumber)}
+                            className="px-2.5 py-1 rounded-lg bg-white/80 dark:bg-slate-800 text-[11px] font-extrabold shadow-sm cursor-pointer"
+                          >
+                            انتقال
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
                 </div>
-              </div>
+              </details>
             )}
 
             {/* Navigation & Synchronized Audio Controls Bar (Hidden in Immersive Reading Mode) */}
