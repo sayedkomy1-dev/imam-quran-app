@@ -101,3 +101,33 @@ html[data-theme="sepia"] .bg-\[\#faf6ec\] {
     color: #000000 !important;
   }
 }
+
+/* Custom clean scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(6, 78, 59, 0.25);
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(6, 78, 59, 0.45);
+}
+
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+.thin-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(251, 191, 36, 0.25) transparent;
+}
+

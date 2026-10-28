@@ -38,6 +38,11 @@ import {
   Sun,
   Type,
   Upload,
+  UserCheck,
+  UserPlus,
+  UserX,
+  Trash2,
+  ShieldCheck,
   X,
 } from 'lucide-react';
 
@@ -54,21 +59,67 @@ export const SettingsView: React.FC = () => {
     auditLogs,
     admissionRequests,
     managedTeachers,
+    currentStaffTier,
+    setCurrentStaffTier,
+    googleAuthUser,
+    startGoogleOAuthRedirect,
     cloudSyncStatus,
     lastSyncTimestamp,
     triggerCloudSyncNow,
     updateTeacherAccessStatus,
+    deleteStaffMember,
+    addStaffMember,
+    updateStaffFamilyDetails,
+    linkStudentGoogleAccount,
     approveAdmissionAsStudent,
     triggerPushReminderNow,
     updateSettings,
     resetToSeedData,
+    clearAllStudentsAndStartEmpty,
     importFullBackup,
     showToast,
   } = useAcademy();
 
   const [auditFilterCategory, setAuditFilterCategory] = useState<string>('all');
 
+  // New Staff Member Form State (Supervisor or Teacher)
+  const [newStaffName, setNewStaffName] = useState('');
+  const [newStaffEmail, setNewStaffEmail] = useState('');
+  const [newStaffRoleTitle, setNewStaffRoleTitle] = useState('');
+  const [newStaffRoleType, setNewStaffRoleType] = useState<'supervisor' | 'teacher'>('teacher');
+  const [newStaffMotherName, setNewStaffMotherName] = useState('');
+  const [newStaffGrandfatherName, setNewStaffGrandfatherName] = useState('');
+  const [newStaffGrandmotherName, setNewStaffGrandmotherName] = useState('');
+  const [newStaffUncleName, setNewStaffUncleName] = useState('');
+
+  // Editing Family Details for Existing Staff Member
+  const [editingStaffFamilyId, setEditingStaffFamilyId] = useState<string | null>(null);
+  const [staffMotherInput, setStaffMotherInput] = useState('');
+  const [staffGrandfatherInput, setStaffGrandfatherInput] = useState('');
+  const [staffGrandmotherInput, setStaffGrandmotherInput] = useState('');
+  const [staffUncleInput, setStaffUncleInput] = useState('');
+
+  const [selectedStudentForGoogle, setSelectedStudentForGoogle] = useState<string>(
+    students[0]?.id || ''
+  );
+  const [studentGoogleEmailInput, setStudentGoogleEmailInput] = useState<string>(
+    students[0]?.googleEmail || ''
+  );
+  const [studentMotherInput, setStudentMotherInput] = useState<string>(
+    students[0]?.motherName || ''
+  );
+  const [studentGrandfatherInput, setStudentGrandfatherInput] = useState<string>(
+    students[0]?.grandfatherName || ''
+  );
+  const [studentGrandmotherInput, setStudentGrandmotherInput] = useState<string>(
+    students[0]?.grandmotherName || ''
+  );
+  const [studentUncleInput, setStudentUncleInput] = useState<string>(
+    students[0]?.uncleName || ''
+  );
+
   const [teacherName, setTeacherName] = useState(settings.teacherName);
+  const [teacherPin, setTeacherPin] = useState(settings.teacherPin || '1234');
   const [academyName, setAcademyName] = useState(settings.academyName);
   const [tagline, setTagline] = useState(settings.tagline);
   const [newAyatTarget, setNewAyatTarget] = useState(
@@ -93,6 +144,33 @@ export const SettingsView: React.FC = () => {
     setNotifPermission(getBrowserNotificationPermission());
   }, []);
 
+  const handleAddStaffSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newStaffName.trim() || !newStaffEmail.trim()) return;
+    addStaffMember({
+      name: newStaffName,
+      email: newStaffEmail,
+      roleTitle:
+        newStaffRoleTitle.trim() ||
+        (newStaffRoleType === 'supervisor'
+          ? 'مشرف الحلقات والمتابعة'
+          : 'محفظ الحلقات القرآنية'),
+      staffRole: newStaffRoleType,
+      status: 'active',
+      motherName: newStaffMotherName,
+      grandfatherName: newStaffGrandfatherName,
+      grandmotherName: newStaffGrandmotherName,
+      uncleName: newStaffUncleName,
+    });
+    setNewStaffName('');
+    setNewStaffEmail('');
+    setNewStaffRoleTitle('');
+    setNewStaffMotherName('');
+    setNewStaffGrandfatherName('');
+    setNewStaffGrandmotherName('');
+    setNewStaffUncleName('');
+  };
+
   const handleToggleMasterNotifications = async () => {
     const nextEnabled = !settings.notificationsEnabled;
     if (nextEnabled) {
@@ -114,6 +192,7 @@ export const SettingsView: React.FC = () => {
     e.preventDefault();
     updateSettings({
       teacherName,
+      teacherPin: teacherPin.trim() || '1234',
       academyName,
       tagline,
       weeklyGoals: {
@@ -609,11 +688,20 @@ export const SettingsView: React.FC = () => {
 
               <button
                 type="button"
+                onClick={clearAllStudentsAndStartEmpty}
+                className="w-full flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl bg-rose-50 dark:bg-rose-950/40 hover:bg-rose-100 border border-rose-300 dark:border-rose-800 text-rose-700 dark:text-rose-300 text-xs font-extrabold cursor-pointer transition"
+              >
+                <X className="w-4 h-4" />
+                <span>بدء نظام جديد فارغ (تفريغ القائمة بالكامل)</span>
+              </button>
+
+              <button
+                type="button"
                 onClick={resetToSeedData}
                 className="w-full flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl border border-amber-300 text-amber-700 dark:text-amber-300 text-xs font-bold cursor-pointer"
               >
                 <RefreshCw className="w-4 h-4" />
-                <span>استعادة البيانات التجريبية النموذجية (8 طلاب)</span>
+                <span>استعادة النماذج الرمزية الافتراضية (طالب ١ - طالب ٨)</span>
               </button>
             </div>
           </div>
@@ -624,9 +712,9 @@ export const SettingsView: React.FC = () => {
           onSubmit={handleSaveGeneral}
           className="lg:col-span-7 rounded-3xl bg-white dark:bg-[#12231a] p-6 border border-neutral-200 dark:border-emerald-900/50 space-y-4"
         >
-          <h3 className="text-sm font-extrabold">بيانات الأكاديمية وأهداف الأسبوع</h3>
+          <h3 className="text-sm font-extrabold">بيانات الأكاديمية، رمز الأمان، وأهداف الأسبوع</h3>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <div>
               <label className="block text-xs font-bold mb-1">اسم المعلم / المشرف</label>
               <input
@@ -634,6 +722,17 @@ export const SettingsView: React.FC = () => {
                 value={teacherName}
                 onChange={(e) => setTeacherName(e.target.value)}
                 className="w-full px-3.5 py-2.5 rounded-xl border border-neutral-300 dark:border-emerald-900 bg-[#f6f7f2] dark:bg-[#0b1711] text-xs font-bold"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-bold mb-1">رمز مرور المعلم / المشرف (PIN)</label>
+              <input
+                type="text"
+                dir="ltr"
+                value={teacherPin}
+                onChange={(e) => setTeacherPin(e.target.value)}
+                placeholder="1234"
+                className="w-full px-3.5 py-2.5 rounded-xl border border-[#c59b27] bg-[#fcfaf2] dark:bg-[#0b1711] text-xs font-mono font-extrabold text-center text-[#145a3a] dark:text-[#dfbd69]"
               />
             </div>
             <div>
@@ -868,26 +967,52 @@ export const SettingsView: React.FC = () => {
         </div>
       </div>
 
-      {/* 6. حوكمة المالك (info.welivequran@gmail.com): إدارة صلاحيات المعلمين + مزامنة WLQSyncCore + سجل التدقيق */}
-      <div className="rounded-3xl bg-white dark:bg-[#12231a] p-6 border-2 border-[#c59b27]/50 shadow-xs space-y-5">
-        {/* Cloud Sync & Owner Teacher Access Control Header */}
+      {/* 6. حوكمة المالك والمشرفين: إدارة قبول وإيقاف وحذف المشرفين والمحفظين + ربط حسابات Google Firebase */}
+      <div className="rounded-3xl bg-white dark:bg-[#12231a] p-6 border-2 border-[#c59b27]/50 shadow-xs space-y-6">
+        {/* Cloud Sync & Active Authority Level Header */}
         <div className="p-4 rounded-2xl bg-[#fcfaf2] dark:bg-[#0b1711] border border-[#c59b27]/40 space-y-4">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
-              <h3 className="text-sm font-extrabold text-[#145a3a] dark:text-[#dfbd69] flex items-center gap-2">
-                <span>☁️ محرك المزامنة السحابية الحتمية (WLQSyncCore — Schema v12) وإدارة صلاحيات المعلمين</span>
-                <span className="px-2.5 py-0.5 rounded-full bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 text-[10px] font-mono">
-                  Owner: info.welivequran@gmail.com
+              <h3 className="text-sm sm:text-base font-extrabold text-[#145a3a] dark:text-[#dfbd69] flex flex-wrap items-center gap-2">
+                <ShieldCheck className="w-5 h-5 text-[#c59b27]" />
+                <span>
+                  بوابة حوكمة المالك والمشرفين — إدارة قبول وإيقاف وحذف المشرفين والمحفظين (Google Auth)
                 </span>
               </h3>
               <p className="text-[11px] text-neutral-500 mt-0.5">
-                مزامنة تلقائية للقائمة الآمنة كل 25 ثانية عبر <code className="font-mono">canonicalJson</code> مع حماية Tombstone وإخفاء أرقام الهواتف والـ PIN عن غير المالك
+                يتحكم <strong>المالك العام</strong> في قبول أو إيقاف أو حذف <strong>المشرفين والمحفظين</strong>، بينما يتحكم <strong>المشرف</strong> في قبول أو إيقاف أو حذف <strong>المحفظين</strong> وربط حسابات Google بالطلاب
               </p>
             </div>
 
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
+              {/* Role Switcher to preview/operate as Owner vs Supervisor */}
+              <div className="flex items-center gap-1 p-1 rounded-xl bg-white dark:bg-[#12231a] border border-neutral-200 dark:border-emerald-900 text-[11px] font-extrabold">
+                <button
+                  type="button"
+                  onClick={() => setCurrentStaffTier('owner')}
+                  className={`px-3 py-1 rounded-lg transition cursor-pointer ${
+                    currentStaffTier === 'owner'
+                      ? 'bg-[#145a3a] text-[#dfbd69]'
+                      : 'text-neutral-600 dark:text-neutral-300'
+                  }`}
+                >
+                  👑 وضع المالك العام
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setCurrentStaffTier('supervisor')}
+                  className={`px-3 py-1 rounded-lg transition cursor-pointer ${
+                    currentStaffTier === 'supervisor'
+                      ? 'bg-[#145a3a] text-[#dfbd69]'
+                      : 'text-neutral-600 dark:text-neutral-300'
+                  }`}
+                >
+                  🛡️ وضع المشرف العام
+                </button>
+              </div>
+
               <span className="px-3 py-1.5 rounded-xl bg-white dark:bg-[#12231a] border border-neutral-200 dark:border-emerald-900 text-[11px] font-mono font-bold text-[#145a3a] dark:text-[#dfbd69]">
-                الحالة: {cloudSyncStatus === 'syncing' ? 'جارٍ المزامنة...' : `متزامن ✓ (${lastSyncTimestamp})`}
+                المزامنة: {cloudSyncStatus === 'syncing' ? 'جارٍ المزامنة...' : `متزامن ✓ (${lastSyncTimestamp})`}
               </span>
               <button
                 type="button"
@@ -895,71 +1020,600 @@ export const SettingsView: React.FC = () => {
                 className="px-3.5 py-1.5 rounded-xl bg-[#145a3a] hover:bg-[#0f452c] text-white text-xs font-extrabold flex items-center gap-1.5 cursor-pointer"
               >
                 <RefreshCw className="w-3.5 h-3.5 text-[#dfbd69]" />
-                <span>مزامنة الآن</span>
+                <span>مزامنة فورية</span>
               </button>
             </div>
           </div>
 
-          {/* Teacher Access Permissions Table (active / blocked / pending) */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-            {managedTeachers.map((tch) => (
-              <div
-                key={tch.id}
-                className="p-3.5 rounded-2xl bg-white dark:bg-[#12231a] border border-neutral-200 dark:border-emerald-900/60 flex flex-col justify-between gap-2.5 text-xs"
-              >
-                <div>
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="font-extrabold text-[#14281d] dark:text-white">
-                      {tch.name}
-                    </span>
-                    <span
-                      className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold ${
-                        tch.status === 'active'
-                          ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300'
-                          : tch.status === 'blocked'
-                          ? 'bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300'
-                          : 'bg-amber-100 text-amber-800'
-                      }`}
-                    >
-                      {tch.status === 'active'
-                        ? 'active (نشط)'
-                        : tch.status === 'blocked'
-                        ? 'blocked (محظور)'
-                        : 'pending (معلق)'}
-                    </span>
-                  </div>
-                  <div className="text-[11px] font-mono text-neutral-500 mt-0.5">
-                    {tch.email}
-                  </div>
-                  <div className="text-[11px] text-neutral-500 mt-0.5">
-                    {tch.roleTitle} • {tch.assignedCirclesCount} حلقات
-                  </div>
+          {/* Connected Google Firebase Account Banner */}
+          <div className="p-3.5 rounded-2xl bg-white dark:bg-[#12231a] border border-emerald-500/30 flex flex-wrap items-center justify-between gap-3">
+            <div className="flex items-center gap-3">
+              {googleAuthUser?.photoURL ? (
+                <img
+                  src={googleAuthUser.photoURL}
+                  alt={googleAuthUser.displayName}
+                  className="w-10 h-10 rounded-full border border-amber-400/50 object-cover"
+                  referrerPolicy="no-referrer"
+                />
+              ) : (
+                <div className="w-10 h-10 rounded-full bg-emerald-900/15 text-[#145a3a] dark:text-[#dfbd69] flex items-center justify-center font-extrabold text-sm">
+                  G
                 </div>
-
-                <div className="flex items-center gap-1.5 pt-2 border-t border-neutral-100 dark:border-emerald-950">
-                  {(['active', 'pending', 'blocked'] as const).map((stMode) => (
-                    <button
-                      key={stMode}
-                      type="button"
-                      onClick={() => updateTeacherAccessStatus(tch.id, stMode)}
-                      className={`flex-1 py-1 rounded-lg text-[10px] font-extrabold border cursor-pointer ${
-                        tch.status === stMode
-                          ? stMode === 'blocked'
-                            ? 'bg-rose-600 text-white border-rose-600'
-                            : 'bg-[#145a3a] text-white border-[#145a3a]'
-                          : 'bg-[#fcfaf2] dark:bg-[#0b1711] border-neutral-200 dark:border-emerald-900'
-                      }`}
-                    >
-                      {stMode === 'active'
-                        ? 'تفعيل'
-                        : stMode === 'pending'
-                        ? 'تعليق'
-                        : 'حظر'}
-                    </button>
-                  ))}
+              )}
+              <div>
+                <div className="text-xs font-extrabold text-[#14281d] dark:text-white flex items-center gap-2">
+                  <span>
+                    {googleAuthUser
+                      ? `حساب Google المتصل: ${googleAuthUser.displayName}`
+                      : 'حالة مصادقة Google Firebase'}
+                  </span>
+                  <span className="px-2 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-300 text-[10px] font-bold">
+                    {currentStaffTier === 'owner'
+                      ? 'صلاحية المالك الكاملة'
+                      : 'صلاحية المشرف العام'}
+                  </span>
+                </div>
+                <div className="text-[11px] font-mono text-neutral-500">
+                  {googleAuthUser?.email || 'يمكنك ربط أو تبديل حساب Google للمزامنة المباشرة مع ملفات المحفظين والطلاب'}
                 </div>
               </div>
-            ))}
+            </div>
+
+            <button
+              type="button"
+              onClick={() => void startGoogleOAuthRedirect('supervisor')}
+              className="px-3.5 py-2 rounded-xl bg-white dark:bg-[#0b1711] hover:bg-emerald-50 border border-emerald-600/40 text-xs font-extrabold text-[#145a3a] dark:text-[#dfbd69] flex items-center gap-2 cursor-pointer shadow-2xs"
+            >
+              <span>{googleAuthUser ? 'تبديل حساب Google المتصل' : 'ربط حساب Google الآن'}</span>
+            </button>
+          </div>
+
+          {/* Add New Supervisor or Teacher Form */}
+          <form
+            onSubmit={handleAddStaffSubmit}
+            className="p-4 rounded-2xl bg-white dark:bg-[#12231a] border border-neutral-200 dark:border-emerald-900/60 space-y-3"
+          >
+            <div className="text-xs font-extrabold text-[#145a3a] dark:text-[#dfbd69] flex items-center gap-1.5">
+              <UserPlus className="w-4 h-4 text-[#c59b27]" />
+              <span>
+                إضافة وتخويل {currentStaffTier === 'owner' ? 'مشرف أو محفظ جديد' : 'محفظ جديد'} عبر بريد Google مع بيانات العائلة (Firestore):
+              </span>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-4 gap-2.5">
+              <input
+                type="text"
+                value={newStaffName}
+                onChange={(e) => setNewStaffName(e.target.value)}
+                placeholder="الاسم الكامل للمحفظ/المشرف *"
+                className="px-3 py-2 rounded-xl border border-neutral-300 dark:border-emerald-900 bg-[#fcfaf2] dark:bg-[#0b1711] text-xs font-bold"
+                required
+              />
+              <input
+                type="email"
+                dir="ltr"
+                value={newStaffEmail}
+                onChange={(e) => setNewStaffEmail(e.target.value)}
+                placeholder="teacher@gmail.com"
+                className="px-3 py-2 rounded-xl border border-neutral-300 dark:border-emerald-900 bg-[#fcfaf2] dark:bg-[#0b1711] text-xs font-mono text-left"
+                required
+              />
+              <select
+                value={currentStaffTier === 'owner' ? newStaffRoleType : 'teacher'}
+                disabled={currentStaffTier !== 'owner'}
+                onChange={(e) =>
+                  setNewStaffRoleType(e.target.value as 'supervisor' | 'teacher')
+                }
+                className="px-3 py-2 rounded-xl border border-neutral-300 dark:border-emerald-900 bg-[#fcfaf2] dark:bg-[#0b1711] text-xs font-bold"
+              >
+                <option value="teacher">محفظ (معلم حلقات)</option>
+                {currentStaffTier === 'owner' && (
+                  <option value="supervisor">مشرف عام (صلاحية إشرافية)</option>
+                )}
+              </select>
+              <button
+                type="submit"
+                className="py-2 px-4 rounded-xl bg-[#145a3a] hover:bg-[#0f452c] text-white text-xs font-extrabold flex items-center justify-center gap-1.5 cursor-pointer"
+              >
+                <UserPlus className="w-3.5 h-3.5 text-[#dfbd69]" />
+                <span>إضافة وقبول فوري</span>
+              </button>
+            </div>
+
+            {/* 4 Family Fields for New Teacher / Supervisor */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 pt-1">
+              <input
+                type="text"
+                value={newStaffMotherName}
+                onChange={(e) => setNewStaffMotherName(e.target.value)}
+                placeholder="اسم الوالدة (اختياري)"
+                className="px-3 py-1.5 rounded-xl border border-neutral-200 dark:border-emerald-900/70 bg-[#fcfaf2] dark:bg-[#0b1711] text-[11px] font-semibold"
+              />
+              <input
+                type="text"
+                value={newStaffGrandfatherName}
+                onChange={(e) => setNewStaffGrandfatherName(e.target.value)}
+                placeholder="اسم الجد (اختياري)"
+                className="px-3 py-1.5 rounded-xl border border-neutral-200 dark:border-emerald-900/70 bg-[#fcfaf2] dark:bg-[#0b1711] text-[11px] font-semibold"
+              />
+              <input
+                type="text"
+                value={newStaffGrandmotherName}
+                onChange={(e) => setNewStaffGrandmotherName(e.target.value)}
+                placeholder="اسم الجدة (اختياري)"
+                className="px-3 py-1.5 rounded-xl border border-neutral-200 dark:border-emerald-900/70 bg-[#fcfaf2] dark:bg-[#0b1711] text-[11px] font-semibold"
+              />
+              <input
+                type="text"
+                value={newStaffUncleName}
+                onChange={(e) => setNewStaffUncleName(e.target.value)}
+                placeholder="اسم العم (اختياري)"
+                className="px-3 py-1.5 rounded-xl border border-neutral-200 dark:border-emerald-900/70 bg-[#fcfaf2] dark:bg-[#0b1711] text-[11px] font-semibold"
+              />
+            </div>
+          </form>
+
+          {/* SECTION A: OWNER GOVERNANCE OVER SUPERVISORS (إدارة المشرفين من قِبل المالك) */}
+          <div className="space-y-2.5 pt-2">
+            <div className="flex items-center justify-between">
+              <h4 className="text-xs sm:text-sm font-extrabold text-[#145a3a] dark:text-[#dfbd69] flex items-center gap-2">
+                <span>🛡️ أولاً: إدارة المشرفين (خاص بالمالك العام — قبول / إيقاف / حذف مشرف)</span>
+              </h4>
+              <span className="text-[11px] font-bold text-neutral-500">
+                {currentStaffTier === 'owner'
+                  ? 'صلاحية المالك مفعّلة لإدارة المشرفين'
+                  : 'للعرض فقط (التعديل متاح للمالك العام)'}
+              </span>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+              {managedTeachers
+                .filter((t) => t.staffRole === 'owner' || t.staffRole === 'supervisor')
+                .map((sup) => {
+                  const isOwnerCard = sup.staffRole === 'owner';
+                  const canManageSupervisor = currentStaffTier === 'owner' && !isOwnerCard;
+                  const isEditingFamily = editingStaffFamilyId === sup.id;
+                  return (
+                    <div
+                      key={sup.id}
+                      className="p-4 rounded-2xl bg-white dark:bg-[#12231a] border border-amber-500/40 flex flex-col justify-between gap-3 text-xs shadow-2xs"
+                    >
+                      <div className="space-y-1">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="font-extrabold text-[#14281d] dark:text-white flex items-center gap-1.5">
+                            <span>{isOwnerCard ? '👑' : '🛡️'}</span>
+                            <span>{sup.name}</span>
+                          </span>
+                          <span
+                            className={`px-2.5 py-0.5 rounded-full text-[10px] font-extrabold ${
+                              sup.status === 'active'
+                                ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300'
+                                : sup.status === 'blocked'
+                                ? 'bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300'
+                                : 'bg-amber-100 text-amber-800'
+                            }`}
+                          >
+                            {sup.status === 'active'
+                              ? 'مقبول ونشط ✓'
+                              : sup.status === 'blocked'
+                              ? 'موقوف ⛔'
+                              : 'بانتظار القبول ⏳'}
+                          </span>
+                        </div>
+                        <div className="text-[11px] font-mono text-neutral-500">{sup.email}</div>
+                        <div className="text-[11px] text-neutral-500">{sup.roleTitle}</div>
+                        {sup.googleUid && (
+                          <div className="text-[10px] font-mono text-emerald-700 dark:text-emerald-400">
+                            Google UID: {sup.googleUid.slice(0, 12)}...
+                          </div>
+                        )}
+                        {(sup.motherName ||
+                          sup.grandfatherName ||
+                          sup.grandmotherName ||
+                          sup.uncleName) && (
+                          <div className="text-[10px] text-neutral-600 dark:text-neutral-300 bg-[#fcfaf2] dark:bg-[#0b1711] p-2 rounded-xl border border-amber-500/20 mt-1 space-y-0.5">
+                            {sup.motherName && <div>• الوالدة: {sup.motherName}</div>}
+                            {sup.grandfatherName && <div>• الجد: {sup.grandfatherName}</div>}
+                            {sup.grandmotherName && <div>• الجدة: {sup.grandmotherName}</div>}
+                            {sup.uncleName && <div>• العم: {sup.uncleName}</div>}
+                          </div>
+                        )}
+                      </div>
+
+                      {isEditingFamily ? (
+                        <div className="space-y-1.5 pt-2 border-t border-neutral-100 dark:border-emerald-950">
+                          <div className="grid grid-cols-2 gap-1.5">
+                            <input
+                              type="text"
+                              value={staffMotherInput}
+                              onChange={(e) => setStaffMotherInput(e.target.value)}
+                              placeholder="اسم الوالدة"
+                              className="px-2 py-1 rounded-lg border border-neutral-300 dark:border-emerald-900 bg-[#fcfaf2] dark:bg-[#0b1711] text-[11px]"
+                            />
+                            <input
+                              type="text"
+                              value={staffGrandfatherInput}
+                              onChange={(e) => setStaffGrandfatherInput(e.target.value)}
+                              placeholder="اسم الجد"
+                              className="px-2 py-1 rounded-lg border border-neutral-300 dark:border-emerald-900 bg-[#fcfaf2] dark:bg-[#0b1711] text-[11px]"
+                            />
+                            <input
+                              type="text"
+                              value={staffGrandmotherInput}
+                              onChange={(e) => setStaffGrandmotherInput(e.target.value)}
+                              placeholder="اسم الجدة"
+                              className="px-2 py-1 rounded-lg border border-neutral-300 dark:border-emerald-900 bg-[#fcfaf2] dark:bg-[#0b1711] text-[11px]"
+                            />
+                            <input
+                              type="text"
+                              value={staffUncleInput}
+                              onChange={(e) => setStaffUncleInput(e.target.value)}
+                              placeholder="اسم العم"
+                              className="px-2 py-1 rounded-lg border border-neutral-300 dark:border-emerald-900 bg-[#fcfaf2] dark:bg-[#0b1711] text-[11px]"
+                            />
+                          </div>
+                          <div className="flex gap-1.5">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                updateStaffFamilyDetails(sup.id, {
+                                  motherName: staffMotherInput,
+                                  grandfatherName: staffGrandfatherInput,
+                                  grandmotherName: staffGrandmotherInput,
+                                  uncleName: staffUncleInput,
+                                });
+                                setEditingStaffFamilyId(null);
+                              }}
+                              className="flex-1 py-1 rounded-lg bg-[#145a3a] text-white text-[10px] font-extrabold cursor-pointer"
+                            >
+                              حفظ في Firestore ✓
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setEditingStaffFamilyId(null)}
+                              className="px-2 py-1 rounded-lg border border-neutral-300 text-[10px] font-bold cursor-pointer"
+                            >
+                              إلغاء
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setEditingStaffFamilyId(sup.id);
+                            setStaffMotherInput(sup.motherName || '');
+                            setStaffGrandfatherInput(sup.grandfatherName || '');
+                            setStaffGrandmotherInput(sup.grandmotherName || '');
+                            setStaffUncleInput(sup.uncleName || '');
+                          }}
+                          className="w-full py-1 px-2 rounded-lg bg-[#fcfaf2] dark:bg-[#0b1711] hover:bg-amber-500/15 border border-amber-500/30 text-[10px] font-bold text-[#145a3a] dark:text-[#dfbd69] cursor-pointer"
+                        >
+                          ✏️ بيانات العائلة (الوالدة، الجد، الجدة، العم)
+                        </button>
+                      )}
+
+                      {isOwnerCard ? (
+                        <div className="py-1.5 px-3 rounded-xl bg-amber-500/10 border border-amber-500/30 text-[11px] font-extrabold text-center text-[#145a3a] dark:text-[#dfbd69]">
+                          حساب المالك العام للأكاديمية (محمي)
+                        </div>
+                      ) : (
+                        <div className="flex flex-wrap items-center gap-1.5 pt-2 border-t border-neutral-100 dark:border-emerald-950">
+                          <button
+                            type="button"
+                            disabled={!canManageSupervisor}
+                            onClick={() => updateTeacherAccessStatus(sup.id, 'active')}
+                            className={`flex-1 py-1.5 px-2 rounded-xl text-[11px] font-extrabold flex items-center justify-center gap-1 border cursor-pointer disabled:opacity-40 ${
+                              sup.status === 'active'
+                                ? 'bg-emerald-700 text-white border-emerald-700'
+                                : 'bg-emerald-50 dark:bg-emerald-950/50 text-emerald-800 dark:text-emerald-300 border-emerald-300'
+                            }`}
+                          >
+                            <UserCheck className="w-3.5 h-3.5" />
+                            <span>قبول</span>
+                          </button>
+
+                          <button
+                            type="button"
+                            disabled={!canManageSupervisor}
+                            onClick={() => updateTeacherAccessStatus(sup.id, 'blocked')}
+                            className={`flex-1 py-1.5 px-2 rounded-xl text-[11px] font-extrabold flex items-center justify-center gap-1 border cursor-pointer disabled:opacity-40 ${
+                              sup.status === 'blocked'
+                                ? 'bg-amber-600 text-white border-amber-600'
+                                : 'bg-amber-50 dark:bg-amber-950/40 text-amber-800 dark:text-amber-300 border-amber-300'
+                            }`}
+                          >
+                            <UserX className="w-3.5 h-3.5" />
+                            <span>إيقاف</span>
+                          </button>
+
+                          <button
+                            type="button"
+                            disabled={!canManageSupervisor}
+                            onClick={() => deleteStaffMember(sup.id)}
+                            className="py-1.5 px-2.5 rounded-xl bg-rose-50 dark:bg-rose-950/50 hover:bg-rose-600 hover:text-white text-rose-700 dark:text-rose-300 border border-rose-300 dark:border-rose-800 text-[11px] font-extrabold flex items-center justify-center gap-1 cursor-pointer transition disabled:opacity-40"
+                            title="حذف المشرف نهائياً"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                            <span>حذف</span>
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+            </div>
+          </div>
+
+          {/* SECTION B: OWNER & SUPERVISOR GOVERNANCE OVER TEACHERS (إدارة المحفظين من قِبل المالك أو المشرف) */}
+          <div className="space-y-2.5 pt-3 border-t border-neutral-200/70 dark:border-emerald-950">
+            <div className="flex items-center justify-between">
+              <h4 className="text-xs sm:text-sm font-extrabold text-[#145a3a] dark:text-[#dfbd69] flex items-center gap-2">
+                <span>📖 ثانياً: إدارة المحفظين (متاح للمالك العام وللمشرف — قبول / إيقاف / حذف محفظ)</span>
+              </h4>
+              <span className="text-[11px] font-bold text-emerald-700 dark:text-emerald-400">
+                متاح للمالك والمشرف ✓
+              </span>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+              {managedTeachers
+                .filter((t) => !t.staffRole || t.staffRole === 'teacher')
+                .map((tch) => {
+                  const isEditingFamily = editingStaffFamilyId === tch.id;
+                  return (
+                    <div
+                      key={tch.id}
+                      className="p-4 rounded-2xl bg-white dark:bg-[#12231a] border border-neutral-200 dark:border-emerald-900/60 flex flex-col justify-between gap-3 text-xs shadow-2xs"
+                    >
+                      <div className="space-y-1">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="font-extrabold text-[#14281d] dark:text-white">
+                            {tch.name}
+                          </span>
+                          <span
+                            className={`px-2.5 py-0.5 rounded-full text-[10px] font-extrabold ${
+                              tch.status === 'active'
+                                ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300'
+                                : tch.status === 'blocked'
+                                ? 'bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300'
+                                : 'bg-amber-100 text-amber-800'
+                            }`}
+                          >
+                            {tch.status === 'active'
+                              ? 'مقبول ونشط ✓'
+                              : tch.status === 'blocked'
+                              ? 'موقوف ⛔'
+                              : 'بانتظار القبول ⏳'}
+                          </span>
+                        </div>
+                        <div className="text-[11px] font-mono text-neutral-500">{tch.email}</div>
+                        <div className="text-[11px] text-neutral-500">
+                          {tch.roleTitle} • {tch.assignedCirclesCount} حلقات
+                        </div>
+                        {tch.googleUid && (
+                          <div className="text-[10px] font-mono text-emerald-700 dark:text-emerald-400">
+                            Google UID: {tch.googleUid.slice(0, 12)}...
+                          </div>
+                        )}
+                        {(tch.motherName ||
+                          tch.grandfatherName ||
+                          tch.grandmotherName ||
+                          tch.uncleName) && (
+                          <div className="text-[10px] text-neutral-600 dark:text-neutral-300 bg-[#fcfaf2] dark:bg-[#0b1711] p-2 rounded-xl border border-emerald-500/20 mt-1 space-y-0.5">
+                            {tch.motherName && <div>• الوالدة: {tch.motherName}</div>}
+                            {tch.grandfatherName && <div>• الجد: {tch.grandfatherName}</div>}
+                            {tch.grandmotherName && <div>• الجدة: {tch.grandmotherName}</div>}
+                            {tch.uncleName && <div>• العم: {tch.uncleName}</div>}
+                          </div>
+                        )}
+                      </div>
+
+                      {isEditingFamily ? (
+                        <div className="space-y-1.5 pt-2 border-t border-neutral-100 dark:border-emerald-950">
+                          <div className="grid grid-cols-2 gap-1.5">
+                            <input
+                              type="text"
+                              value={staffMotherInput}
+                              onChange={(e) => setStaffMotherInput(e.target.value)}
+                              placeholder="اسم الوالدة"
+                              className="px-2 py-1 rounded-lg border border-neutral-300 dark:border-emerald-900 bg-[#fcfaf2] dark:bg-[#0b1711] text-[11px]"
+                            />
+                            <input
+                              type="text"
+                              value={staffGrandfatherInput}
+                              onChange={(e) => setStaffGrandfatherInput(e.target.value)}
+                              placeholder="اسم الجد"
+                              className="px-2 py-1 rounded-lg border border-neutral-300 dark:border-emerald-900 bg-[#fcfaf2] dark:bg-[#0b1711] text-[11px]"
+                            />
+                            <input
+                              type="text"
+                              value={staffGrandmotherInput}
+                              onChange={(e) => setStaffGrandmotherInput(e.target.value)}
+                              placeholder="اسم الجدة"
+                              className="px-2 py-1 rounded-lg border border-neutral-300 dark:border-emerald-900 bg-[#fcfaf2] dark:bg-[#0b1711] text-[11px]"
+                            />
+                            <input
+                              type="text"
+                              value={staffUncleInput}
+                              onChange={(e) => setStaffUncleInput(e.target.value)}
+                              placeholder="اسم العم"
+                              className="px-2 py-1 rounded-lg border border-neutral-300 dark:border-emerald-900 bg-[#fcfaf2] dark:bg-[#0b1711] text-[11px]"
+                            />
+                          </div>
+                          <div className="flex gap-1.5">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                updateStaffFamilyDetails(tch.id, {
+                                  motherName: staffMotherInput,
+                                  grandfatherName: staffGrandfatherInput,
+                                  grandmotherName: staffGrandmotherInput,
+                                  uncleName: staffUncleInput,
+                                });
+                                setEditingStaffFamilyId(null);
+                              }}
+                              className="flex-1 py-1 rounded-lg bg-[#145a3a] text-white text-[10px] font-extrabold cursor-pointer"
+                            >
+                              حفظ في Firestore ✓
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setEditingStaffFamilyId(null)}
+                              className="px-2 py-1 rounded-lg border border-neutral-300 text-[10px] font-bold cursor-pointer"
+                            >
+                              إلغاء
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setEditingStaffFamilyId(tch.id);
+                            setStaffMotherInput(tch.motherName || '');
+                            setStaffGrandfatherInput(tch.grandfatherName || '');
+                            setStaffGrandmotherInput(tch.grandmotherName || '');
+                            setStaffUncleInput(tch.uncleName || '');
+                          }}
+                          className="w-full py-1 px-2 rounded-lg bg-[#fcfaf2] dark:bg-[#0b1711] hover:bg-emerald-500/15 border border-emerald-500/30 text-[10px] font-bold text-[#145a3a] dark:text-[#dfbd69] cursor-pointer"
+                        >
+                          ✏️ بيانات العائلة (الوالدة، الجد، الجدة، العم)
+                        </button>
+                      )}
+
+                      <div className="flex flex-wrap items-center gap-1.5 pt-2 border-t border-neutral-100 dark:border-emerald-950">
+                        <button
+                          type="button"
+                          onClick={() => updateTeacherAccessStatus(tch.id, 'active')}
+                          className={`flex-1 py-1.5 px-2 rounded-xl text-[11px] font-extrabold flex items-center justify-center gap-1 border cursor-pointer ${
+                            tch.status === 'active'
+                              ? 'bg-[#145a3a] text-white border-[#145a3a]'
+                              : 'bg-emerald-50 dark:bg-emerald-950/50 text-emerald-800 dark:text-emerald-300 border-emerald-300'
+                          }`}
+                        >
+                          <UserCheck className="w-3.5 h-3.5" />
+                          <span>قبول</span>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => updateTeacherAccessStatus(tch.id, 'blocked')}
+                          className={`flex-1 py-1.5 px-2 rounded-xl text-[11px] font-extrabold flex items-center justify-center gap-1 border cursor-pointer ${
+                            tch.status === 'blocked'
+                              ? 'bg-amber-600 text-white border-amber-600'
+                              : 'bg-amber-50 dark:bg-amber-950/40 text-amber-800 dark:text-amber-300 border-amber-300'
+                          }`}
+                        >
+                          <UserX className="w-3.5 h-3.5" />
+                          <span>إيقاف</span>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => deleteStaffMember(tch.id)}
+                          className="py-1.5 px-2.5 rounded-xl bg-rose-50 dark:bg-rose-950/50 hover:bg-rose-600 hover:text-white text-rose-700 dark:text-rose-300 border border-rose-300 dark:border-rose-800 text-[11px] font-extrabold flex items-center justify-center gap-1 cursor-pointer transition"
+                          title="حذف المحفظ نهائياً"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                          <span>حذف</span>
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+            </div>
+          </div>
+
+          {/* SECTION C: STUDENT GOOGLE ACCOUNT LINKING + EXTENDED FAMILY FIELDS */}
+          <div className="pt-3 border-t border-neutral-200/70 dark:border-emerald-950 space-y-2.5">
+            <h4 className="text-xs sm:text-sm font-extrabold text-[#145a3a] dark:text-[#dfbd69]">
+              🎓 ثالثاً: ربط حسابات Google والبيانات العائلية (الوالدة، الجد، الجدة، العم) بملف الطالب في Firestore
+            </h4>
+            <div className="bg-white dark:bg-[#12231a] p-4 rounded-2xl border border-neutral-200 dark:border-emerald-900/60 space-y-3">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 items-center">
+                <select
+                  value={selectedStudentForGoogle}
+                  onChange={(e) => {
+                    const id = e.target.value;
+                    setSelectedStudentForGoogle(id);
+                    const st = students.find((s) => s.id === id);
+                    setStudentGoogleEmailInput(st?.googleEmail || '');
+                    setStudentMotherInput(st?.motherName || '');
+                    setStudentGrandfatherInput(st?.grandfatherName || '');
+                    setStudentGrandmotherInput(st?.grandmotherName || '');
+                    setStudentUncleInput(st?.uncleName || '');
+                  }}
+                  className="px-3 py-2 rounded-xl border border-neutral-300 dark:border-emerald-900 bg-[#fcfaf2] dark:bg-[#0b1711] text-xs font-bold"
+                >
+                  {students.map((st) => (
+                    <option key={st.id} value={st.id}>
+                      {st.name} ({st.circle}) {st.googleEmail ? `— ${st.googleEmail}` : ''}
+                    </option>
+                  ))}
+                </select>
+
+                <input
+                  type="email"
+                  dir="ltr"
+                  value={studentGoogleEmailInput}
+                  onChange={(e) => setStudentGoogleEmailInput(e.target.value)}
+                  placeholder="student.guardian@gmail.com"
+                  className="px-3 py-2 rounded-xl border border-neutral-300 dark:border-emerald-900 bg-[#fcfaf2] dark:bg-[#0b1711] text-xs font-mono text-left"
+                />
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (selectedStudentForGoogle) {
+                      linkStudentGoogleAccount(
+                        selectedStudentForGoogle,
+                        studentGoogleEmailInput,
+                        {
+                          motherName: studentMotherInput,
+                          grandfatherName: studentGrandfatherInput,
+                          grandmotherName: studentGrandmotherInput,
+                          uncleName: studentUncleInput,
+                        }
+                      );
+                    }
+                  }}
+                  className="py-2 px-4 rounded-xl bg-[#145a3a] hover:bg-[#0f452c] text-white text-xs font-extrabold cursor-pointer"
+                >
+                  حفظ الربط وبيانات العائلة في Firestore ✓
+                </button>
+              </div>
+
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+                <input
+                  type="text"
+                  value={studentMotherInput}
+                  onChange={(e) => setStudentMotherInput(e.target.value)}
+                  placeholder="اسم الوالدة"
+                  className="px-3 py-1.5 rounded-xl border border-neutral-200 dark:border-emerald-900/70 bg-[#fcfaf2] dark:bg-[#0b1711] text-[11px] font-semibold"
+                />
+                <input
+                  type="text"
+                  value={studentGrandfatherInput}
+                  onChange={(e) => setStudentGrandfatherInput(e.target.value)}
+                  placeholder="اسم الجد"
+                  className="px-3 py-1.5 rounded-xl border border-neutral-200 dark:border-emerald-900/70 bg-[#fcfaf2] dark:bg-[#0b1711] text-[11px] font-semibold"
+                />
+                <input
+                  type="text"
+                  value={studentGrandmotherInput}
+                  onChange={(e) => setStudentGrandmotherInput(e.target.value)}
+                  placeholder="اسم الجدة"
+                  className="px-3 py-1.5 rounded-xl border border-neutral-200 dark:border-emerald-900/70 bg-[#fcfaf2] dark:bg-[#0b1711] text-[11px] font-semibold"
+                />
+                <input
+                  type="text"
+                  value={studentUncleInput}
+                  onChange={(e) => setStudentUncleInput(e.target.value)}
+                  placeholder="اسم العم"
+                  className="px-3 py-1.5 rounded-xl border border-neutral-200 dark:border-emerald-900/70 bg-[#fcfaf2] dark:bg-[#0b1711] text-[11px] font-semibold"
+                />
+              </div>
+            </div>
           </div>
         </div>
 

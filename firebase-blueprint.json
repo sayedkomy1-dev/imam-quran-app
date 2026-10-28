@@ -1,0 +1,194 @@
+{
+  "entities": {
+    "UserAuthProfile": {
+      "title": "UserAuthProfile",
+      "description": "Authenticated user profile linked to Google Sign-In UID including extended family fields.",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "Firebase Auth UID of the user."
+        },
+        "displayName": {
+          "type": "string",
+          "maxLength": 120,
+          "description": "Display name from Google account."
+        },
+        "role": {
+          "type": "string",
+          "enum": ["teacher", "supervisor", "guardian", "student"],
+          "maxLength": 32,
+          "description": "Portal role selected by the user."
+        },
+        "motherName": {
+          "type": "string",
+          "maxLength": 120,
+          "description": "Mother's name (اسم الوالدة)."
+        },
+        "grandfatherName": {
+          "type": "string",
+          "maxLength": 120,
+          "description": "Grandfather's name (اسم الجد)."
+        },
+        "grandmotherName": {
+          "type": "string",
+          "maxLength": 120,
+          "description": "Grandmother's name (اسم الجدة)."
+        },
+        "uncleName": {
+          "type": "string",
+          "maxLength": 120,
+          "description": "Uncle's name (اسم العم)."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server creation timestamp."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server update timestamp."
+        }
+      },
+      "required": ["uid", "displayName", "role", "createdAt", "updatedAt"]
+    },
+    "ExtendedFamilyRecord": {
+      "title": "ExtendedFamilyRecord",
+      "description": "Student or Teacher record linked to Google UID containing extended family lineage fields.",
+      "type": "object",
+      "properties": {
+        "recordId": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "Local Student or Teacher ID."
+        },
+        "ownerUid": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "Google Firebase Auth UID linked to this record."
+        },
+        "entityType": {
+          "type": "string",
+          "enum": ["student", "teacher", "supervisor"],
+          "maxLength": 32,
+          "description": "Whether this record belongs to a student, teacher, or supervisor."
+        },
+        "personName": {
+          "type": "string",
+          "maxLength": 120,
+          "description": "Full name of the student or teacher."
+        },
+        "motherName": {
+          "type": "string",
+          "maxLength": 120,
+          "description": "Mother's name (اسم الوالدة)."
+        },
+        "grandfatherName": {
+          "type": "string",
+          "maxLength": 120,
+          "description": "Grandfather's name (اسم الجد)."
+        },
+        "grandmotherName": {
+          "type": "string",
+          "maxLength": 120,
+          "description": "Grandmother's name (اسم الجدة)."
+        },
+        "uncleName": {
+          "type": "string",
+          "maxLength": 120,
+          "description": "Uncle's name (اسم العم)."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server creation timestamp."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server update timestamp."
+        }
+      },
+      "required": [
+        "recordId",
+        "ownerUid",
+        "entityType",
+        "personName",
+        "motherName",
+        "grandfatherName",
+        "grandmotherName",
+        "uncleName",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "AcademyCloudSnapshot": {
+      "title": "AcademyCloudSnapshot",
+      "description": "Per-owner academy roster and progress summary synced to Firestore.",
+      "type": "object",
+      "properties": {
+        "ownerUid": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "UID of the teacher or supervisor owning this snapshot."
+        },
+        "academyName": {
+          "type": "string",
+          "maxLength": 160,
+          "description": "Academy title."
+        },
+        "studentsCount": {
+          "type": "number",
+          "description": "Total active students count."
+        },
+        "sessionsCount": {
+          "type": "number",
+          "description": "Total recorded sessions count."
+        },
+        "schemaVersion": {
+          "type": "number",
+          "description": "Local schema version number."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server creation timestamp."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server update timestamp."
+        }
+      },
+      "required": [
+        "ownerUid",
+        "academyName",
+        "studentsCount",
+        "sessionsCount",
+        "schemaVersion",
+        "createdAt",
+        "updatedAt"
+      ]
+    }
+  },
+  "firestore": {
+    "/user_profiles/{userId}": {
+      "schema": "UserAuthProfile",
+      "description": "Stores authenticated user's profile scoped strictly to their UID."
+    },
+    "/family_records/{recordId}": {
+      "schema": "ExtendedFamilyRecord",
+      "description": "Stores Student and Teacher extended family details linked to Google UID."
+    },
+    "/academy_snapshots/{snapshotId}": {
+      "schema": "AcademyCloudSnapshot",
+      "description": "Stores academy cloud sync metadata owned by the authenticated user."
+    }
+  }
+}

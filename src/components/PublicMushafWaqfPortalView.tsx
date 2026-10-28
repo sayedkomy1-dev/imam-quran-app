@@ -41,6 +41,7 @@ import {
   getPageNumberForSurahAyah,
   getWordMeaningAndTafsir,
   loadSurahVerses,
+  stripLeadingBasmalah,
 } from '../data/quranData';
 import { PublicBookmarkCategory, ReciterId } from '../types';
 
@@ -310,31 +311,7 @@ export const ImmersiveReadingMode: React.FC<ImmersiveReadingModeProps> = ({
   }, [isActive, onToggle, onStepAyah, onTogglePlay]);
 
   if (!isActive) {
-    return (
-      <div className="rounded-2xl bg-gradient-to-l from-emerald-950 via-emerald-900 to-teal-950 text-white px-4 py-3 border border-amber-400/50 shadow-sm flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-2.5">
-          <span className="w-8 h-8 rounded-xl bg-amber-400/20 border border-amber-400/50 flex items-center justify-center text-amber-300">
-            <Maximize2 className="w-4 h-4" />
-          </span>
-          <div>
-            <div className="text-xs sm:text-sm font-extrabold text-amber-200">
-              🧘 وضع القراءة الخاشعة والتدبر الفردي (Immersive Reading Mode)
-            </div>
-            <p className="text-[11px] text-emerald-100/90">
-              بضغطة واحدة: إخفاء قوائم التصفح غير الضرورية، وتسليط الضوء البصري على الآية الحالية مع التلاوة والتفسير
-            </p>
-          </div>
-        </div>
-        <button
-          type="button"
-          onClick={onToggle}
-          className="px-4 py-2 rounded-xl bg-gradient-to-r from-amber-400 to-amber-500 hover:from-amber-500 hover:to-amber-600 text-slate-950 text-xs font-black flex items-center gap-1.5 shadow-md cursor-pointer transition active:scale-95"
-        >
-          <Maximize2 className="w-3.5 h-3.5" />
-          <span>تفعيل وضع القراءة الخاشعة بضغطة واحدة</span>
-        </button>
-      </div>
-    );
+    return null;
   }
 
   return (
@@ -821,10 +798,11 @@ export const PublicMushafWaqfPortalView: React.FC<PublicMushafWaqfPortalViewProp
   } | null>(null);
   const [selectedWordInModal, setSelectedWordInModal] = useState<string | null>(null);
 
-  // Modals: Waqf & Khatmah Dua Modal, Khatmah Certificate Modal, PWA Install Guide Modal
+  // Modals: Waqf & Khatmah Dua Modal, Khatmah Certificate Modal, PWA Install Guide Modal, Bookmarks Modal
   const [showWaqfAndKhatmahModal, setShowWaqfAndKhatmahModal] = useState<boolean>(false);
   const [showCertificateModal, setShowCertificateModal] = useState<boolean>(false);
   const [showInstallModal, setShowInstallModal] = useState<boolean>(false);
+  const [showBookmarksModal, setShowBookmarksModal] = useState<boolean>(false);
 
   // Offline Download Center state
   const [offlineTargetScope, setOfflineTargetScope] = useState<'juz30' | 'juz29_30' | 'selected_surah' | 'full_mushaf_text'>('juz30');
@@ -1336,44 +1314,10 @@ export const PublicMushafWaqfPortalView: React.FC<PublicMushafWaqfPortalViewProp
       <div
         className={`mx-auto transition-all duration-300 ${
           distractionFreeReading
-            ? 'max-w-[96rem] px-3 sm:px-8 py-3 space-y-4'
-            : 'max-w-7xl px-3 sm:px-6 py-4 space-y-4'
+            ? 'max-w-[96rem] px-3 sm:px-8 py-3 space-y-3'
+            : 'max-w-7xl px-3 sm:px-6 py-3 space-y-3'
         }`}
       >
-        {/* Owner Encouragement Celebration Banner (Hidden in Immersive Reading Mode) */}
-        {!distractionFreeReading &&
-          unreadEncouragements.map((enc) => (
-          <div
-            key={enc.id}
-            className="rounded-3xl border-2 border-amber-400 bg-gradient-to-r from-amber-500/20 via-emerald-600/20 to-amber-500/20 p-4 sm:p-5 shadow-xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4"
-          >
-            <div className="flex items-start gap-3.5">
-              <div className="w-12 h-12 rounded-2xl bg-amber-500 text-slate-950 flex items-center justify-center shrink-0 shadow-md">
-                <Award className="w-7 h-7" />
-              </div>
-              <div className="space-y-1">
-                <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-amber-500 text-slate-950 text-xs font-black">
-                  {enc.badgeTitle}
-                </div>
-                <p className="text-sm sm:text-base font-extrabold text-slate-900 dark:text-white leading-relaxed">
-                  «{enc.message}»
-                </p>
-                <p className="text-xs text-slate-600 dark:text-slate-300 font-bold">
-                  مرسل من: {enc.senderName} • بتاريخ {enc.sentAt}
-                </p>
-              </div>
-            </div>
-            <button
-              type="button"
-              onClick={() =>
-                markVisitorEncouragementRead(currentVisitor.id, enc.id)
-              }
-              className="px-4 py-2 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-extrabold shrink-0 cursor-pointer"
-            >
-              جزاكم الله خيراً ✓
-            </button>
-          </div>
-        ))}
 
         {/* Graceful & Non-Intrusive Collapsible Spiritual Ribbon + Expandable Waqf Card */}
         {!waqfRibbonCollapsed && !distractionFreeReading && (
@@ -1545,58 +1489,49 @@ export const PublicMushafWaqfPortalView: React.FC<PublicMushafWaqfPortalViewProp
               onChangeFocusStyle={setImmersiveFocusStyle}
             />
 
-            {/* Compact Collapsible Multi-Bookmarks Bar (Hidden in Immersive Reading Mode) */}
-            {!distractionFreeReading && (
-              <details className="group rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 px-3.5 py-2.5 shadow-xs">
-                <summary className="list-none flex flex-wrap items-center justify-between gap-2 cursor-pointer">
-                  <div className="flex flex-wrap items-center gap-2 text-xs font-extrabold text-emerald-900 dark:text-emerald-300">
-                    <Bookmark className="w-4 h-4 text-amber-500" />
-                    <span>الفواصل المرجعية السريعة:</span>
-                    {publicBookmarks.map((bm) => (
-                      <button
-                        key={bm.id}
-                        type="button"
-                        onClick={(e) => {
-                          e.preventDefault();
-                          handleGoToPage(bm.pageNumber);
-                        }}
-                        className="px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-emerald-100 dark:bg-slate-800 dark:hover:bg-emerald-950 text-[11px] font-bold text-slate-800 dark:text-slate-200 transition cursor-pointer"
-                      >
-                        {bm.label} (ص {bm.pageNumber})
-                      </button>
-                    ))}
+            {/* Bookmarks Popover Modal (Opened from toolbar button so Mushaf stays Above the Fold) */}
+            {showBookmarksModal && (
+              <div className="fixed inset-0 z-50 bg-slate-950/75 backdrop-blur-xs flex items-center justify-center p-4">
+                <div className="w-full max-w-xl rounded-3xl bg-white dark:bg-slate-900 border border-amber-400/50 shadow-2xl p-5 space-y-4">
+                  <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-800 pb-3">
+                    <div className="flex items-center gap-2 font-extrabold text-sm text-emerald-900 dark:text-emerald-300">
+                      <Bookmark className="w-4 h-4 text-amber-500" />
+                      <span>الفواصل والعلامات المرجعية ({publicBookmarks.length})</span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setShowBookmarksModal(false)}
+                      className="p-1.5 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 cursor-pointer"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
                   </div>
-                  <span className="text-[11px] font-bold text-amber-700 dark:text-amber-300 underline">
-                    + حفظ أو إدارة الفواصل
-                  </span>
-                </summary>
 
-                <div className="pt-3 mt-2.5 border-t border-slate-100 dark:border-slate-800 space-y-2.5">
-                  <div className="flex flex-wrap items-center gap-1.5">
+                  <div className="flex flex-wrap items-center gap-2">
                     <button
                       type="button"
                       onClick={() => handleQuickSaveBookmark('khatmah')}
                       className="px-3 py-1.5 rounded-xl bg-emerald-100 hover:bg-emerald-200 dark:bg-emerald-950/80 text-emerald-900 dark:text-emerald-200 text-xs font-extrabold cursor-pointer transition"
                     >
-                      + حفظ 🔖 فاصل الختمة اليومية هنا
+                      + حفظ 🔖 فاصل الختمة اليومية (ص {currentPage})
                     </button>
                     <button
                       type="button"
                       onClick={() => handleQuickSaveBookmark('memorization')}
                       className="px-3 py-1.5 rounded-xl bg-blue-100 hover:bg-blue-200 dark:bg-blue-950/80 text-blue-900 dark:text-blue-200 text-xs font-extrabold cursor-pointer transition"
                     >
-                      + حفظ 📌 فاصل الحفظ والمراجعة هنا
+                      + حفظ 📌 فاصل الحفظ والمراجعة
                     </button>
                     <button
                       type="button"
                       onClick={() => handleQuickSaveBookmark('tadabbur')}
                       className="px-3 py-1.5 rounded-xl bg-amber-100 hover:bg-amber-200 dark:bg-amber-950/80 text-amber-900 dark:text-amber-200 text-xs font-extrabold cursor-pointer transition"
                     >
-                      + حفظ ⭐ آية للتدبر هنا
+                      + حفظ ⭐ آية للتدبر
                     </button>
                   </div>
 
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 max-h-72 overflow-y-auto">
                     {publicBookmarks.map((bm) => {
                       const badgeStyle =
                         bm.category === 'khatmah'
@@ -1611,17 +1546,23 @@ export const PublicMushafWaqfPortalView: React.FC<PublicMushafWaqfPortalViewProp
                         >
                           <button
                             type="button"
-                            onClick={() => handleGoToPage(bm.pageNumber)}
+                            onClick={() => {
+                              handleGoToPage(bm.pageNumber);
+                              setShowBookmarksModal(false);
+                            }}
                             className="text-right flex-1 cursor-pointer"
                           >
                             <div className="font-extrabold text-xs">{bm.label}</div>
                             <div className="text-[11px] opacity-85 mt-0.5">
-                              صفحة {bm.pageNumber} • سورة {bm.surahName} (آية {bm.ayahNumber}) • جزء {bm.juzNumber}
+                              صفحة {bm.pageNumber} • سورة {bm.surahName} (آية {bm.ayahNumber})
                             </div>
                           </button>
                           <button
                             type="button"
-                            onClick={() => handleGoToPage(bm.pageNumber)}
+                            onClick={() => {
+                              handleGoToPage(bm.pageNumber);
+                              setShowBookmarksModal(false);
+                            }}
                             className="px-2.5 py-1 rounded-lg bg-white/80 dark:bg-slate-800 text-[11px] font-extrabold shadow-sm cursor-pointer"
                           >
                             انتقال
@@ -1631,12 +1572,12 @@ export const PublicMushafWaqfPortalView: React.FC<PublicMushafWaqfPortalViewProp
                     })}
                   </div>
                 </div>
-              </details>
+              </div>
             )}
 
             {/* Navigation & Synchronized Audio Controls Bar (Hidden in Immersive Reading Mode) */}
             {!distractionFreeReading && (
-              <div className="rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-4 shadow-sm space-y-3">
+              <div className="rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-3.5 shadow-sm space-y-2.5">
                 {/* Row 1: Surah, Juz, Page, Quarter selectors */}
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
                   <div>
@@ -1772,6 +1713,15 @@ export const PublicMushafWaqfPortalView: React.FC<PublicMushafWaqfPortalViewProp
                   <div className="flex flex-wrap items-center gap-2">
                     <button
                       type="button"
+                      onClick={() => setShowBookmarksModal(true)}
+                      className="px-3 py-2 rounded-xl bg-amber-100 hover:bg-amber-200 dark:bg-amber-950/60 text-amber-900 dark:text-amber-200 border border-amber-300 dark:border-amber-800 font-extrabold text-xs flex items-center gap-1.5 cursor-pointer transition"
+                    >
+                      <Bookmark className="w-3.5 h-3.5 text-amber-600" />
+                      <span>الفواصل ({publicBookmarks.length})</span>
+                    </button>
+
+                    <button
+                      type="button"
                       onClick={() => setIsPlaying((prev) => !prev)}
                       className={`px-4 py-2 rounded-xl font-extrabold text-xs flex items-center gap-1.5 shadow-sm cursor-pointer transition ${
                         isPlaying
@@ -1867,6 +1817,11 @@ export const PublicMushafWaqfPortalView: React.FC<PublicMushafWaqfPortalViewProp
                               activeAudioAyah === v.ayah;
                             const isCurrentReciting =
                               isPlaying && isCurrentFocusedAyah;
+                            const cleanVerseText = stripLeadingBasmalah(
+                              v.text,
+                              sec.surahId,
+                              v.ayah
+                            );
 
                             return (
                               <span
@@ -1878,20 +1833,20 @@ export const PublicMushafWaqfPortalView: React.FC<PublicMushafWaqfPortalViewProp
                                     setSelectedAyahDetail({
                                       surahId: sec.surahId,
                                       surahName: sec.surahName,
-                                      ayahEntry: v,
+                                      ayahEntry: { ...v, text: cleanVerseText },
                                     });
                                     setSelectedWordInModal(null);
                                   }
                                 }}
-                                className={`inline rounded-xl px-1.5 py-0.5 transition-all cursor-pointer ${
+                                className={`inline rounded-xl px-2 py-1 [box-decoration-break:clone] [-webkit-box-decoration-break:clone] transition-all cursor-pointer ${
                                   distractionFreeReading
                                     ? isCurrentFocusedAyah
                                       ? 'bg-amber-300/85 dark:bg-amber-500/45 text-slate-950 dark:text-white ring-2 ring-amber-500 shadow-md font-bold opacity-100'
                                       : 'opacity-35 hover:opacity-90'
                                     : isCurrentReciting
-                                    ? 'bg-amber-300/80 dark:bg-amber-500/40 text-slate-950 dark:text-white ring-2 ring-amber-500 shadow-sm'
+                                    ? 'bg-amber-300/85 dark:bg-amber-500/45 text-slate-950 dark:text-white ring-2 ring-amber-500 shadow-sm'
                                     : isCurrentFocusedAyah
-                                    ? 'bg-emerald-500/15 ring-1 ring-emerald-500/40'
+                                    ? 'bg-emerald-500/20 dark:bg-emerald-500/30 ring-1 ring-emerald-500/50'
                                     : 'hover:bg-emerald-500/15'
                                 }`}
                                 title={
@@ -1900,7 +1855,7 @@ export const PublicMushafWaqfPortalView: React.FC<PublicMushafWaqfPortalViewProp
                                     : 'انقر لعرض التفسير الميسر ومعاني الكلمات أو الاستماع والمشاركة'
                                 }
                               >
-                                <span>{v.text} </span>
+                                <span>{cleanVerseText} </span>
                                 <span className="inline-flex items-center justify-center mx-1 px-2 py-0.5 rounded-full text-sm font-extrabold bg-amber-500/20 text-amber-900 dark:text-amber-300 border border-amber-500/50">
                                   ﴿{v.ayah}﴾
                                 </span>{' '}

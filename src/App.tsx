@@ -227,9 +227,9 @@ const MainShell: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen bg-[#f6f7f2] dark:bg-[#0b1711] text-[#14281d] dark:text-[#e9f2ec] flex">
+    <div className="h-screen overflow-hidden bg-[#f6f7f2] dark:bg-[#0b1711] text-[#14281d] dark:text-[#e9f2ec] flex">
       {/* Desktop RTL Sidebar */}
-      <aside className="hidden lg:flex flex-col justify-between w-64 shrink-0 bg-white dark:bg-[#12231a] border-l border-neutral-200 dark:border-emerald-900/50 p-4 sticky top-0 h-screen overflow-y-auto no-print">
+      <aside className="hidden lg:flex flex-col justify-between w-64 shrink-0 bg-white dark:bg-[#12231a] border-l border-neutral-200 dark:border-emerald-900/50 p-4 h-screen overflow-y-auto no-scrollbar no-print">
         <div className="space-y-5">
           {/* Brand Lockup */}
           <div className="flex items-center gap-3 px-2 pt-1 pb-2 border-b border-neutral-100 dark:border-emerald-900/40">
@@ -311,7 +311,7 @@ const MainShell: React.FC = () => {
       </aside>
 
       {/* Main Content Area */}
-      <div className="flex-1 flex flex-col min-w-0 pb-20 lg:pb-8">
+      <div className="flex-1 flex flex-col min-w-0 h-screen overflow-y-auto pb-20 lg:pb-8">
         {/* Top Sticky Header */}
         <header className="sticky top-0 z-30 bg-white/90 dark:bg-[#12231a]/90 backdrop-blur-md border-b border-neutral-200 dark:border-emerald-900/50 px-4 md:px-6 py-3 flex items-center justify-between gap-3 no-print">
           <div className="flex items-center gap-3 min-w-0">

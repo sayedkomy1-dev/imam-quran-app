@@ -172,11 +172,29 @@ export interface SessionRecord {
   tarbiyahCardSummary?: string;
   voiceNoteDataUrl?: string;
   voiceNoteDuration?: number;
+  teacherVoiceNotes?: TeacherRecitationVoiceNote[];
   memorizationAudioDataUrl?: string;
   memorizationAudioName?: string;
   syncStatus?: SessionSyncStatus;
   durationMinutes?: number;
   carriedOverFromDate?: string;
+  createdAt: string;
+}
+
+export interface TeacherRecitationVoiceNote {
+  id: string;
+  studentId: string;
+  studentName: string;
+  sessionDate: string;
+  context: ErrorContext;
+  surahName: string;
+  ayahNumber?: number;
+  linkedSubmissionId?: string;
+  timestampSec?: number;
+  category: 'تجويد' | 'حفظ' | 'تشكيل' | 'مخارج' | 'توجيه عام';
+  title: string;
+  audioDataUrl: string;
+  durationSeconds: number;
   createdAt: string;
 }
 
@@ -239,6 +257,8 @@ export interface TimestampAudioFeedbackPin {
   note?: string; // compatibility alias
   linkedErrorId?: string;
   linkedErrorType?: ErrorType;
+  teacherVoiceNoteDataUrl?: string;
+  teacherVoiceNoteDurationSec?: number;
   createdAt: string;
 }
 
@@ -288,14 +308,23 @@ export interface OwnerAuditLogItem {
   targetName?: string;
 }
 
+export type StaffHierarchyRole = 'owner' | 'supervisor' | 'teacher';
+
 export interface TeacherAccessRecord {
   id: string;
   name: string;
   email: string;
   roleTitle: string;
+  staffRole?: StaffHierarchyRole;
   status: 'active' | 'blocked' | 'pending';
   lastSyncAt: string;
   assignedCirclesCount: number;
+  googleUid?: string;
+  photoURL?: string | null;
+  motherName?: string;
+  grandfatherName?: string;
+  grandmotherName?: string;
+  uncleName?: string;
 }
 
 export type FeeStatus = 'مدفوع' | 'متأخر' | 'معفى';
@@ -316,6 +345,13 @@ export interface Student {
   guardianName: string;
   whatsappPhone: string; // Normalized e.g., 201012345678
   guardianPin: string; // 6-digit PIN for Guardian Portal
+  googleUid?: string;
+  googleEmail?: string;
+  googleAvatarUrl?: string | null;
+  motherName?: string;
+  grandfatherName?: string;
+  grandmotherName?: string;
+  uncleName?: string;
   accountStatus?: StudentAccountStatus; // نشط | متوقف | مؤرشف
   archivedAt?: string;
   archiveReason?: string;
@@ -515,6 +551,7 @@ export interface AcademySettings {
   tagline: string;
   Slogan?: string;
   officialWhatsappPhone?: string;
+  teacherPin?: string;
   referenceTimezone?: string;
   theme: 'light' | 'dark' | 'sepia';
   fontSize: 'sm' | 'md' | 'lg' | 'xl';

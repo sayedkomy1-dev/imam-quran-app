@@ -596,6 +596,50 @@ export function getEveryAyahAudioUrl(reciter: string, surahId: number, ayahNumbe
   return `https://everyayah.com/data/${reciter}/${s}${a}.mp3`;
 }
 
+export function stripLeadingBasmalah(
+  rawText: string,
+  surahId: number,
+  ayahNumber: number
+): string {
+  if (!rawText) return '';
+  if (surahId === 1 || surahId === 9 || ayahNumber !== 1) {
+    return rawText.trim();
+  }
+  const trimmed = rawText.trim();
+  // Remove exact common Uthmani / standard Basmalah prefixes
+  const explicitPrefixes = [
+    'بِسْمِ ٱللَّهِ ٱلرَّحْمَٰنِ ٱلرَّحِيمِ',
+    'بِسْمِ اللَّهِ الرَّحْمَٰنِ الرَّحِيمِ',
+    'بِسْمِ اللَّهِ الرَّحْمَنِ الرَّحِيمِ',
+    'بسم الله الرحمن الرحيم',
+  ];
+  for (const prefix of explicitPrefixes) {
+    if (trimmed.startsWith(prefix)) {
+      const rest = trimmed.slice(prefix.length).trim();
+      if (rest.length > 0) return rest;
+    }
+  }
+  // Fallback word-level normalized check for any diacritic variation of the first 4 words
+  const words = trimmed.split(/\s+/);
+  if (words.length > 4) {
+    const firstFourNorm = words.slice(0, 4).map((w) =>
+      w
+        .replace(/[\u064B-\u065F\u0670\u06D6-\u06ED]/g, '')
+        .replace(/[ٱأإآ]/g, 'ا')
+        .replace(/[^\u0621-\u064A]/g, '')
+    );
+    if (
+      firstFourNorm[0] === 'بسم' &&
+      firstFourNorm[1] === 'الله' &&
+      firstFourNorm[2] === 'الرحمن' &&
+      firstFourNorm[3] === 'الرحيم'
+    ) {
+      return words.slice(4).join(' ').trim();
+    }
+  }
+  return trimmed;
+}
+
 export async function loadSurahVerses(
   surahId: number,
   fromAyah: number,
@@ -612,7 +656,12 @@ export async function loadSurahVerses(
     if (cachedRaw) {
       const parsed: AyahEntry[] = JSON.parse(cachedRaw);
       if (Array.isArray(parsed) && parsed.length > 0) {
-        return parsed.filter((v) => v.ayah >= start && v.ayah <= end);
+        return parsed
+          .filter((v) => v.ayah >= start && v.ayah <= end)
+          .map((v) => ({
+            ...v,
+            text: stripLeadingBasmalah(v.text, surahId, v.ayah),
+          }));
       }
     }
   } catch {
@@ -637,7 +686,7 @@ export async function loadSurahVerses(
           const emb = embedded.find((e) => e.ayah === item.numberInSurah);
           return {
             ayah: item.numberInSurah,
-            text: item.text,
+            text: stripLeadingBasmalah(item.text, surahId, item.numberInSurah),
             tafsir: tafsirs[idx]?.text || emb?.tafsir || 'التفسير الميسر لهذه الآية الكريمة.',
             meanings: emb?.meanings || {},
           };

@@ -1,0 +1,152 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Global Default-Deny Safety Net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    function isSignedIn() {
+      return request.auth != null && request.auth.token.email_verified == true;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isBootstrappedAdmin() {
+      return isSignedIn() && (
+        request.auth.token.email == 'sayedkomy2@gmail.com' ||
+        request.auth.token.email == 'info.welivequran@gmail.com' ||
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid))
+      );
+    }
+
+    function isValidOptionalFamilyField(data, fieldName) {
+      return !(fieldName in data) || (data[fieldName] is string && data[fieldName].size() <= 120);
+    }
+
+    function isValidUserAuthProfile(data) {
+      return data.keys().hasAll(['uid', 'displayName', 'role', 'createdAt', 'updatedAt']) &&
+        data.keys().hasOnly(['uid', 'displayName', 'role', 'motherName', 'grandfatherName', 'grandmotherName', 'uncleName', 'createdAt', 'updatedAt']) &&
+        data.uid is string && data.uid.size() >= 1 && data.uid.size() <= 128 &&
+        data.uid.matches('^[a-zA-Z0-9_\\-]+$') &&
+        data.uid == request.auth.uid &&
+        data.displayName is string && data.displayName.size() >= 1 && data.displayName.size() <= 120 &&
+        data.role is string && data.role.size() <= 32 &&
+        (data.role in ['teacher', 'supervisor', 'guardian', 'student']) &&
+        isValidOptionalFamilyField(data, 'motherName') &&
+        isValidOptionalFamilyField(data, 'grandfatherName') &&
+        isValidOptionalFamilyField(data, 'grandmotherName') &&
+        isValidOptionalFamilyField(data, 'uncleName') &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidExtendedFamilyRecord(data) {
+      return data.keys().hasAll(['recordId', 'ownerUid', 'entityType', 'personName', 'motherName', 'grandfatherName', 'grandmotherName', 'uncleName', 'createdAt', 'updatedAt']) &&
+        data.keys().hasOnly(['recordId', 'ownerUid', 'entityType', 'personName', 'motherName', 'grandfatherName', 'grandmotherName', 'uncleName', 'createdAt', 'updatedAt']) &&
+        data.recordId is string && data.recordId.size() >= 1 && data.recordId.size() <= 128 &&
+        data.recordId.matches('^[a-zA-Z0-9_\\-]+$') &&
+        data.ownerUid is string && data.ownerUid.size() >= 1 && data.ownerUid.size() <= 128 &&
+        data.ownerUid.matches('^[a-zA-Z0-9_\\-]+$') &&
+        data.ownerUid == request.auth.uid &&
+        data.entityType is string && data.entityType.size() <= 32 &&
+        (data.entityType in ['student', 'teacher', 'supervisor']) &&
+        data.personName is string && data.personName.size() >= 1 && data.personName.size() <= 120 &&
+        data.motherName is string && data.motherName.size() <= 120 &&
+        data.grandfatherName is string && data.grandfatherName.size() <= 120 &&
+        data.grandmotherName is string && data.grandmotherName.size() <= 120 &&
+        data.uncleName is string && data.uncleName.size() <= 120 &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidAcademyCloudSnapshot(data) {
+      return data.keys().hasAll(['ownerUid', 'academyName', 'studentsCount', 'sessionsCount', 'schemaVersion', 'createdAt', 'updatedAt']) &&
+        data.keys().hasOnly(['ownerUid', 'academyName', 'studentsCount', 'sessionsCount', 'schemaVersion', 'createdAt', 'updatedAt']) &&
+        data.ownerUid is string && data.ownerUid.size() >= 1 && data.ownerUid.size() <= 128 &&
+        data.ownerUid.matches('^[a-zA-Z0-9_\\-]+$') &&
+        data.ownerUid == request.auth.uid &&
+        data.academyName is string && data.academyName.size() >= 1 && data.academyName.size() <= 160 &&
+        data.studentsCount is int && data.studentsCount >= 0 && data.studentsCount <= 100000 &&
+        data.sessionsCount is int && data.sessionsCount >= 0 && data.sessionsCount <= 1000000 &&
+        data.schemaVersion is int && data.schemaVersion == 12 &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    match /admins/{adminUid} {
+      allow get: if isSignedIn() && isValidId(adminUid) && request.auth.uid == adminUid;
+      allow list, create, update, delete: if false;
+    }
+
+    match /user_profiles/{userId} {
+      allow get: if isSignedIn() && isValidId(userId) && (request.auth.uid == userId || isBootstrappedAdmin());
+      allow list: if isSignedIn() && existing().uid == request.auth.uid;
+      allow create: if isSignedIn() &&
+        isValidId(userId) &&
+        request.auth.uid == userId &&
+        isValidUserAuthProfile(incoming()) &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time;
+      allow update: if isSignedIn() &&
+        isValidId(userId) &&
+        request.auth.uid == userId &&
+        isValidUserAuthProfile(incoming()) &&
+        incoming().uid == existing().uid &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().updatedAt == request.time &&
+        incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'role', 'motherName', 'grandfatherName', 'grandmotherName', 'uncleName', 'updatedAt']);
+      allow delete: if false;
+    }
+
+    match /family_records/{recordId} {
+      allow get: if isSignedIn() && isValidId(recordId) && (existing().ownerUid == request.auth.uid || isBootstrappedAdmin());
+      allow list: if isSignedIn() && existing().ownerUid == request.auth.uid;
+      allow create: if isSignedIn() &&
+        isValidId(recordId) &&
+        incoming().recordId == recordId &&
+        isValidExtendedFamilyRecord(incoming()) &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time;
+      allow update: if isSignedIn() &&
+        isValidId(recordId) &&
+        incoming().recordId == existing().recordId &&
+        isValidExtendedFamilyRecord(incoming()) &&
+        incoming().ownerUid == existing().ownerUid &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().updatedAt == request.time &&
+        incoming().diff(existing()).affectedKeys().hasOnly(['entityType', 'personName', 'motherName', 'grandfatherName', 'grandmotherName', 'uncleName', 'updatedAt']);
+      allow delete: if false;
+    }
+
+    match /academy_snapshots/{snapshotId} {
+      allow get: if isSignedIn() && isValidId(snapshotId) && (existing().ownerUid == request.auth.uid || isBootstrappedAdmin());
+      allow list: if isSignedIn() && existing().ownerUid == request.auth.uid;
+      allow create: if isSignedIn() &&
+        isValidId(snapshotId) &&
+        request.auth.uid == snapshotId &&
+        isValidAcademyCloudSnapshot(incoming()) &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time;
+      allow update: if isSignedIn() &&
+        isValidId(snapshotId) &&
+        request.auth.uid == snapshotId &&
+        isValidAcademyCloudSnapshot(incoming()) &&
+        incoming().ownerUid == existing().ownerUid &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().updatedAt == request.time &&
+        incoming().diff(existing()).affectedKeys().hasOnly(['academyName', 'studentsCount', 'sessionsCount', 'schemaVersion', 'updatedAt']);
+      allow delete: if false;
+    }
+  }
+}

@@ -84,6 +84,8 @@ export const StudentsView: React.FC = () => {
     admissionRequests,
     approveAdmissionAsStudent,
     updateAdmissionRequestStatus,
+    clearAllStudentsAndStartEmpty,
+    googleAuthUser,
     showToast,
   } = useAcademy();
 
@@ -101,6 +103,11 @@ export const StudentsView: React.FC = () => {
   const [editingStudent, setEditingStudent] = useState<Student | null>(null);
   const [formName, setFormName] = useState('');
   const [formGuardian, setFormGuardian] = useState('');
+  const [formMotherName, setFormMotherName] = useState('');
+  const [formGrandfatherName, setFormGrandfatherName] = useState('');
+  const [formGrandmotherName, setFormGrandmotherName] = useState('');
+  const [formUncleName, setFormUncleName] = useState('');
+  const [formGoogleEmail, setFormGoogleEmail] = useState('');
   const [formPhone, setFormPhone] = useState('');
   const [formPin, setFormPin] = useState('123456');
   const [formLevel, setFormLevel] = useState<StudentLevel>('مبتدئ');
@@ -224,11 +231,16 @@ export const StudentsView: React.FC = () => {
     setEditingStudent(null);
     setFormName('');
     setFormGuardian('');
+    setFormMotherName('');
+    setFormGrandfatherName('');
+    setFormGrandmotherName('');
+    setFormUncleName('');
+    setFormGoogleEmail(googleAuthUser?.email || '');
     setFormPhone('010');
     setFormPin('123456');
     setFormLevel('مبتدئ');
     setFormRiwayah('حفص عن عاصم');
-    setFormCircle(circles[0]?.name || 'حلقة النور والبيان (الناشئة)');
+    setFormCircle(circles[0]?.name || 'الحلقة الثالثة - التأسيس والناشئة');
     setFormPlan('متوازنة');
     setFormLinkLogic('الآية التالية');
     setFormDays([0, 2, 4]);
@@ -244,6 +256,11 @@ export const StudentsView: React.FC = () => {
     setEditingStudent(st);
     setFormName(st.name);
     setFormGuardian(st.guardianName);
+    setFormMotherName(st.motherName || '');
+    setFormGrandfatherName(st.grandfatherName || '');
+    setFormGrandmotherName(st.grandmotherName || '');
+    setFormUncleName(st.uncleName || '');
+    setFormGoogleEmail(st.googleEmail || '');
     setFormPhone(st.whatsappPhone);
     setFormPin(st.guardianPin || '123456');
     setFormLevel(st.level);
@@ -280,6 +297,12 @@ export const StudentsView: React.FC = () => {
       id: editingStudent?.id,
       name: formName.trim(),
       guardianName: formGuardian.trim() || 'ولي الأمر',
+      motherName: formMotherName.trim() || undefined,
+      grandfatherName: formGrandfatherName.trim() || undefined,
+      grandmotherName: formGrandmotherName.trim() || undefined,
+      uncleName: formUncleName.trim() || undefined,
+      googleEmail: formGoogleEmail.trim() || editingStudent?.googleEmail || undefined,
+      googleUid: editingStudent?.googleUid || googleAuthUser?.uid || undefined,
       whatsappPhone: normalizeWhatsAppPhone(formPhone),
       guardianPin: formPin.trim() || '123456',
       level: formLevel,
@@ -418,6 +441,18 @@ export const StudentsView: React.FC = () => {
               طابور القبول ({admissionRequests.filter((r) => r.status !== 'تم القبول').length})
             </span>
           </button>
+
+          {students.length > 0 && (
+            <button
+              type="button"
+              onClick={clearAllStudentsAndStartEmpty}
+              className="flex items-center justify-center gap-1.5 px-3.5 py-2.5 rounded-xl bg-rose-50 dark:bg-rose-950/50 hover:bg-rose-100 border border-rose-300 dark:border-rose-800 text-rose-700 dark:text-rose-300 text-xs font-extrabold transition-colors cursor-pointer shrink-0"
+              title="بدء نظام جديد فارغ وتفريغ قائمة الطلاب التجريبيين"
+            >
+              <Trash2 className="w-4 h-4" />
+              <span>بدء نظام جديد فارغ</span>
+            </button>
+          )}
 
           <button
             onClick={openAddModal}
@@ -665,7 +700,35 @@ export const StudentsView: React.FC = () => {
                         <span className="tabular-nums font-mono">
                           PIN البوابة: {activeStudent.guardianPin}
                         </span>
+                        {activeStudent.googleUid && (
+                          <>
+                            <span>·</span>
+                            <span className="px-2 py-0.5 rounded-md bg-white/15 text-emerald-100 font-mono text-[10px]">
+                              Google UID: {activeStudent.googleUid.slice(0, 10)}...
+                            </span>
+                          </>
+                        )}
                       </div>
+                      {(activeStudent.motherName ||
+                        activeStudent.grandfatherName ||
+                        activeStudent.grandmotherName ||
+                        activeStudent.uncleName) && (
+                        <div className="flex flex-wrap items-center gap-2 text-[11px] text-emerald-100 mt-2 bg-black/15 px-3 py-1.5 rounded-xl border border-white/10">
+                          <span className="font-extrabold text-[#dfbd69]">بيانات العائلة:</span>
+                          {activeStudent.motherName && (
+                            <span>الوالدة: {activeStudent.motherName}</span>
+                          )}
+                          {activeStudent.grandfatherName && (
+                            <span>• الجد: {activeStudent.grandfatherName}</span>
+                          )}
+                          {activeStudent.grandmotherName && (
+                            <span>• الجدة: {activeStudent.grandmotherName}</span>
+                          )}
+                          {activeStudent.uncleName && (
+                            <span>• العم: {activeStudent.uncleName}</span>
+                          )}
+                        </div>
+                      )}
                     </div>
                   </div>
 
@@ -1786,7 +1849,7 @@ export const StudentsView: React.FC = () => {
                     required
                     value={formName}
                     onChange={(e) => setFormName(e.target.value)}
-                    placeholder="مثال: عبد الله محمد الشاطبي"
+                    placeholder="مثال: طالب ١"
                     className="w-full px-3.5 py-2.5 rounded-xl border border-neutral-300 dark:border-emerald-900 bg-[#f6f7f2] dark:bg-[#0b1711] text-xs font-semibold"
                   />
                 </div>
@@ -1797,8 +1860,77 @@ export const StudentsView: React.FC = () => {
                     required
                     value={formGuardian}
                     onChange={(e) => setFormGuardian(e.target.value)}
-                    placeholder="مثال: أ. محمد الشاطبي"
+                    placeholder="مثال: ولي أمر طالب ١"
                     className="w-full px-3.5 py-2.5 rounded-xl border border-neutral-300 dark:border-emerald-900 bg-[#f6f7f2] dark:bg-[#0b1711] text-xs font-semibold"
+                  />
+                </div>
+              </div>
+
+              {/* Extended Family Fields + Google Account Link */}
+              <div className="p-3.5 rounded-2xl bg-[#fcfaf2] dark:bg-[#0b1711] border border-[#c59b27]/40 space-y-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span className="text-xs font-extrabold text-[#145a3a] dark:text-[#dfbd69]">
+                    👨‍👩‍👧‍👦 البيانات العائلية الإضافية للطالب (ترتبط بمعرف Google وتحفظ في Firestore)
+                  </span>
+                  {(editingStudent?.googleUid || googleAuthUser?.uid) && (
+                    <span className="text-[10px] font-mono px-2 py-0.5 rounded-md bg-emerald-100 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-300">
+                      Google UID: {(editingStudent?.googleUid || googleAuthUser?.uid || '').slice(0, 12)}
+                    </span>
+                  )}
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                  <div>
+                    <label className="block text-[11px] font-bold mb-1">اسم الوالدة</label>
+                    <input
+                      type="text"
+                      value={formMotherName}
+                      onChange={(e) => setFormMotherName(e.target.value)}
+                      placeholder="اسم الوالدة"
+                      className="w-full px-3 py-2 rounded-xl border border-neutral-300 dark:border-emerald-900 bg-white dark:bg-[#12231a] text-xs font-semibold"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-bold mb-1">اسم الجد</label>
+                    <input
+                      type="text"
+                      value={formGrandfatherName}
+                      onChange={(e) => setFormGrandfatherName(e.target.value)}
+                      placeholder="اسم الجد"
+                      className="w-full px-3 py-2 rounded-xl border border-neutral-300 dark:border-emerald-900 bg-white dark:bg-[#12231a] text-xs font-semibold"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-bold mb-1">اسم الجدة</label>
+                    <input
+                      type="text"
+                      value={formGrandmotherName}
+                      onChange={(e) => setFormGrandmotherName(e.target.value)}
+                      placeholder="اسم الجدة"
+                      className="w-full px-3 py-2 rounded-xl border border-neutral-300 dark:border-emerald-900 bg-white dark:bg-[#12231a] text-xs font-semibold"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-bold mb-1">اسم العم</label>
+                    <input
+                      type="text"
+                      value={formUncleName}
+                      onChange={(e) => setFormUncleName(e.target.value)}
+                      placeholder="اسم العم"
+                      className="w-full px-3 py-2 rounded-xl border border-neutral-300 dark:border-emerald-900 bg-white dark:bg-[#12231a] text-xs font-semibold"
+                    />
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-[11px] font-bold mb-1">
+                    بريد Google المرتبط بالطالب / ولي الأمر (اختياري)
+                  </label>
+                  <input
+                    type="email"
+                    dir="ltr"
+                    value={formGoogleEmail}
+                    onChange={(e) => setFormGoogleEmail(e.target.value)}
+                    placeholder="student.account@gmail.com"
+                    className="w-full px-3 py-2 rounded-xl border border-neutral-300 dark:border-emerald-900 bg-white dark:bg-[#12231a] text-xs font-mono text-left"
                   />
                 </div>
               </div>

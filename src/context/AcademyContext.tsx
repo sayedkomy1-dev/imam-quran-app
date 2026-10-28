@@ -18,6 +18,7 @@ import {
   QuranRiwayah,
   SessionRecord,
   SmartBoardStroke,
+  StaffHierarchyRole,
   Student,
   StudentAccessibilityMode,
   StudentAccountStatus,
@@ -55,6 +56,15 @@ import {
   WLQSyncCore,
   canonicalJson,
 } from '../utils/wlqSyncCore';
+import {
+  auth,
+  GoogleAuthResult,
+  onAuthStateChanged,
+  signInWithGooglePopup,
+  signOutFromFirebase,
+  syncAcademySnapshotToFirestore,
+  syncExtendedFamilyRecordToFirestore,
+} from '../utils/firebaseClient';
 
 export type ActiveTab =
   | 'dashboard'
@@ -79,7 +89,12 @@ interface AcademyStore {
   userRole: UserRole;
   guardianStudentId: string | null;
   guardianSiblings: Student[];
+  googleAuthUser: GoogleAuthResult | null;
   loginAsTeacher: () => void;
+  loginWithGoogleEmail: (email: string, pin?: string) => { ok: boolean; error?: string };
+  startGoogleOAuthRedirect: (
+    targetPortal?: 'teacher' | 'supervisor' | 'guardian' | 'student'
+  ) => Promise<{ ok: boolean; error?: string }>;
   loginAsGuardian: (phone: string, pin: string) => { ok: boolean; error?: string };
   loginAsGuardianDirect: (studentId: string) => void;
   loginAsGuest: () => void;
@@ -109,12 +124,46 @@ interface AcademyStore {
   admissionRequests: AdmissionRequest[];
   auditLogs: OwnerAuditLogItem[];
   managedTeachers: TeacherAccessRecord[];
+  currentStaffTier: StaffHierarchyRole;
+  setCurrentStaffTier: (tier: StaffHierarchyRole) => void;
   cloudSyncStatus: 'synced' | 'syncing' | 'local_ready';
   lastSyncTimestamp: string;
   triggerCloudSyncNow: () => void;
   updateTeacherAccessStatus: (
     teacherId: string,
     status: 'active' | 'blocked' | 'pending'
+  ) => void;
+  deleteStaffMember: (staffId: string) => void;
+  addStaffMember: (input: {
+    name: string;
+    email: string;
+    roleTitle: string;
+    staffRole: 'supervisor' | 'teacher';
+    assignedCirclesCount?: number;
+    status?: 'active' | 'pending';
+    motherName?: string;
+    grandfatherName?: string;
+    grandmotherName?: string;
+    uncleName?: string;
+  }) => void;
+  updateStaffFamilyDetails: (
+    staffId: string,
+    family: {
+      motherName?: string;
+      grandfatherName?: string;
+      grandmotherName?: string;
+      uncleName?: string;
+    }
+  ) => void;
+  linkStudentGoogleAccount: (
+    studentId: string,
+    googleEmail: string,
+    family?: {
+      motherName?: string;
+      grandfatherName?: string;
+      grandmotherName?: string;
+      uncleName?: string;
+    }
   ) => void;
   sessionReminderPreview: '1hour' | '60min' | 'now' | null;
   setSessionReminderPreview: (mode: '1hour' | '60min' | 'now' | null) => void;
@@ -198,6 +247,8 @@ interface AcademyStore {
       note?: string;
       linkedErrorId?: string;
       linkedErrorType?: TimestampAudioFeedbackPin['linkedErrorType'];
+      teacherVoiceNoteDataUrl?: string;
+      teacherVoiceNoteDurationSec?: number;
     }
   ) => void;
   submitAdmissionRequest: (
@@ -300,6 +351,7 @@ interface AcademyStore {
     }
   ) => PublishedFamilyGuidanceNote;
   resetToSeedData: () => void;
+  clearAllStudentsAndStartEmpty: () => void;
   importFullBackup: (data: unknown) => boolean;
 }
 
@@ -482,17 +534,43 @@ export const AcademyProvider: React.FC<{ children: React.ReactNode }> = ({ child
     new Date().toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' })
   );
 
-  // Load initial state from localStorage or seed
+  // Load initial state from localStorage or seed (with automatic privacy anonymization migration)
   const loadInitialState = () => {
+    const circleNameMap: Record<string, string> = {
+      'حلقة الإمام الشاطبي (المتقنين)': 'الحلقة الأولى - المستوى المتقدم',
+      'حلقة الإمام ابن الجزري (المتوسط)': 'الحلقة الثانية - المستوى المتوسط',
+      'حلقة النور والبيان (الناشئة)': 'الحلقة الثالثة - التأسيس والناشئة',
+    };
+    const legacyStudentNameMap: Record<string, { name: string; guardian: string }> = {
+      'عمر بن الخطاب المنشاوي': { name: 'طالب ١', guardian: 'ولي أمر طالب ١' },
+      'عبد الله طارق الحصري': { name: 'طالب ٢', guardian: 'ولي أمر طالب ٢' },
+      'مريم أحمد الزهراني': { name: 'طالب ٣', guardian: 'ولي أمر طالب ٣' },
+      'يوسف محمود البنا': { name: 'طالب ٤', guardian: 'ولي أمر طالب ٤' },
+      'فاطمة الزهراء الشافعي': { name: 'طالب ٥', guardian: 'ولي أمر طالب ٥' },
+      'حمزة بن عبد المطلب العفاسي': { name: 'طالب ٦', guardian: 'ولي أمر طالب ٦' },
+      'أنس بن مالك الأنصاري': { name: 'طالب ٧', guardian: 'ولي أمر طالب ٧' },
+      'خديجة بنت خويلد القرشية': { name: 'طالب ٨', guardian: 'ولي أمر طالب ٨' },
+    };
+    const anonymizeTeacherName = (name?: string) => {
+      if (!name || name.includes('عبد الرحمن الشاطبي')) {
+        return 'المعلم المشرف';
+      }
+      return name;
+    };
+
     try {
       const raw = localStorage.getItem(STORAGE_KEY);
       if (raw) {
         const parsed = JSON.parse(raw);
-        if (parsed && Array.isArray(parsed.students) && parsed.students.length > 0) {
+        if (parsed && Array.isArray(parsed.students)) {
           const backfilledStudents = (parsed.students as Student[]).map((st) => {
             const seedMatch = INITIAL_STUDENTS.find((s) => s.id === st.id);
+            const anon = legacyStudentNameMap[st.name];
             return {
               ...st,
+              name: anon ? anon.name : st.name,
+              guardianName: anon ? anon.guardian : st.guardianName,
+              circle: circleNameMap[st.circle] || st.circle,
               foundationLevel: st.foundationLevel ?? seedMatch?.foundationLevel ?? (st.level === 'مبتدئ' ? 2 : 8),
               completedFoundationLevels:
                 st.completedFoundationLevels ??
@@ -508,17 +586,38 @@ export const AcademyProvider: React.FC<{ children: React.ReactNode }> = ({ child
               fiveFortressesLog: st.fiveFortressesLog ?? seedMatch?.fiveFortressesLog ?? {},
             };
           });
+          const migratedCircles = ((parsed.circles || INITIAL_CIRCLES) as CircleGroup[]).map((c) => ({
+            ...c,
+            name: circleNameMap[c.name] || c.name,
+            teacherName: anonymizeTeacherName(c.teacherName),
+          }));
+          const rawSettings = { ...INITIAL_SETTINGS, ...(parsed.settings || {}) } as AcademySettings;
+          const migratedSettings: AcademySettings = {
+            ...rawSettings,
+            teacherName: anonymizeTeacherName(rawSettings.teacherName),
+            teacherPin: rawSettings.teacherPin || '1234',
+          };
+          const migratedRatings = ((parsed.teacherRatings || INITIAL_TEACHER_RATINGS) as TeacherRatingRecord[]).map((r) => {
+            const anon = legacyStudentNameMap[r.studentName];
+            return anon
+              ? { ...r, studentName: anon.name, guardianName: anon.guardian }
+              : r;
+          });
+          const migratedSubmissions = ((parsed.homeSubmissions || INITIAL_HOME_SUBMISSIONS) as HomePracticeSubmission[]).map((h) => {
+            const anon = legacyStudentNameMap[h.studentName];
+            return anon ? { ...h, studentName: anon.name } : h;
+          });
           return {
             students: backfilledStudents,
             sessions: (parsed.sessions || INITIAL_SESSIONS) as SessionRecord[],
-            circles: (parsed.circles || INITIAL_CIRCLES) as CircleGroup[],
+            circles: migratedCircles,
             exams: (parsed.exams || INITIAL_EXAMS) as ExamRecord[],
             ijazahs: (parsed.ijazahs || INITIAL_IJAZAHS) as IjazahRecord[],
             tasks: (parsed.tasks || INITIAL_TASKS) as TaskItem[],
-            settings: { ...INITIAL_SETTINGS, ...(parsed.settings || {}) } as AcademySettings,
+            settings: migratedSettings,
             boardStrokes: (parsed.boardStrokes || {}) as Record<string, SmartBoardStroke[]>,
-            teacherRatings: (parsed.teacherRatings || INITIAL_TEACHER_RATINGS) as TeacherRatingRecord[],
-            homeSubmissions: (parsed.homeSubmissions || INITIAL_HOME_SUBMISSIONS) as HomePracticeSubmission[],
+            teacherRatings: migratedRatings,
+            homeSubmissions: migratedSubmissions,
           };
         }
       }
@@ -613,13 +712,13 @@ export const AcademyProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const [admissionRequests, setAdmissionRequests] = useState<AdmissionRequest[]>([
     {
       id: 'adm-101',
-      studentName: 'عمر عبد العزيز المغربي',
+      studentName: 'متقدم جديد ١',
       age: 11,
-      guardianName: 'أ. عبد العزيز المغربي',
+      guardianName: 'ولي أمر متقدم ١',
       whatsappPhone: '201098765432',
       guardianPhone: '201098765432',
-      countryAndTimezone: 'برلين / أوروبا الوسطى (GMT+1)',
-      countryOrTimezone: 'برلين / أوروبا الوسطى (GMT+1)',
+      countryAndTimezone: 'توقيت أوروبا الوسطى (GMT+1)',
+      countryOrTimezone: 'توقيت أوروبا الوسطى (GMT+1)',
       preferredRiwayah: 'ورش عن نافع',
       requestedRiwayah: 'ورش عن نافع',
       currentLevel: 'متوسط',
@@ -633,13 +732,13 @@ export const AcademyProvider: React.FC<{ children: React.ReactNode }> = ({ child
     },
     {
       id: 'adm-102',
-      studentName: 'مريم طارق الأنصاري',
+      studentName: 'متقدم جديد ٢',
       age: 7,
-      guardianName: 'د. طارق الأنصاري',
+      guardianName: 'ولي أمر متقدم ٢',
       whatsappPhone: '966501122334',
       guardianPhone: '966501122334',
-      countryAndTimezone: 'مكة المكرمة / الرياض (GMT+3)',
-      countryOrTimezone: 'مكة المكرمة / الرياض (GMT+3)',
+      countryAndTimezone: 'توقيت مكة المكرمة (GMT+3)',
+      countryOrTimezone: 'توقيت مكة المكرمة (GMT+3)',
       preferredRiwayah: 'حفص عن عاصم',
       requestedRiwayah: 'حفص عن عاصم',
       currentLevel: 'مبتدئ',
@@ -649,7 +748,7 @@ export const AcademyProvider: React.FC<{ children: React.ReactNode }> = ({ child
       preferredTime: '16:30',
       status: 'تم تحديد المستوى',
       createdAt: getLocalDateString(-1),
-      notes: 'تم التواصل عبر واتساب الأكاديمية وجاهزة للقبول في حلقة الناشئة.',
+      notes: 'تم التواصل عبر واتساب الأكاديمية وجاهز للقبول في الحلقة الثالثة.',
     },
   ]);
 
@@ -664,7 +763,7 @@ export const AcademyProvider: React.FC<{ children: React.ReactNode }> = ({ child
       category: 'إصدار شهادة أو إجازة',
       summary: 'توثيق إجازة قرآنية بالسند المتصل برواية حفص عن عاصم وإصدار كود التحقق الرقمي',
       details: 'توثيق إجازة قرآنية بالسند المتصل برواية حفص عن عاصم وإصدار كود التحقق الرقمي',
-      targetName: initial.students[0]?.name || 'طالب بالأكاديمية',
+      targetName: initial.students[0]?.name || 'طالب ١',
     },
     {
       id: 'aud-2',
@@ -676,7 +775,7 @@ export const AcademyProvider: React.FC<{ children: React.ReactNode }> = ({ child
       category: 'سداد رسوم مالية',
       summary: 'تسجيل سداد اشتراك شهري وإصدار إيصال رقمي معتمد بختم الأكاديمية',
       details: 'تسجيل سداد اشتراك شهري وإصدار إيصال رقمي معتمد بختم الأكاديمية',
-      targetName: initial.students[1]?.name || 'طالب بالأكاديمية',
+      targetName: initial.students[1]?.name || 'طالب ٢',
     },
     {
       id: 'aud-3',
@@ -688,39 +787,85 @@ export const AcademyProvider: React.FC<{ children: React.ReactNode }> = ({ child
       category: 'تعديل بيانات طالب',
       summary: 'تحديث بيانات الرواية القرآنية وخطة الحفظ والربط في ملف الطالب',
       details: 'تحديث بيانات الرواية القرآنية وخطة الحفظ والربط في ملف الطالب',
-      targetName: initial.students[2]?.name || 'طالب بالأكاديمية',
+      targetName: initial.students[2]?.name || 'طالب ٣',
     },
   ]);
 
-  const [managedTeachers, setManagedTeachers] = useState<TeacherAccessRecord[]>([
-    {
-      id: 'tch-owner-1',
-      name: initial.settings.teacherName || 'الشيخ المقرئ المشرف العام',
-      email: SUPABASE_OFFICIAL_CONFIG.ownerEmail,
-      roleTitle: 'المالك والمشرف العام (Owner)',
-      status: 'active',
-      lastSyncAt: getLocalDateString(0),
-      assignedCirclesCount: 3,
-    },
-    {
-      id: 'tch-2',
-      name: 'الشيخ عبد الرحمن القارئ (محفظ الإتقان)',
-      email: 'abdulrahman.teacher@welivequran.com',
-      roleTitle: 'معلم حلقات الحفظ والمراجعة',
-      status: 'active',
-      lastSyncAt: getLocalDateString(0),
-      assignedCirclesCount: 2,
-    },
-    {
-      id: 'tch-3',
-      name: 'الشيخ محمود الشافعي (معلم التأسيس)',
-      email: 'mahmoud.foundation@welivequran.com',
-      roleTitle: 'معلم منهج الإمام للتأسيس الهجين',
-      status: 'pending',
-      lastSyncAt: getLocalDateString(-1),
-      assignedCirclesCount: 1,
-    },
-  ]);
+  const [currentStaffTier, setCurrentStaffTier] = useState<StaffHierarchyRole>('owner');
+
+  const [managedTeachers, setManagedTeachers] = useState<TeacherAccessRecord[]>(() => {
+    try {
+      const saved = localStorage.getItem('imam_managed_staff_v12');
+      if (saved) {
+        const parsed = JSON.parse(saved) as TeacherAccessRecord[];
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          return parsed;
+        }
+      }
+    } catch {
+      // ignore
+    }
+    return [
+      {
+        id: 'tch-owner-1',
+        name: initial.settings.teacherName || 'المالك والمشرف العام',
+        email: SUPABASE_OFFICIAL_CONFIG.ownerEmail,
+        roleTitle: 'المالك العام للأكاديمية',
+        staffRole: 'owner',
+        status: 'active',
+        lastSyncAt: getLocalDateString(0),
+        assignedCirclesCount: 3,
+      },
+      {
+        id: 'sup-1',
+        name: 'المشرف الأكاديمي الأول',
+        email: 'supervisor1@welivequran.com',
+        roleTitle: 'مشرف عام الحلقات والمتابعة',
+        staffRole: 'supervisor',
+        status: 'active',
+        lastSyncAt: getLocalDateString(0),
+        assignedCirclesCount: 3,
+      },
+      {
+        id: 'sup-2',
+        name: 'مشرف الجودة والاختبارات',
+        email: 'supervisor2@welivequran.com',
+        roleTitle: 'مشرف الاختبارات والإجازات',
+        staffRole: 'supervisor',
+        status: 'pending',
+        lastSyncAt: getLocalDateString(-1),
+        assignedCirclesCount: 2,
+      },
+      {
+        id: 'tch-2',
+        name: 'معلم الحلقات المتقدمة',
+        email: 'teacher1@welivequran.com',
+        roleTitle: 'محفظ حلقات الحفظ والمراجعة',
+        staffRole: 'teacher',
+        status: 'active',
+        lastSyncAt: getLocalDateString(0),
+        assignedCirclesCount: 2,
+      },
+      {
+        id: 'tch-3',
+        name: 'معلم حلقات التأسيس',
+        email: 'foundation@welivequran.com',
+        roleTitle: 'محفظ منهج الإمام للتأسيس الهجين',
+        staffRole: 'teacher',
+        status: 'pending',
+        lastSyncAt: getLocalDateString(-1),
+        assignedCirclesCount: 1,
+      },
+    ];
+  });
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('imam_managed_staff_v12', JSON.stringify(managedTeachers));
+    } catch {
+      // ignore
+    }
+  }, [managedTeachers]);
 
   const recordAuditLog = (
     actionCategory: OwnerAuditLogItem['actionCategory'],
@@ -751,6 +896,20 @@ export const AcademyProvider: React.FC<{ children: React.ReactNode }> = ({ child
     teacherId: string,
     status: 'active' | 'blocked' | 'pending'
   ) => {
+    const target = managedTeachers.find((t) => t.id === teacherId);
+    if (!target) return;
+
+    const targetRole = target.staffRole || 'teacher';
+    if (targetRole === 'owner') {
+      showToast('لا يمكن إيقاف أو تعليق حساب المالك العام للأكاديمية', 'error');
+      return;
+    }
+
+    if (targetRole === 'supervisor' && currentStaffTier !== 'owner') {
+      showToast('إدارة صلاحيات المشرفين (قبول أو إيقاف) متاحة للمالك العام فقط', 'error');
+      return;
+    }
+
     setManagedTeachers((prev) =>
       prev.map((t) =>
         t.id === teacherId
@@ -758,21 +917,251 @@ export const AcademyProvider: React.FC<{ children: React.ReactNode }> = ({ child
           : t
       )
     );
-    const target = managedTeachers.find((t) => t.id === teacherId);
+
+    const roleLabel = targetRole === 'supervisor' ? 'المشرف' : 'المحفظ';
+    const actionLabel =
+      status === 'active'
+        ? 'قبول وتفعيل'
+        : status === 'blocked'
+        ? 'إيقاف مؤقت'
+        : 'تعليق للمراجعة';
+
     recordAuditLog(
       'صلاحيات وأمان',
-      `تحديث حالة صلاحية المعلم (${target?.name || teacherId}) إلى (${status})`,
-      target?.name || teacherId
+      `${actionLabel} لحساب ${roleLabel} (${target.name} — ${target.email}) بواسطة ${
+        currentStaffTier === 'owner' ? 'المالك العام' : 'المشرف'
+      }`,
+      target.name
     );
     showToast(
-      `تم تحديث صلاحية المعلم (${target?.name || ''}) إلى (${
-        status === 'active'
-          ? 'نشط ✓'
-          : status === 'blocked'
-          ? 'محظور ⛔'
-          : 'قيد المراجعة ⏳'
-      })`,
+      `تم ${actionLabel} حساب ${roleLabel} (${target.name}) بنجاح`,
       status === 'blocked' ? 'error' : 'success'
+    );
+  };
+
+  const deleteStaffMember = (staffId: string) => {
+    const target = managedTeachers.find((t) => t.id === staffId);
+    if (!target) return;
+
+    const targetRole = target.staffRole || 'teacher';
+    if (targetRole === 'owner') {
+      showToast('لا يمكن حذف حساب المالك العام للأكاديمية', 'error');
+      return;
+    }
+
+    if (targetRole === 'supervisor' && currentStaffTier !== 'owner') {
+      showToast('حذف حسابات المشرفين متاح للمالك العام فقط', 'error');
+      return;
+    }
+
+    setManagedTeachers((prev) => prev.filter((t) => t.id !== staffId));
+    const roleLabel = targetRole === 'supervisor' ? 'المشرف' : 'المحفظ';
+    recordAuditLog(
+      'صلاحيات وأمان',
+      `حذف نهائي لحساب ${roleLabel} (${target.name} — ${target.email}) بواسطة ${
+        currentStaffTier === 'owner' ? 'المالك العام' : 'المشرف'
+      }`,
+      target.name
+    );
+    showToast(`تم حذف حساب ${roleLabel} (${target.name}) نهائياً من النظام`, 'info');
+  };
+
+  const addStaffMember = (input: {
+    name: string;
+    email: string;
+    roleTitle: string;
+    staffRole: 'supervisor' | 'teacher';
+    assignedCirclesCount?: number;
+    status?: 'active' | 'pending';
+    motherName?: string;
+    grandfatherName?: string;
+    grandmotherName?: string;
+    uncleName?: string;
+  }) => {
+    const cleanEmail = input.email.trim().toLowerCase();
+    if (!cleanEmail || !cleanEmail.includes('@')) {
+      showToast('يرجى إدخال بريد Google صحيح', 'error');
+      return;
+    }
+
+    if (input.staffRole === 'supervisor' && currentStaffTier !== 'owner') {
+      showToast('إضافة مشرف جديد متاحة للمالك العام فقط', 'error');
+      return;
+    }
+
+    const exists = managedTeachers.some(
+      (t) => t.email.toLowerCase() === cleanEmail
+    );
+    if (exists) {
+      showToast('هذا البريد الإلكتروني مسجل بالفعل في قائمة المشرفين والمحفظين', 'error');
+      return;
+    }
+
+    const newRecord: TeacherAccessRecord = {
+      id: `${input.staffRole === 'supervisor' ? 'sup' : 'tch'}-${Date.now()}`,
+      name: input.name.trim() || cleanEmail.split('@')[0],
+      email: cleanEmail,
+      roleTitle:
+        input.roleTitle.trim() ||
+        (input.staffRole === 'supervisor'
+          ? 'مشرف الحلقات والمتابعة'
+          : 'محفظ الحلقات القرآنية'),
+      staffRole: input.staffRole,
+      status: input.status || 'active',
+      lastSyncAt: getLocalDateString(0),
+      assignedCirclesCount: input.assignedCirclesCount ?? 1,
+      googleUid: auth.currentUser?.uid,
+      motherName: input.motherName?.trim() || undefined,
+      grandfatherName: input.grandfatherName?.trim() || undefined,
+      grandmotherName: input.grandmotherName?.trim() || undefined,
+      uncleName: input.uncleName?.trim() || undefined,
+    };
+
+    setManagedTeachers((prev) => [newRecord, ...prev]);
+
+    void syncExtendedFamilyRecordToFirestore({
+      recordId: newRecord.id,
+      entityType: input.staffRole,
+      personName: newRecord.name,
+      motherName: newRecord.motherName,
+      grandfatherName: newRecord.grandfatherName,
+      grandmotherName: newRecord.grandmotherName,
+      uncleName: newRecord.uncleName,
+    }).catch(() => {
+      // non-blocking if not signed into Firebase yet
+    });
+
+    const roleLabel = input.staffRole === 'supervisor' ? 'مشرف' : 'محفظ';
+    recordAuditLog(
+      'صلاحيات وأمان',
+      `إضافة واعتماد ${roleLabel} جديد بحساب Google (${newRecord.name} — ${newRecord.email}) وحفظ بيانات العائلة في Firestore`,
+      newRecord.name
+    );
+    showToast(`تمت إضافة ${roleLabel} جديد (${newRecord.name}) وربطه بحساب Google و Firestore بنجاح`, 'success');
+  };
+
+  const updateStaffFamilyDetails = (
+    staffId: string,
+    family: {
+      motherName?: string;
+      grandfatherName?: string;
+      grandmotherName?: string;
+      uncleName?: string;
+    }
+  ) => {
+    const target = managedTeachers.find((t) => t.id === staffId);
+    if (!target) return;
+
+    const cleanMother = family.motherName?.trim() || '';
+    const cleanGrandfather = family.grandfatherName?.trim() || '';
+    const cleanGrandmother = family.grandmotherName?.trim() || '';
+    const cleanUncle = family.uncleName?.trim() || '';
+
+    setManagedTeachers((prev) =>
+      prev.map((t) =>
+        t.id === staffId
+          ? {
+              ...t,
+              googleUid: t.googleUid || auth.currentUser?.uid,
+              motherName: cleanMother || undefined,
+              grandfatherName: cleanGrandfather || undefined,
+              grandmotherName: cleanGrandmother || undefined,
+              uncleName: cleanUncle || undefined,
+              lastSyncAt: getLocalDateString(0),
+            }
+          : t
+      )
+    );
+
+    void syncExtendedFamilyRecordToFirestore({
+      recordId: target.id,
+      entityType: target.staffRole === 'supervisor' ? 'supervisor' : 'teacher',
+      personName: target.name,
+      motherName: cleanMother,
+      grandfatherName: cleanGrandfather,
+      grandmotherName: cleanGrandmother,
+      uncleName: cleanUncle,
+    }).catch(() => {
+      // non-blocking
+    });
+
+    recordAuditLog(
+      'صلاحيات وأمان',
+      `تحديث بيانات العائلة (الوالدة، الجد، الجدة، العم) للمحفظ/المشرف (${target.name}) وربطها بمعرف Google في Firestore`,
+      target.name
+    );
+    showToast(
+      `تم حفظ بيانات العائلة (الوالدة، الجد، الجدة، العم) للمحفظ (${target.name}) ومزامنتها مع حساب Google و Firestore ✓`,
+      'success'
+    );
+  };
+
+  const linkStudentGoogleAccount = (
+    studentId: string,
+    googleEmail: string,
+    family?: {
+      motherName?: string;
+      grandfatherName?: string;
+      grandmotherName?: string;
+      uncleName?: string;
+    }
+  ) => {
+    const cleanEmail = googleEmail.trim().toLowerCase();
+    const targetStudent = students.find((s) => s.id === studentId);
+    const mergedMother =
+      family?.motherName !== undefined
+        ? family.motherName.trim()
+        : targetStudent?.motherName || '';
+    const mergedGrandfather =
+      family?.grandfatherName !== undefined
+        ? family.grandfatherName.trim()
+        : targetStudent?.grandfatherName || '';
+    const mergedGrandmother =
+      family?.grandmotherName !== undefined
+        ? family.grandmotherName.trim()
+        : targetStudent?.grandmotherName || '';
+    const mergedUncle =
+      family?.uncleName !== undefined
+        ? family.uncleName.trim()
+        : targetStudent?.uncleName || '';
+
+    setStudents((prev) =>
+      prev.map((st) =>
+        st.id === studentId
+          ? {
+              ...st,
+              googleEmail: cleanEmail || undefined,
+              googleUid: st.googleUid || auth.currentUser?.uid,
+              motherName: mergedMother || undefined,
+              grandfatherName: mergedGrandfather || undefined,
+              grandmotherName: mergedGrandmother || undefined,
+              uncleName: mergedUncle || undefined,
+            }
+          : st
+      )
+    );
+
+    const stName = targetStudent?.name || 'الطالب';
+    void syncExtendedFamilyRecordToFirestore({
+      recordId: studentId,
+      entityType: 'student',
+      personName: stName,
+      motherName: mergedMother,
+      grandfatherName: mergedGrandfather,
+      grandmotherName: mergedGrandmother,
+      uncleName: mergedUncle,
+    }).catch(() => {
+      // non-blocking
+    });
+
+    recordAuditLog(
+      'تعديل بيانات طالب',
+      `ربط حساب Google (${cleanEmail || 'إلغاء الربط'}) وحفظ بيانات العائلة (الوالدة، الجد، الجدة، العم) للطالب (${stName}) في Firestore`,
+      stName
+    );
+    showToast(
+      `تم تحديث ربط حساب Google وبيانات العائلة للطالب (${stName}) في Firestore بنجاح`,
+      'success'
     );
   };
 
@@ -833,6 +1222,13 @@ export const AcademyProvider: React.FC<{ children: React.ReactNode }> = ({ child
     } catch {
       // ignore storage quota
     }
+    void syncAcademySnapshotToFirestore({
+      academyName: settings.academyName,
+      studentsCount: students.length,
+      sessionsCount: sessions.length,
+    }).catch(() => {
+      // non-blocking
+    });
     setTimeout(() => {
       setCloudSyncStatus('synced');
       setLastSyncTimestamp(
@@ -1088,6 +1484,349 @@ export const AcademyProvider: React.FC<{ children: React.ReactNode }> = ({ child
     showToast('مرحباً بك في منصة المعلم والمشرف — أكاديمية الإمام', 'success');
   };
 
+  const isOwnerEmail = (email: string) => {
+    const lower = email.trim().toLowerCase();
+    return (
+      lower === SUPABASE_OFFICIAL_CONFIG.ownerEmail.toLowerCase() ||
+      lower === 'sayedkomy2@gmail.com'
+    );
+  };
+
+  const loginWithGoogleEmail = (email: string, pin?: string): { ok: boolean; error?: string } => {
+    const cleanEmail = email.trim().toLowerCase();
+    const expectedPin = (settings.teacherPin || '1234').trim();
+    if (!cleanEmail || !cleanEmail.includes('@')) {
+      return { ok: false, error: 'يرجى إدخال البريد الإلكتروني الخاص بحساب Google للمحفظ أو المشرف.' };
+    }
+    if (pin !== undefined && pin.trim() !== expectedPin) {
+      return { ok: false, error: 'رمز مرور المعلم / المشرف (PIN) غير صحيح.' };
+    }
+
+    if (isOwnerEmail(cleanEmail)) {
+      setCurrentStaffTier('owner');
+    } else {
+      const matchedStaff = managedTeachers.find(
+        (t) => t.email.toLowerCase() === cleanEmail
+      );
+      if (matchedStaff) {
+        if (matchedStaff.status === 'blocked') {
+          return {
+            ok: false,
+            error: `هذا الحساب (${
+              matchedStaff.staffRole === 'supervisor' ? 'المشرف' : 'المحفظ'
+            }) موقوف حالياً من قِبل الإدارة.`,
+          };
+        }
+        if (matchedStaff.status === 'pending') {
+          return {
+            ok: false,
+            error: `حساب (${
+              matchedStaff.staffRole === 'supervisor' ? 'المشرف' : 'المحفظ'
+            }) قيد المراجعة وبانتظار القبول والتفعيل من المالك أو المشرف.`,
+          };
+        }
+        setCurrentStaffTier(matchedStaff.staffRole || 'teacher');
+      } else {
+        setCurrentStaffTier('teacher');
+      }
+    }
+
+    hasNotifiedOnSessionRef.current = false;
+    setUserRole('teacher');
+    setIsLoggedIn(true);
+    setActiveTab('dashboard');
+    try {
+      localStorage.setItem(
+        SUPABASE_OFFICIAL_CONFIG.trustStorageKey,
+        JSON.stringify({
+          role: 'teacher',
+          email: cleanEmail,
+          provider: 'google',
+          trustedAt: new Date().toISOString(),
+        })
+      );
+    } catch {
+      // ignore storage errors
+    }
+    recordAuditLog(
+      'صلاحيات وأمان',
+      `تسجيل دخول بحساب Google للمحفظ/المشرف (${cleanEmail})`,
+      cleanEmail
+    );
+    showToast(`تم تسجيل الدخول بنجاح عبر حساب Google (${cleanEmail})`, 'success');
+    return { ok: true };
+  };
+
+  const [googleAuthUser, setGoogleAuthUser] = useState<GoogleAuthResult | null>(null);
+
+  // Listen to Firebase Auth state changes
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, (fbUser) => {
+      if (fbUser) {
+        setGoogleAuthUser({
+          uid: fbUser.uid,
+          email: fbUser.email || '',
+          displayName:
+            fbUser.displayName || fbUser.email?.split('@')[0] || 'مستخدم Google',
+          photoURL: fbUser.photoURL,
+          emailVerified: fbUser.emailVerified,
+        });
+      } else {
+        setGoogleAuthUser(null);
+      }
+    });
+    return () => unsubscribe();
+  }, []);
+
+  const startGoogleOAuthRedirect = async (
+    targetPortal: 'teacher' | 'supervisor' | 'guardian' | 'student' = 'teacher'
+  ): Promise<{ ok: boolean; error?: string }> => {
+    try {
+      const result = await signInWithGooglePopup(targetPortal);
+      const cleanEmail = (result.email || '').trim().toLowerCase();
+
+      if (targetPortal === 'teacher' || targetPortal === 'supervisor') {
+        const ownerAccount = isOwnerEmail(cleanEmail);
+        const existingStaff = managedTeachers.find(
+          (t) => t.email.toLowerCase() === cleanEmail
+        );
+
+        if (!ownerAccount && existingStaff) {
+          if (existingStaff.status === 'blocked') {
+            const blockedMsg = `هذا الحساب (${
+              existingStaff.staffRole === 'supervisor' ? 'المشرف' : 'المحفظ'
+            }) موقوف مؤقتاً من قِبل المالك أو المشرف العام.`;
+            showToast(blockedMsg, 'error');
+            return { ok: false, error: blockedMsg };
+          }
+          if (existingStaff.status === 'pending') {
+            const pendingMsg = `حسابك (${
+              existingStaff.staffRole === 'supervisor' ? 'المشرف' : 'المحفظ'
+            }) بانتظار الموافقة والتفعيل من قِبل المالك أو المشرف العام.`;
+            showToast(pendingMsg, 'info');
+            return { ok: false, error: pendingMsg };
+          }
+        }
+
+        // Integrate Google profile data + extended family fields into TeacherAccessRecord model
+        const staffRecordId = existingStaff?.id || `${targetPortal}-${result.uid.slice(0, 10)}`;
+        const staffPersonName =
+          result.displayName || existingStaff?.name || cleanEmail.split('@')[0];
+        const staffMother = existingStaff?.motherName || result.motherName || '';
+        const staffGrandfather =
+          existingStaff?.grandfatherName || result.grandfatherName || '';
+        const staffGrandmother =
+          existingStaff?.grandmotherName || result.grandmotherName || '';
+        const staffUncle = existingStaff?.uncleName || result.uncleName || '';
+
+        setManagedTeachers((prev) => {
+          const found = prev.some((t) => t.email.toLowerCase() === cleanEmail);
+          if (found) {
+            return prev.map((t) =>
+              t.email.toLowerCase() === cleanEmail
+                ? {
+                    ...t,
+                    name: result.displayName || t.name,
+                    googleUid: result.uid,
+                    photoURL: result.photoURL,
+                    motherName: t.motherName || result.motherName,
+                    grandfatherName: t.grandfatherName || result.grandfatherName,
+                    grandmotherName: t.grandmotherName || result.grandmotherName,
+                    uncleName: t.uncleName || result.uncleName,
+                    lastSyncAt: getLocalDateString(0),
+                  }
+                : t
+            );
+          }
+          const createdRole: StaffHierarchyRole = ownerAccount
+            ? 'owner'
+            : targetPortal === 'supervisor'
+            ? 'supervisor'
+            : 'teacher';
+          const newStaff: TeacherAccessRecord = {
+            id: staffRecordId,
+            name: staffPersonName,
+            email: cleanEmail,
+            roleTitle:
+              createdRole === 'owner'
+                ? 'المالك العام للأكاديمية'
+                : createdRole === 'supervisor'
+                ? 'مشرف الحلقات والمتابعة (Google)'
+                : 'محفظ الحلقات القرآنية (Google)',
+            staffRole: createdRole,
+            status: 'active',
+            lastSyncAt: getLocalDateString(0),
+            assignedCirclesCount: 1,
+            googleUid: result.uid,
+            photoURL: result.photoURL,
+            motherName: staffMother || undefined,
+            grandfatherName: staffGrandfather || undefined,
+            grandmotherName: staffGrandmother || undefined,
+            uncleName: staffUncle || undefined,
+          };
+          return [newStaff, ...prev];
+        });
+
+        void syncExtendedFamilyRecordToFirestore({
+          recordId: staffRecordId,
+          entityType: targetPortal === 'supervisor' ? 'supervisor' : 'teacher',
+          personName: staffPersonName,
+          motherName: staffMother,
+          grandfatherName: staffGrandfather,
+          grandmotherName: staffGrandmother,
+          uncleName: staffUncle,
+        }).catch(() => {
+          // non-blocking
+        });
+
+        if (ownerAccount) {
+          setCurrentStaffTier('owner');
+        } else if (existingStaff?.staffRole) {
+          setCurrentStaffTier(existingStaff.staffRole);
+        } else {
+          setCurrentStaffTier(targetPortal === 'supervisor' ? 'supervisor' : 'teacher');
+        }
+
+        hasNotifiedOnSessionRef.current = false;
+        setUserRole('teacher');
+        setIsLoggedIn(true);
+        setActiveTab(targetPortal === 'supervisor' ? 'settings' : 'dashboard');
+      } else {
+        // Guardian or Student Portal: Integrate Google profile data + family fields with Student model
+        const matchedStudent =
+          students.find(
+            (s) =>
+              (s.accountStatus ?? 'نشط') !== 'مؤرشف' &&
+              (s.googleEmail?.toLowerCase() === cleanEmail || s.googleUid === result.uid)
+          ) ||
+          students.find((s) => (s.accountStatus ?? 'نشط') !== 'مؤرشف') ||
+          students[0];
+
+        if (matchedStudent) {
+          const mergedMother = matchedStudent.motherName || result.motherName || '';
+          const mergedGrandfather =
+            matchedStudent.grandfatherName || result.grandfatherName || '';
+          const mergedGrandmother =
+            matchedStudent.grandmotherName || result.grandmotherName || '';
+          const mergedUncle = matchedStudent.uncleName || result.uncleName || '';
+
+          setStudents((prev) =>
+            prev.map((st) =>
+              st.id === matchedStudent.id
+                ? {
+                    ...st,
+                    googleUid: result.uid,
+                    googleEmail: cleanEmail || st.googleEmail,
+                    googleAvatarUrl: result.photoURL,
+                    motherName: mergedMother || st.motherName,
+                    grandfatherName: mergedGrandfather || st.grandfatherName,
+                    grandmotherName: mergedGrandmother || st.grandmotherName,
+                    uncleName: mergedUncle || st.uncleName,
+                  }
+                : st
+            )
+          );
+          setGuardianStudentId(matchedStudent.id);
+          setSelectedStudentId(matchedStudent.id);
+
+          void syncExtendedFamilyRecordToFirestore({
+            recordId: matchedStudent.id,
+            entityType: 'student',
+            personName: matchedStudent.name,
+            motherName: mergedMother,
+            grandfatherName: mergedGrandfather,
+            grandmotherName: mergedGrandmother,
+            uncleName: mergedUncle,
+          }).catch(() => {
+            // non-blocking
+          });
+        }
+        hasNotifiedOnSessionRef.current = false;
+        setUserRole('guardian');
+        setIsLoggedIn(true);
+      }
+
+      try {
+        localStorage.setItem(
+          SUPABASE_OFFICIAL_CONFIG.trustStorageKey,
+          JSON.stringify({
+            role:
+              targetPortal === 'guardian' || targetPortal === 'student'
+                ? 'guardian'
+                : 'teacher',
+            email: cleanEmail || SUPABASE_OFFICIAL_CONFIG.ownerEmail,
+            displayName: result.displayName,
+            uid: result.uid,
+            provider: 'firebase_google',
+            trustedAt: new Date().toISOString(),
+          })
+        );
+      } catch {
+        // ignore
+      }
+
+      void syncAcademySnapshotToFirestore({
+        academyName: settings.academyName,
+        studentsCount: students.length,
+        sessionsCount: sessions.length,
+      }).catch(() => {
+        // non-blocking
+      });
+
+      recordAuditLog(
+        'صلاحيات وأمان',
+        `تسجيل دخول رسمي وربط ملف Google (${result.displayName} — ${cleanEmail})`,
+        cleanEmail || result.displayName
+      );
+      showToast(
+        `مرحباً بك (${result.displayName}) — تم تسجيل الدخول بحساب Google بنجاح`,
+        'success'
+      );
+      return { ok: true };
+    } catch (err) {
+      const rawMessage = err instanceof Error ? err.message : String(err);
+      if (
+        rawMessage.includes('auth/popup-closed-by-user') ||
+        rawMessage.includes('auth/cancelled-popup-request')
+      ) {
+        const cancelMsg = 'تم إغلاق نافذة تسجيل الدخول بحساب Google قبل إتمام العملية.';
+        showToast(cancelMsg, 'info');
+        return { ok: false, error: cancelMsg };
+      }
+      const errMsg =
+        'تعذر إتمام الدخول عبر نافذة Google المنبثقة. تأكد من السماح بالنوافذ المنبثقة أو استخدم البريد والرمز.';
+      showToast(errMsg, 'error');
+      return { ok: false, error: errMsg };
+    }
+  };
+
+  // Handle Google OAuth callback hash (#access_token=...) if returning from OAuth redirect
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const hash = window.location.hash;
+    if (hash && hash.includes('access_token=')) {
+      hasNotifiedOnSessionRef.current = false;
+      setUserRole('teacher');
+      setIsLoggedIn(true);
+      setActiveTab('dashboard');
+      try {
+        localStorage.setItem(
+          SUPABASE_OFFICIAL_CONFIG.trustStorageKey,
+          JSON.stringify({
+            role: 'teacher',
+            email: SUPABASE_OFFICIAL_CONFIG.ownerEmail,
+            provider: 'google_oauth',
+            trustedAt: new Date().toISOString(),
+          })
+        );
+        window.history.replaceState(null, '', window.location.pathname + window.location.search);
+      } catch {
+        // ignore
+      }
+      showToast('تم التحقق من حساب Google للمحفظ/المشرف بنجاح', 'success');
+    }
+  }, []);
+
   const loginAsGuardian = (phone: string, pin: string) => {
     const cleanDigits = phone.replace(/\D/g, '');
     const matched = students.find(
@@ -1144,6 +1883,7 @@ export const AcademyProvider: React.FC<{ children: React.ReactNode }> = ({ child
     setIsLoggedIn(false);
     setGuardianStudentId(null);
     ImamSessionRestore.clear();
+    void signOutFromFirebase();
     try {
       localStorage.removeItem(SUPABASE_OFFICIAL_CONFIG.trustStorageKey);
     } catch {
@@ -1160,6 +1900,7 @@ export const AcademyProvider: React.FC<{ children: React.ReactNode }> = ({ child
             updated = {
               ...s,
               ...studentInput,
+              googleUid: studentInput.googleUid ?? s.googleUid ?? auth.currentUser?.uid,
               accountStatus: studentInput.accountStatus ?? s.accountStatus ?? 'نشط',
               id: s.id,
             };
@@ -1168,25 +1909,52 @@ export const AcademyProvider: React.FC<{ children: React.ReactNode }> = ({ child
           return s;
         })
       );
-      showToast('تم تحديث بيانات الطالب بنجاح', 'success');
+
+      void syncExtendedFamilyRecordToFirestore({
+        recordId: studentInput.id,
+        entityType: 'student',
+        personName: studentInput.name,
+        motherName: studentInput.motherName,
+        grandfatherName: studentInput.grandfatherName,
+        grandmotherName: studentInput.grandmotherName,
+        uncleName: studentInput.uncleName,
+      }).catch(() => {
+        // non-blocking
+      });
+
+      showToast('تم تحديث بيانات الطالب وحفظ بيانات العائلة في Firestore بنجاح', 'success');
       recordAuditLog(
         'تعديل طالب',
-        `تعديل بيانات الطالب (${studentInput.name}) — المستوى: ${studentInput.level} — الرواية: ${studentInput.riwayah || 'حفص عن عاصم'}`,
+        `تعديل بيانات الطالب (${studentInput.name}) وحفظ الحقول العائلية الإضافية في Firestore — المستوى: ${studentInput.level}`,
         studentInput.name
       );
       return updated;
     } else {
       const newStudent: Student = {
         ...studentInput,
+        googleUid: studentInput.googleUid ?? auth.currentUser?.uid,
         riwayah: studentInput.riwayah || 'حفص عن عاصم',
         accountStatus: studentInput.accountStatus ?? 'نشط',
         id: `st-${Date.now()}`,
       };
       setStudents((prev) => [newStudent, ...prev]);
-      showToast('تمت إضافة الطالب الجديد بنجاح', 'success');
+
+      void syncExtendedFamilyRecordToFirestore({
+        recordId: newStudent.id,
+        entityType: 'student',
+        personName: newStudent.name,
+        motherName: newStudent.motherName,
+        grandfatherName: newStudent.grandfatherName,
+        grandmotherName: newStudent.grandmotherName,
+        uncleName: newStudent.uncleName,
+      }).catch(() => {
+        // non-blocking
+      });
+
+      showToast('تمت إضافة الطالب الجديد وحفظ بيانات العائلة في Firestore بنجاح', 'success');
       recordAuditLog(
         'تعديل طالب',
-        `إضافة ملف طالب جديد (${newStudent.name}) في ${newStudent.circle}`,
+        `إضافة ملف طالب جديد (${newStudent.name}) في ${newStudent.circle} ومزامنة بيانات العائلة مع Firestore`,
         newStudent.name
       );
       return newStudent;
@@ -1718,6 +2486,8 @@ export const AcademyProvider: React.FC<{ children: React.ReactNode }> = ({ child
       note?: string;
       linkedErrorId?: string;
       linkedErrorType?: TimestampAudioFeedbackPin['linkedErrorType'];
+      teacherVoiceNoteDataUrl?: string;
+      teacherVoiceNoteDurationSec?: number;
     }
   ) => {
     const sec = Math.max(0, Math.round(pin.timestampSec ?? pin.second ?? 0));
@@ -1740,6 +2510,8 @@ export const AcademyProvider: React.FC<{ children: React.ReactNode }> = ({ child
       note: text,
       linkedErrorId: pin.linkedErrorId,
       linkedErrorType: pin.linkedErrorType,
+      teacherVoiceNoteDataUrl: pin.teacherVoiceNoteDataUrl,
+      teacherVoiceNoteDurationSec: pin.teacherVoiceNoteDurationSec,
       createdAt: getLocalDateString(0),
     };
     setHomeSubmissions((prev) =>
@@ -2742,6 +3514,24 @@ export const AcademyProvider: React.FC<{ children: React.ReactNode }> = ({ child
     return created;
   };
 
+  const clearAllStudentsAndStartEmpty = () => {
+    setStudents([]);
+    setSessions([]);
+    setExams([]);
+    setIjazahs([]);
+    setTasks([]);
+    setBoardStrokes({});
+    setTeacherRatings([]);
+    setHomeSubmissions([]);
+    setSelectedStudentId(null);
+    recordAuditLog(
+      'صلاحيات وأمان',
+      'تفريغ قوائم الطلاب والحصص التجريبية وبدء نظام جديد فارغ تماماً',
+      'النظام العام'
+    );
+    showToast('تم تفريغ البيانات التجريبية وبدء نظام جديد فارغ جاهز لإضافة طلابك', 'info');
+  };
+
   return (
     <AcademyContext.Provider
       value={{
@@ -2749,7 +3539,10 @@ export const AcademyProvider: React.FC<{ children: React.ReactNode }> = ({ child
         userRole,
         guardianStudentId,
         guardianSiblings,
+        googleAuthUser,
         loginAsTeacher,
+        loginWithGoogleEmail,
+        startGoogleOAuthRedirect,
         loginAsGuardian,
         loginAsGuardianDirect,
         loginAsGuest,
@@ -2775,10 +3568,16 @@ export const AcademyProvider: React.FC<{ children: React.ReactNode }> = ({ child
         admissionRequests,
         auditLogs,
         managedTeachers,
+        currentStaffTier,
+        setCurrentStaffTier,
         cloudSyncStatus,
         lastSyncTimestamp,
         triggerCloudSyncNow,
         updateTeacherAccessStatus,
+        deleteStaffMember,
+        addStaffMember,
+        updateStaffFamilyDetails,
+        linkStudentGoogleAccount,
         sessionReminderPreview,
         setSessionReminderPreview,
         teacherAlerts,
@@ -2840,6 +3639,7 @@ export const AcademyProvider: React.FC<{ children: React.ReactNode }> = ({ child
         saveStudentPedagogicalProfile,
         publishFamilyGuidanceToGuardian,
         resetToSeedData,
+        clearAllStudentsAndStartEmpty,
         importFullBackup,
       }}
     >

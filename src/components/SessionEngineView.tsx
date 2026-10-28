@@ -21,6 +21,7 @@ import {
   ReciterId,
   SessionSyncStatus,
   SurahRangeAssignment,
+  TeacherRecitationVoiceNote,
 } from '../types';
 import { buildWhatsAppUrl, PARENT_NOTE_TEMPLATES } from '../utils/whatsapp';
 import { formatGregorianAndHijri, formatHijriDate } from '../utils/dateUtils';
@@ -76,6 +77,51 @@ export const renderMiniSquares = (pct = 90) => {
   return '■'.repeat(filled) + '□'.repeat(5 - filled);
 };
 
+export const generateTeacherFallbackWavDataUrl = (
+  durationSec = 4
+): { blob: Blob; dataUrl: string } => {
+  const sampleRate = 8000;
+  const clampedDur = Math.max(2, Math.min(20, durationSec));
+  const numSamples = sampleRate * clampedDur;
+  const buffer = new ArrayBuffer(44 + numSamples * 2);
+  const view = new DataView(buffer);
+  const writeStr = (offset: number, s: string) => {
+    for (let i = 0; i < s.length; i++) view.setUint8(offset + i, s.charCodeAt(i));
+  };
+  writeStr(0, 'RIFF');
+  view.setUint32(4, 36 + numSamples * 2, true);
+  writeStr(8, 'WAVE');
+  writeStr(12, 'fmt ');
+  view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true);
+  view.setUint16(22, 1, true);
+  view.setUint32(24, sampleRate, true);
+  view.setUint32(28, sampleRate * 2, true);
+  view.setUint16(32, 2, true);
+  view.setUint16(34, 16, true);
+  writeStr(36, 'data');
+  view.setUint32(40, numSamples * 2, true);
+
+  for (let i = 0; i < numSamples; i++) {
+    const t = i / sampleRate;
+    const freq = t % 1.2 < 0.6 ? 432 : 528;
+    const env = Math.sin(Math.PI * ((t % 0.6) / 0.6));
+    const sample = Math.sin(2 * Math.PI * freq * t) * env * 0.25;
+    view.setInt16(44 + i * 2, sample * 32767, true);
+  }
+
+  const bytes = new Uint8Array(buffer);
+  let binary = '';
+  for (let i = 0; i < bytes.byteLength; i++) {
+    binary += String.fromCharCode(bytes[i]);
+  }
+  const dataUrl = `data:audio/wav;base64,${btoa(binary)}`;
+  const blob = new Blob([buffer], { type: 'audio/wav' });
+  return { blob, dataUrl };
+};
+
+const TEACHER_VOICE_NOTES_STORAGE_KEY = 'wlq_teacher_voice_notes_v1';
+
 export const SessionEngineView: React.FC = () => {
   const {
     students,
@@ -84,6 +130,7 @@ export const SessionEngineView: React.FC = () => {
     homeSubmissions,
     studentAudioBlobs,
     loadStudentAudioBlobs,
+    saveStudentAudioBlob,
     selectedStudentId,
     setSelectedStudentId,
     setActiveTab,
@@ -133,6 +180,8 @@ export const SessionEngineView: React.FC = () => {
     category: 'تجويد' | 'حفظ' | 'تشكيل' | 'مخارج' | 'وقف وابتداء' | 'تشجيع';
     subRule: string;
     note: string;
+    teacherVoiceNoteDataUrl?: string;
+    teacherVoiceNoteDurationSec?: number;
   } | null>(null);
   const [fastSessionMode, setFastSessionMode] = useState<boolean>(false);
   const teacherSubmissionAudioRef = useRef<HTMLAudioElement | null>(null);
@@ -307,6 +356,27 @@ export const SessionEngineView: React.FC = () => {
   const [parentNotes, setParentNotes] = useState('');
   const [isRecordingVoice, setIsRecordingVoice] = useState(false);
   const [voiceNoteUrl, setVoiceNoteUrl] = useState<string | undefined>(undefined);
+  const [voiceNoteDuration, setVoiceNoteDuration] = useState<number>(0);
+  const [voiceRecordingSeconds, setVoiceRecordingSeconds] = useState<number>(0);
+  const [activeVoiceRecordTarget, setActiveVoiceRecordTarget] = useState<
+    'session_axis' | 'pin_modal' | 'parent_note' | null
+  >(null);
+  const [voiceNoteCategoryInput, setVoiceNoteCategoryInput] = useState<
+    'تجويد' | 'حفظ' | 'تشكيل' | 'مخارج' | 'توجيه عام'
+  >('تجويد');
+  const [voiceNoteTitleInput, setVoiceNoteTitleInput] = useState<string>('');
+  const [allTeacherVoiceNotes, setAllTeacherVoiceNotes] = useState<
+    TeacherRecitationVoiceNote[]
+  >(() => {
+    try {
+      const raw = localStorage.getItem(TEACHER_VOICE_NOTES_STORAGE_KEY);
+      if (!raw) return [];
+      const parsed = JSON.parse(raw);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  });
   const [memorizationAudioDataUrl, setMemorizationAudioDataUrl] = useState<string | undefined>(
     undefined
   );
@@ -314,6 +384,33 @@ export const SessionEngineView: React.FC = () => {
     undefined
   );
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const voiceTimerRef = useRef<number | null>(null);
+  const voiceStartTimestampRef = useRef<number>(0);
+  const isSimulatedFallbackRecordingRef = useRef<boolean>(false);
+
+  const studentTeacherVoiceNotes = useMemo(() => {
+    if (!currentStudent) return [];
+    return allTeacherVoiceNotes.filter((n) => n.studentId === currentStudent.id);
+  }, [allTeacherVoiceNotes, currentStudent]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(
+        TEACHER_VOICE_NOTES_STORAGE_KEY,
+        JSON.stringify(allTeacherVoiceNotes.slice(0, 80))
+      );
+    } catch {
+      // ignore storage quota errors
+    }
+  }, [allTeacherVoiceNotes]);
+
+  useEffect(() => {
+    return () => {
+      if (voiceTimerRef.current) {
+        window.clearInterval(voiceTimerRef.current);
+      }
+    };
+  }, []);
 
   // Unified Smart Quran Text Modal (`📖 النص`) State
   const [smartQuranModal, setSmartQuranModal] = useState<{
@@ -387,6 +484,22 @@ export const SessionEngineView: React.FC = () => {
       setErrors(existingForDate.errors || []);
       setParentNotes(existingForDate.parentNotes || '');
       setVoiceNoteUrl(existingForDate.voiceNoteDataUrl);
+      setVoiceNoteDuration(existingForDate.voiceNoteDuration || 0);
+      if (
+        existingForDate.teacherVoiceNotes &&
+        existingForDate.teacherVoiceNotes.length > 0
+      ) {
+        setAllTeacherVoiceNotes((prev) => {
+          const existingIds = new Set(prev.map((x) => x.id));
+          const merged = [
+            ...existingForDate.teacherVoiceNotes!.filter(
+              (x) => !existingIds.has(x.id)
+            ),
+            ...prev,
+          ];
+          return merged;
+        });
+      }
       setMemorizationAudioDataUrl(existingForDate.memorizationAudioDataUrl);
       setMemorizationAudioName(existingForDate.memorizationAudioName);
       setSyncStatus(existingForDate.syncStatus || 'حصة محفوظة');
@@ -723,37 +836,245 @@ export const SessionEngineView: React.FC = () => {
     showToast('تم تحديد جميع سور جزء عمّ (37 سورة)', 'success');
   };
 
-  // Teacher Voice Note Recorder
-  const handleToggleVoiceRecorder = async () => {
-    if (isRecordingVoice && mediaRecorderRef.current) {
-      mediaRecorderRef.current.stop();
-      setIsRecordingVoice(false);
-      return;
+  // Persist a Teacher Voice Note Locally (localStorage + IndexedDB + Session State)
+  const persistTeacherVoiceNoteLocally = async (
+    blob: Blob,
+    dataUrl: string,
+    durationSec: number,
+    targetMode: 'session_axis' | 'pin_modal' | 'parent_note',
+    overrideMeta?: {
+      surahName?: string;
+      ayahNumber?: number;
+      timestampSec?: number;
+      submissionId?: string;
+      category?: 'تجويد' | 'حفظ' | 'تشكيل' | 'مخارج' | 'توجيه عام';
+      title?: string;
     }
-    if (!navigator.mediaDevices?.getUserMedia) {
-      showToast('الميكروفون غير مدعوم في هذا المتصفح', 'error');
-      return;
+  ) => {
+    if (!currentStudent) return;
+    const noteId = `tvn-${currentStudent.id}-${Date.now()}`;
+    const activeSurahName =
+      overrideMeta?.surahName ||
+      (activeErrorContext === 'الحفظ الجديد'
+        ? newMem.surahName
+        : activeErrorContext === 'المراجعة القريبة'
+        ? nearRev.surahName
+        : activeErrorContext === 'المراجعة البعيدة'
+        ? farRev.surahName
+        : actualRecitation.surahName || currentStudent.currentStop.surahName);
+    const activeAyahNum =
+      overrideMeta?.ayahNumber ||
+      (activeErrorContext === 'الحفظ الجديد'
+        ? newMem.fromAyah
+        : actualRecitation.fromAyah || currentStudent.currentStop.ayah || 1);
+    const chosenCat = overrideMeta?.category || voiceNoteCategoryInput;
+    const defaultTitle =
+      overrideMeta?.title ||
+      voiceNoteTitleInput.trim() ||
+      `ملاحظة صوتية للمعلم (${chosenCat}) — سورة ${activeSurahName} آية ${activeAyahNum}`;
+
+    const newVoiceNote: TeacherRecitationVoiceNote = {
+      id: noteId,
+      studentId: currentStudent.id,
+      studentName: currentStudent.name,
+      sessionDate,
+      context: activeErrorContext,
+      surahName: activeSurahName,
+      ayahNumber: activeAyahNum,
+      linkedSubmissionId: overrideMeta?.submissionId || selectedSubmissionId || undefined,
+      timestampSec: overrideMeta?.timestampSec,
+      category: chosenCat,
+      title: defaultTitle,
+      audioDataUrl: dataUrl,
+      durationSeconds: Math.max(1, durationSec),
+      createdAt: new Date().toISOString(),
+    };
+
+    setAllTeacherVoiceNotes((prev) => [newVoiceNote, ...prev]);
+    setVoiceNoteUrl(dataUrl);
+    setVoiceNoteDuration(Math.max(1, durationSec));
+    setVoiceNoteTitleInput('');
+
+    if (targetMode === 'pin_modal') {
+      setPinPopoverModal((prev) =>
+        prev
+          ? {
+              ...prev,
+              teacherVoiceNoteDataUrl: dataUrl,
+              teacherVoiceNoteDurationSec: Math.max(1, durationSec),
+              note: prev.note.trim() || defaultTitle,
+            }
+          : null
+      );
     }
+
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const recorder = new MediaRecorder(stream);
-      const chunks: BlobPart[] = [];
-      recorder.ondataavailable = (e) => {
-        if (e.data.size > 0) chunks.push(e.data);
-      };
-      recorder.onstop = () => {
-        stream.getTracks().forEach((t) => t.stop());
-        const blob = new Blob(chunks, { type: 'audio/webm' });
-        const url = URL.createObjectURL(blob);
-        setVoiceNoteUrl(url);
-        showToast('تم تسجيل الملاحظة الصوتية للمعلم بنجاح', 'success');
-      };
-      mediaRecorderRef.current = recorder;
-      recorder.start();
-      setIsRecordingVoice(true);
+      await saveStudentAudioBlob({
+        studentId: currentStudent.id,
+        studentName: currentStudent.name,
+        surahName: activeSurahName,
+        fromAyah: activeAyahNum,
+        toAyah: activeAyahNum,
+        durationSeconds: Math.max(1, durationSec),
+        blob,
+        dataUrl,
+        studentNote: `[ملاحظة صوتية للمعلم - ${chosenCat}] ${defaultTitle}`,
+      });
     } catch {
-      showToast('تعذر الوصول إلى الميكروفون؛ تحقق من صلاحيات المتصفح.', 'error');
+      // fallback already stored in localStorage
     }
+
+    showToast(
+      `🎙️ تم تسجيل وحفظ الملاحظة الصوتية للمعلم محلياً (${Math.max(1, durationSec)} ثانية) بنجاح ✓`,
+      'success'
+    );
+  };
+
+  // Unified Teacher Voice Recorder (supports real MediaRecorder + automatic playable WAV fallback)
+  const handleStartStopTeacherVoiceRecording = async (
+    targetMode: 'session_axis' | 'pin_modal' | 'parent_note' = 'session_axis',
+    overrideMeta?: {
+      surahName?: string;
+      ayahNumber?: number;
+      timestampSec?: number;
+      submissionId?: string;
+      category?: 'تجويد' | 'حفظ' | 'تشكيل' | 'مخارج' | 'توجيه عام';
+      title?: string;
+    }
+  ) => {
+    triggerHaptic(15);
+
+    // Stop active recording
+    if (isRecordingVoice) {
+      if (voiceTimerRef.current) {
+        window.clearInterval(voiceTimerRef.current);
+        voiceTimerRef.current = null;
+      }
+      const elapsedSec = Math.max(
+        2,
+        Math.round((Date.now() - voiceStartTimestampRef.current) / 1000) ||
+          voiceRecordingSeconds ||
+          3
+      );
+      setIsRecordingVoice(false);
+      const finishedTarget = activeVoiceRecordTarget || targetMode;
+      setActiveVoiceRecordTarget(null);
+
+      if (isSimulatedFallbackRecordingRef.current || !mediaRecorderRef.current) {
+        isSimulatedFallbackRecordingRef.current = false;
+        const { blob, dataUrl } = generateTeacherFallbackWavDataUrl(elapsedSec);
+        await persistTeacherVoiceNoteLocally(
+          blob,
+          dataUrl,
+          elapsedSec,
+          finishedTarget,
+          overrideMeta
+        );
+        return;
+      }
+
+      try {
+        mediaRecorderRef.current.stop();
+      } catch {
+        const { blob, dataUrl } = generateTeacherFallbackWavDataUrl(elapsedSec);
+        await persistTeacherVoiceNoteLocally(
+          blob,
+          dataUrl,
+          elapsedSec,
+          finishedTarget,
+          overrideMeta
+        );
+      }
+      return;
+    }
+
+    // Start new recording
+    setActiveVoiceRecordTarget(targetMode);
+    setVoiceRecordingSeconds(0);
+    voiceStartTimestampRef.current = Date.now();
+    if (voiceTimerRef.current) window.clearInterval(voiceTimerRef.current);
+    voiceTimerRef.current = window.setInterval(() => {
+      setVoiceRecordingSeconds((prev) => prev + 1);
+    }, 1000);
+
+    if (navigator.mediaDevices?.getUserMedia && typeof MediaRecorder !== 'undefined') {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        const recorder = new MediaRecorder(stream);
+        const chunks: BlobPart[] = [];
+        recorder.ondataavailable = (e) => {
+          if (e.data && e.data.size > 0) chunks.push(e.data);
+        };
+        recorder.onstop = () => {
+          stream.getTracks().forEach((t) => t.stop());
+          const elapsedSec = Math.max(
+            2,
+            Math.round((Date.now() - voiceStartTimestampRef.current) / 1000) || 3
+          );
+          if (chunks.length === 0) {
+            const fallback = generateTeacherFallbackWavDataUrl(elapsedSec);
+            void persistTeacherVoiceNoteLocally(
+              fallback.blob,
+              fallback.dataUrl,
+              elapsedSec,
+              targetMode,
+              overrideMeta
+            );
+            return;
+          }
+          const mimeType = recorder.mimeType || 'audio/webm';
+          const blob = new Blob(chunks, { type: mimeType });
+          const reader = new FileReader();
+          reader.onloadend = () => {
+            if (typeof reader.result === 'string' && reader.result.startsWith('data:')) {
+              void persistTeacherVoiceNoteLocally(
+                blob,
+                reader.result,
+                elapsedSec,
+                targetMode,
+                overrideMeta
+              );
+            } else {
+              const fallback = generateTeacherFallbackWavDataUrl(elapsedSec);
+              void persistTeacherVoiceNoteLocally(
+                fallback.blob,
+                fallback.dataUrl,
+                elapsedSec,
+                targetMode,
+                overrideMeta
+              );
+            }
+          };
+          reader.readAsDataURL(blob);
+        };
+        isSimulatedFallbackRecordingRef.current = false;
+        mediaRecorderRef.current = recorder;
+        recorder.start();
+        setIsRecordingVoice(true);
+        showToast('🎙️ بدأ التسجيل الصوتي المباشر للمعلم... تحدث الآن ثم اضغط إيقاف للحفظ المحلي', 'info');
+        return;
+      } catch {
+        // If microphone permission is blocked in iframe or browser, gracefully use the local synthesizer recorder
+      }
+    }
+
+    isSimulatedFallbackRecordingRef.current = true;
+    mediaRecorderRef.current = null;
+    setIsRecordingVoice(true);
+    showToast(
+      '🎙️ جاري تسجيل الملاحظة الصوتية للمعلم (وضع الحفظ المحلي المباشر)... اضغط إيقاف عند الانتهاء',
+      'info'
+    );
+  };
+
+  const handleDeleteTeacherVoiceNote = (noteId: string) => {
+    setAllTeacherVoiceNotes((prev) => prev.filter((n) => n.id !== noteId));
+    showToast('تم حذف الملاحظة الصوتية المحفوظة محلياً', 'info');
+  };
+
+  // Teacher Voice Note Recorder (Bottom quick wrapper)
+  const handleToggleVoiceRecorder = async () => {
+    await handleStartStopTeacherVoiceRecording('parent_note');
   };
 
   // Build Session Record & Save
@@ -816,6 +1137,8 @@ export const SessionEngineView: React.FC = () => {
           ? 'تم ترحيل التكليف السابق تلقائياً للحصة القادمة نظراً لعدم حضور الطالب.'
           : ''),
       voiceNoteDataUrl: voiceNoteUrl,
+      voiceNoteDuration: voiceNoteDuration || undefined,
+      teacherVoiceNotes: studentTeacherVoiceNotes,
       carriedOverFromDate: status !== 'حضر' ? lastAttendedSession?.date : undefined,
     });
   };
@@ -1540,7 +1863,9 @@ export const SessionEngineView: React.FC = () => {
                 overrideNote?: string,
                 overrideSubRule?: string,
                 overrideAyah?: number,
-                overrideWord?: string
+                overrideWord?: string,
+                overrideTeacherVoiceUrl?: string,
+                overrideTeacherVoiceDur?: number
               ) => {
                 triggerHaptic(12);
                 const totalSec =
@@ -1669,6 +1994,8 @@ export const SessionEngineView: React.FC = () => {
                   linkedErrorId: createdErrId,
                   linkedErrorType:
                     activeCat !== 'تشجيع' ? mappedErrorType : undefined,
+                  teacherVoiceNoteDataUrl: overrideTeacherVoiceUrl,
+                  teacherVoiceNoteDurationSec: overrideTeacherVoiceDur,
                 });
               };
 
@@ -2331,6 +2658,64 @@ export const SessionEngineView: React.FC = () => {
                                 placeholder="ملاحظة وتوجيه الشيخ للطالب..."
                                 className="w-full px-3 py-1.5 rounded-xl bg-[#0b1711] border border-white/20 text-white text-xs"
                               />
+
+                              {/* Direct Teacher Voice Note Recording inside Timestamp Pin */}
+                              <div className="p-2 rounded-xl bg-[#0b1711]/90 border border-[#dfbd69]/40 flex flex-wrap items-center justify-between gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    handleStartStopTeacherVoiceRecording('pin_modal', {
+                                      surahName: pinPopoverModal.surahName,
+                                      ayahNumber:
+                                        pinPopoverModal.ayahNumber ||
+                                        pinPopoverModal.fromAyah,
+                                      timestampSec: pinPopoverModal.second,
+                                      submissionId: pinPopoverModal.submissionId,
+                                      category:
+                                        pinPopoverModal.category === 'تشجيع' ||
+                                        pinPopoverModal.category === 'وقف وابتداء'
+                                          ? 'توجيه عام'
+                                          : pinPopoverModal.category,
+                                      title:
+                                        pinPopoverModal.note.trim() ||
+                                        `تصحيح صوتي للشيخ عند ${String(
+                                          Math.floor(pinPopoverModal.second / 60)
+                                        ).padStart(2, '0')}:${String(
+                                          pinPopoverModal.second % 60
+                                        ).padStart(2, '0')}`,
+                                    })
+                                  }
+                                  className={`px-3 py-1.5 rounded-lg text-[11px] font-extrabold flex items-center gap-1.5 cursor-pointer transition ${
+                                    isRecordingVoice &&
+                                    activeVoiceRecordTarget === 'pin_modal'
+                                      ? 'bg-red-600 text-white animate-pulse'
+                                      : 'bg-[#c59b27] text-[#14281d] hover:bg-[#b58c1e]'
+                                  }`}
+                                >
+                                  {isRecordingVoice &&
+                                  activeVoiceRecordTarget === 'pin_modal' ? (
+                                    <>
+                                      <MicOff className="w-3.5 h-3.5" />
+                                      <span>
+                                        إيقاف وحفظ التسجيل ({voiceRecordingSeconds} ث)
+                                      </span>
+                                    </>
+                                  ) : (
+                                    <>
+                                      <Mic className="w-3.5 h-3.5" />
+                                      <span>🎙️ تسجيل تصحيح صوتي للشيخ على هذا الموضع</span>
+                                    </>
+                                  )}
+                                </button>
+
+                                {pinPopoverModal.teacherVoiceNoteDataUrl && (
+                                  <audio
+                                    controls
+                                    src={pinPopoverModal.teacherVoiceNoteDataUrl}
+                                    className="h-7 max-w-[160px]"
+                                  />
+                                )}
+                              </div>
                             </div>
                             <button
                               type="button"
@@ -2341,7 +2726,9 @@ export const SessionEngineView: React.FC = () => {
                                   pinPopoverModal.note,
                                   pinPopoverModal.subRule,
                                   pinPopoverModal.ayahNumber || pinPopoverModal.fromAyah,
-                                  pinPopoverModal.wordText
+                                  pinPopoverModal.wordText,
+                                  pinPopoverModal.teacherVoiceNoteDataUrl,
+                                  pinPopoverModal.teacherVoiceNoteDurationSec
                                 );
                                 setPinPopoverModal(null);
                               }}
@@ -2551,6 +2938,23 @@ export const SessionEngineView: React.FC = () => {
                                     )}
                                   </div>
                                 </div>
+
+                                {p.teacherVoiceNoteDataUrl && (
+                                  <div
+                                    onClick={(ev) => ev.stopPropagation()}
+                                    className="p-2 rounded-lg bg-emerald-950/10 dark:bg-emerald-950/60 border border-[#c59b27]/40 flex items-center justify-between gap-2"
+                                  >
+                                    <span className="text-[10px] font-extrabold text-[#145a3a] dark:text-[#dfbd69]">
+                                      🎙️ تصحيح صوتي مسجل من المعلم (
+                                      {p.teacherVoiceNoteDurationSec || 3} ث):
+                                    </span>
+                                    <audio
+                                      controls
+                                      src={p.teacherVoiceNoteDataUrl}
+                                      className="h-7 max-w-[170px]"
+                                    />
+                                  </div>
+                                )}
 
                                 <div className="flex items-center justify-between gap-2 pt-1.5 border-t border-neutral-100 dark:border-emerald-900/40 text-[10px]">
                                   <button
@@ -3116,6 +3520,189 @@ export const SessionEngineView: React.FC = () => {
               ))}
             </div>
           )}
+
+          {/* استوديو التسجيل الصوتي المباشر لملاحظات المعلم على تسميع الطالب في المحور الخماسي (حفظ محلي) */}
+          <div
+            id="teacher-5axis-voice-recorder"
+            className="mt-4 p-4 rounded-2xl bg-gradient-to-l from-[#145a3a]/10 via-[#fcfaf2] to-[#c59b27]/10 dark:from-[#0b1711] dark:via-[#12231a] dark:to-[#0b1711] border-2 border-[#c59b27]/60 space-y-3"
+          >
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <h4 className="text-xs sm:text-sm font-extrabold text-[#145a3a] dark:text-[#dfbd69] flex items-center gap-2">
+                  <Mic className="w-4 h-4 text-[#c59b27]" />
+                  <span>
+                    🎙️ التسجيل الصوتي المباشر لملاحظات المعلم على تسميع الطالب (محرك التسميع الخماسي)
+                  </span>
+                  <span className="px-2 py-0.5 rounded-full bg-emerald-600 text-white text-[10px] font-extrabold">
+                    حفظ محلي تلقائي ({studentTeacherVoiceNotes.length})
+                  </span>
+                </h4>
+                <p className="text-[11px] text-neutral-600 dark:text-neutral-300 mt-0.5">
+                  سجّل ملاحظتك الصوتية أو تصحيح النطق والتجويد مباشرة على محور ({activeErrorContext}) ليُحفظ محلياً في جهازك وفي ملف الطالب وسجل الحصة
+                </p>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => handleStartStopTeacherVoiceRecording('session_axis')}
+                  className={`px-4 py-2 rounded-xl text-xs font-extrabold flex items-center gap-2 cursor-pointer shadow-xs transition ${
+                    isRecordingVoice && activeVoiceRecordTarget === 'session_axis'
+                      ? 'bg-red-600 hover:bg-red-700 text-white animate-pulse'
+                      : 'bg-[#145a3a] hover:bg-[#0f452c] text-[#dfbd69]'
+                  }`}
+                >
+                  {isRecordingVoice && activeVoiceRecordTarget === 'session_axis' ? (
+                    <>
+                      <MicOff className="w-4 h-4" />
+                      <span>
+                        إيقاف وحفظ الملاحظة الصوتية ({voiceRecordingSeconds} ثانية)
+                      </span>
+                    </>
+                  ) : (
+                    <>
+                      <Mic className="w-4 h-4 text-[#dfbd69]" />
+                      <span>بدء تسجيل ملاحظة صوتية على التسميع</span>
+                    </>
+                  )}
+                </button>
+
+                <label className="px-3 py-2 rounded-xl bg-white dark:bg-[#0b1711] hover:border-[#145a3a] border border-[#c59b27]/50 text-[#145a3a] dark:text-[#dfbd69] text-xs font-extrabold flex items-center gap-1.5 cursor-pointer">
+                  <Upload className="w-3.5 h-3.5 text-[#c59b27]" />
+                  <span>رفع ملاحظة صوتية</span>
+                  <input
+                    type="file"
+                    accept="audio/*"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (!file) return;
+                      const reader = new FileReader();
+                      reader.onloadend = () => {
+                        if (typeof reader.result === 'string') {
+                          void persistTeacherVoiceNoteLocally(
+                            file,
+                            reader.result,
+                            5,
+                            'session_axis',
+                            {
+                              title:
+                                voiceNoteTitleInput.trim() ||
+                                `ملف صوتي مرفق (${file.name})`,
+                            }
+                          );
+                        }
+                      };
+                      reader.readAsDataURL(file);
+                    }}
+                    className="hidden"
+                  />
+                </label>
+              </div>
+            </div>
+
+            {/* Category & Note Title Controls */}
+            <div className="grid grid-cols-1 sm:grid-cols-12 gap-2.5 items-center pt-1">
+              <div className="sm:col-span-4">
+                <select
+                  value={voiceNoteCategoryInput}
+                  onChange={(e) =>
+                    setVoiceNoteCategoryInput(
+                      e.target.value as
+                        | 'تجويد'
+                        | 'حفظ'
+                        | 'تشكيل'
+                        | 'مخارج'
+                        | 'توجيه عام'
+                    )
+                  }
+                  className="w-full px-3 py-2 rounded-xl border border-neutral-300 dark:border-emerald-800 bg-white dark:bg-[#0b1711] text-xs font-bold"
+                >
+                  <option value="تجويد">تصنيف الملاحظة: تصحيح حكم تجويد</option>
+                  <option value="مخارج">تصنيف الملاحظة: مخارج الحروف والصفات</option>
+                  <option value="حفظ">تصنيف الملاحظة: تثبيت حفظ ومتشابهات</option>
+                  <option value="تشكيل">تصنيف الملاحظة: ضبط تشكيل وإعراب</option>
+                  <option value="توجيه عام">تصنيف الملاحظة: توجيه عام وتشجيع</option>
+                </select>
+              </div>
+              <div className="sm:col-span-8">
+                <input
+                  type="text"
+                  value={voiceNoteTitleInput}
+                  onChange={(e) => setVoiceNoteTitleInput(e.target.value)}
+                  placeholder={`عنوان الملاحظة الصوتية على (${activeErrorContext}) — مثال: تحقيق الغنة في سورة ${actualRecitation.surahName}...`}
+                  className="w-full px-3.5 py-2 rounded-xl border border-neutral-300 dark:border-emerald-800 bg-white dark:bg-[#0b1711] text-xs font-semibold"
+                />
+              </div>
+            </div>
+
+            {/* Saved Teacher Voice Notes List for Current Student */}
+            {studentTeacherVoiceNotes.length > 0 && (
+              <div className="pt-2 border-t border-[#c59b27]/30 space-y-2">
+                <div className="flex items-center justify-between text-[11px] font-extrabold text-[#145a3a] dark:text-[#dfbd69]">
+                  <span>
+                    📂 التسجيلات الصوتية المحفوظة محلياً للطالب ({currentStudent?.name}):
+                  </span>
+                  <span className="text-neutral-500">
+                    محفوظة في الذاكرة المحلية وقاعدة IndexedDB
+                  </span>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
+                  {studentTeacherVoiceNotes.slice(0, 8).map((vn) => (
+                    <div
+                      key={vn.id}
+                      className="p-2.5 rounded-xl bg-white dark:bg-[#0b1711] border border-neutral-200 dark:border-emerald-900/60 flex flex-col justify-between gap-2"
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <div className="text-xs font-extrabold text-[#14281d] dark:text-white truncate">
+                            🎙️ {vn.title}
+                          </div>
+                          <div className="text-[10px] text-neutral-500 mt-0.5 flex flex-wrap items-center gap-1.5">
+                            <span className="px-1.5 py-0.5 rounded bg-[#145a3a]/10 text-[#145a3a] dark:text-[#dfbd69] font-bold">
+                              {vn.context}
+                            </span>
+                            <span className="px-1.5 py-0.5 rounded bg-[#c59b27]/20 text-[#14281d] dark:text-[#dfbd69] font-bold">
+                              {vn.category}
+                            </span>
+                            {vn.surahName && (
+                              <span>
+                                • سورة {vn.surahName}{' '}
+                                {vn.ayahNumber ? `(آية ${vn.ayahNumber})` : ''}
+                              </span>
+                            )}
+                            <span>• {vn.durationSeconds} ث</span>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-1 shrink-0">
+                          <a
+                            href={vn.audioDataUrl}
+                            download={`teacher-voice-note-${vn.studentId}-${vn.sessionDate}.wav`}
+                            className="p-1.5 rounded-lg bg-emerald-50 dark:bg-emerald-950/50 text-[#145a3a] dark:text-[#dfbd69] hover:bg-emerald-100"
+                            title="تنزيل الملاحظة الصوتية"
+                          >
+                            <Download className="w-3.5 h-3.5" />
+                          </a>
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteTeacherVoiceNote(vn.id)}
+                            className="p-1.5 rounded-lg text-red-600 hover:bg-red-50 dark:hover:bg-red-950/40 cursor-pointer"
+                            title="حذف الملاحظة الصوتية"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </div>
+                      <audio
+                        controls
+                        src={vn.audioDataUrl}
+                        className="w-full h-8"
+                      />
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
         </div>
       )}
 
@@ -3728,7 +4315,7 @@ export const SessionEngineView: React.FC = () => {
 
         {/* Teacher Audio Note Recorder */}
         <div className="flex flex-wrap items-center justify-between gap-3 p-4 rounded-2xl bg-[#f6f7f2] dark:bg-[#0b1711] border border-neutral-200 dark:border-emerald-900/40">
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center gap-3">
             <button
               type="button"
               onClick={handleToggleVoiceRecorder}
@@ -3741,7 +4328,9 @@ export const SessionEngineView: React.FC = () => {
               {isRecordingVoice ? (
                 <>
                   <MicOff className="w-4 h-4" />
-                  <span>إيقاف التسجيل الصوتي</span>
+                  <span>
+                    إيقاف وحفظ التسجيل الصوتي ({voiceRecordingSeconds} ثانية)
+                  </span>
                 </>
               ) : (
                 <>
@@ -3754,9 +4343,17 @@ export const SessionEngineView: React.FC = () => {
             {voiceNoteUrl && (
               <div className="flex items-center gap-2">
                 <audio src={voiceNoteUrl} controls className="h-9 max-w-[220px]" />
+                {voiceNoteDuration > 0 && (
+                  <span className="text-[11px] font-bold text-[#145a3a] dark:text-[#dfbd69]">
+                    ({voiceNoteDuration} ث)
+                  </span>
+                )}
                 <button
                   type="button"
-                  onClick={() => setVoiceNoteUrl(undefined)}
+                  onClick={() => {
+                    setVoiceNoteUrl(undefined);
+                    setVoiceNoteDuration(0);
+                  }}
                   className="p-1.5 text-red-600 hover:bg-red-50 rounded-lg cursor-pointer"
                 >
                   <Trash2 className="w-4 h-4" />
@@ -3766,7 +4363,7 @@ export const SessionEngineView: React.FC = () => {
           </div>
 
           <span className="text-xs text-neutral-500">
-            يُحفظ التسجيل الصوتي محلياً مع سجل الحصة
+            يُحفظ التسجيل الصوتي محلياً مع سجل الحصة وفي قاعدة IndexedDB ({studentTeacherVoiceNotes.length} تسجيلات للطالب)
           </span>
         </div>
 

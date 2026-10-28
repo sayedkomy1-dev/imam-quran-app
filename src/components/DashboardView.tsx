@@ -577,7 +577,7 @@ export const DashboardView: React.FC = () => {
             </p>
           </div>
 
-          {/* 5 Quick Action Buttons */}
+          {/* 2 Primary Quick Action Buttons */}
           <div className="flex flex-wrap items-center gap-2.5">
             <button
               onClick={() => setActiveTab('session')}
@@ -589,87 +589,10 @@ export const DashboardView: React.FC = () => {
 
             <button
               onClick={() => setActiveTab('circles')}
-              className="flex items-center gap-2 px-3.5 py-2.5 rounded-xl bg-white/15 hover:bg-white/25 text-white font-bold text-xs transition-colors cursor-pointer whitespace-nowrap"
+              className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-white/15 hover:bg-white/25 text-white font-bold text-xs transition-colors cursor-pointer whitespace-nowrap"
             >
               <CalendarCheck className="w-4 h-4 text-[#dfbd69]" />
               <span>كشف الحضور</span>
-            </button>
-
-            <button
-              onClick={() => {
-                setSelectedStudentId(null);
-                setActiveTab('students');
-              }}
-              className="flex items-center gap-2 px-3.5 py-2.5 rounded-xl bg-white/15 hover:bg-white/25 text-white font-bold text-xs transition-colors cursor-pointer whitespace-nowrap"
-            >
-              <UserPlus className="w-4 h-4 text-[#dfbd69]" />
-              <span>طالب جديد</span>
-            </button>
-
-            <button
-              onClick={() => setQuickSearchOpen(true)}
-              className="flex items-center gap-2 px-3.5 py-2.5 rounded-xl bg-white/15 hover:bg-white/25 text-white font-bold text-xs transition-colors cursor-pointer whitespace-nowrap"
-            >
-              <Search className="w-4 h-4 text-[#dfbd69]" />
-              <span>بحث سريع (Ctrl+K)</span>
-            </button>
-
-            <button
-              onClick={() => setActiveTab('foundation')}
-              className="flex items-center gap-2 px-3.5 py-2.5 rounded-xl bg-amber-400/20 hover:bg-amber-400/30 border border-[#dfbd69]/50 text-[#dfbd69] font-extrabold text-xs transition-colors cursor-pointer whitespace-nowrap"
-            >
-              <Sparkles className="w-4 h-4 text-[#dfbd69]" />
-              <span>منهج الإمام للتأسيس</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => {
-                if (students[0]) setDashboardIdCardStudent(students[0]);
-              }}
-              className="flex items-center gap-2 px-3.5 py-2.5 rounded-xl bg-white/15 hover:bg-white/25 border border-[#dfbd69]/40 text-[#dfbd69] font-extrabold text-xs transition-colors cursor-pointer whitespace-nowrap"
-            >
-              <IdCard className="w-4 h-4 text-[#dfbd69]" />
-              <span>بطاقة الطالب الذكية</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => {
-                const st = students[0];
-                if (!st) return;
-                const feeItem = st.fees[0] || {
-                  month: currentMonthPrefix,
-                  amount: st.monthlyFee || 350,
-                  status: 'مدفوع' as const,
-                  paidAt: todayStr,
-                  method: 'إنستا باي (InstaPay)',
-                  receiptNumber: `REC-${currentMonthPrefix.replace('-', '')}-${
-                    st.id.replace(/\D/g, '') || '101'
-                  }`,
-                };
-                setDashboardReceiptData({ student: st, fee: feeItem });
-              }}
-              className="flex items-center gap-2 px-3.5 py-2.5 rounded-xl bg-emerald-400/20 hover:bg-emerald-400/30 border border-emerald-300/40 text-white font-extrabold text-xs transition-colors cursor-pointer whitespace-nowrap"
-            >
-              <FileText className="w-4 h-4 text-[#dfbd69]" />
-              <span>إيصالات السداد</span>
-            </button>
-
-            <button
-              onClick={() => setActiveTab('broadcast')}
-              className="flex items-center gap-2 px-3.5 py-2.5 rounded-xl bg-white/15 hover:bg-white/25 text-white font-bold text-xs transition-colors cursor-pointer whitespace-nowrap"
-            >
-              <MessageSquare className="w-4 h-4 text-[#dfbd69]" />
-              <span>مركز رسائل أولياء الأمور</span>
-            </button>
-
-            <button
-              onClick={() => setActiveTab('public_mushaf')}
-              className="flex items-center gap-2 px-3.5 py-2.5 rounded-xl bg-[#c59b27]/25 hover:bg-[#c59b27]/35 border border-[#dfbd69] text-[#dfbd69] font-extrabold text-xs transition-colors cursor-pointer whitespace-nowrap"
-            >
-              <BookOpen className="w-4 h-4 text-[#dfbd69]" />
-              <span>🌿 بوابة المصحف العام والوقف</span>
             </button>
           </div>
         </div>
@@ -742,6 +665,123 @@ export const DashboardView: React.FC = () => {
         </div>
       </section>
 
+      {/* Section: Today's Follow-up Queue (متابعة اليوم — يظهر مباشرة بعد البطاقات الـ 4) */}
+      <section className="rounded-2xl bg-white dark:bg-[#12231a] p-6 border border-neutral-200 dark:border-emerald-900/50 shadow-xs">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-5">
+          <div>
+            <h2 className="text-base font-bold text-[#14281d] dark:text-white flex items-center gap-2 flex-wrap">
+              <Clock className="w-4 h-4 text-[#145a3a] dark:text-[#dfbd69]" />
+              <span>
+                جدول متابعة اليوم — الطلاب المجدولون ({DAY_NAMES[todayDow]} •{' '}
+                {formatGregorianAndHijri(todayStr, settings.showHijriDates ?? true)})
+              </span>
+            </h2>
+            <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-0.5">
+              ابدأ الحصة مباشرة أو سجل الحضور والغياب السريع بضغطة زر
+            </p>
+          </div>
+          <div className="text-xs font-bold text-[#145a3a] dark:text-[#dfbd69] tabular-nums">
+            تم إنجاز{' '}
+            {
+              scheduledToday.filter((st) =>
+                sessions.some((s) => s.studentId === st.id && s.date === todayStr)
+              ).length
+            }{' '}
+            من {scheduledToday.length} طالب
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
+          {scheduledToday.map((st) => {
+            const todaySes = sessions.find(
+              (s) => s.studentId === st.id && s.date === todayStr
+            );
+
+            return (
+              <div
+                key={st.id}
+                className="flex items-center justify-between p-4 rounded-2xl border border-neutral-200 dark:border-emerald-900/50 bg-[#f6f7f2]/60 dark:bg-[#0b1711]/60 hover:border-[#145a3a] transition-colors"
+              >
+                <div
+                  className="flex items-center gap-3 cursor-pointer min-w-0"
+                  onClick={() => {
+                    setSelectedStudentId(st.id);
+                    setActiveTab('students');
+                  }}
+                >
+                  <div className="w-11 h-11 rounded-xl bg-[#145a3a] text-white font-bold text-sm flex items-center justify-center shrink-0">
+                    {st.name
+                      .split(' ')
+                      .slice(0, 2)
+                      .map((w) => w[0])
+                      .join('')}
+                  </div>
+                  <div className="min-w-0">
+                    <div className="text-sm font-bold text-[#14281d] dark:text-white truncate">
+                      {st.name}
+                    </div>
+                    <div className="text-xs text-neutral-500 dark:text-neutral-400 truncate mt-0.5">
+                      <span className="tabular-nums font-mono">{st.scheduleTime}</span> ·{' '}
+                      {st.circle} · توقف: {st.currentStop.surahName} ({st.currentStop.ayah})
+                    </div>
+                    {todaySes && (
+                      <div className="text-[11px] font-bold mt-1">
+                        {todaySes.status === 'حضر' ? (
+                          <span className="text-emerald-700 dark:text-emerald-400">
+                            ✓ حضر اليوم · إتقان {todaySes.masteryScore}%
+                          </span>
+                        ) : todaySes.status === 'غاب' ? (
+                          <span className="text-red-600 dark:text-red-400">
+                            ✕ غائب اليوم (تم ترحيل التكليف)
+                          </span>
+                        ) : (
+                          <span className="text-amber-600">إجازة</span>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-1.5 shrink-0 mr-2">
+                  <button
+                    onClick={() => handleQuickAttendance(st.id, 'حضر')}
+                    title="تسجيل حضور سريع"
+                    className={`px-2.5 py-2 rounded-xl text-xs font-bold border transition-colors cursor-pointer ${
+                      todaySes?.status === 'حضر'
+                        ? 'bg-emerald-600 text-white border-emerald-600'
+                        : 'border-neutral-200 dark:border-emerald-900 bg-white dark:bg-[#12231a] hover:border-emerald-600'
+                    }`}
+                  >
+                    حضر
+                  </button>
+                  <button
+                    onClick={() => handleQuickAttendance(st.id, 'غاب')}
+                    title="تسجيل غياب وترحيل التكليف"
+                    className={`px-2.5 py-2 rounded-xl text-xs font-bold border transition-colors cursor-pointer ${
+                      todaySes?.status === 'غاب'
+                        ? 'bg-red-600 text-white border-red-600'
+                        : 'border-neutral-200 dark:border-emerald-900 bg-white dark:bg-[#12231a] hover:border-red-600'
+                    }`}
+                  >
+                    غاب
+                  </button>
+                  <button
+                    onClick={() => {
+                      setSelectedStudentId(st.id);
+                      setActiveTab('session');
+                    }}
+                    className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-[#145a3a] hover:bg-[#0f452c] text-white text-xs font-bold transition-colors cursor-pointer"
+                  >
+                    <BookOpen className="w-3.5 h-3.5 text-[#dfbd69]" />
+                    <span>بدء حصة</span>
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </section>
+
       {/* Middle Row: 7-Day Activity Chart + Weekly Goals */}
       <section className="grid grid-cols-1 lg:grid-cols-12 gap-6">
         {/* 7-Day Activity Analysis & Interactive Bar Chart */}
@@ -751,7 +791,7 @@ export const DashboardView: React.FC = () => {
               <div>
                 <h2 className="text-base font-bold text-[#14281d] dark:text-white flex items-center gap-2">
                   <TrendingUp className="w-4 h-4 text-[#145a3a] dark:text-[#dfbd69]" />
-                  <span>تحليل نشاط آخر 7 أيام</span>
+                  <span>نشاط الأسبوع (آخر 7 أيام)</span>
                 </h2>
                 <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-0.5">
                   مقارنة الحضور اليومي والغياب وإنجاز الحفظ خلال الأسبوع
@@ -770,14 +810,14 @@ export const DashboardView: React.FC = () => {
             </div>
 
             {/* Interactive SVG/CSS Bar Chart */}
-            <div className="grid grid-cols-7 gap-3 pt-6 pb-2 items-end h-52 border-b border-neutral-100 dark:border-emerald-950">
+            <div className="grid grid-cols-7 gap-2 sm:gap-3 pt-6 pb-2 items-end h-52 border-b border-neutral-100 dark:border-emerald-950">
               {last7Days.map((day) => {
                 const presentHeight = Math.round((day.presentCount / maxBarValue) * 100);
                 const absentHeight = Math.round((day.absentCount / maxBarValue) * 100);
                 return (
                   <div
                     key={day.dateStr}
-                    className="flex flex-col items-center justify-end h-full group"
+                    className="flex flex-col items-center justify-end h-full group min-w-0"
                   >
                     <div className="text-[11px] font-mono tabular-nums text-neutral-500 dark:text-neutral-400 mb-1.5">
                       {day.presentCount > 0 ? `${day.presentCount}✓` : '—'}
@@ -798,15 +838,11 @@ export const DashboardView: React.FC = () => {
                         />
                       )}
                     </div>
-                    <span className="text-xs font-bold mt-2 text-neutral-700 dark:text-neutral-300">
+                    <span className="text-xs font-bold mt-2 text-neutral-700 dark:text-neutral-300 whitespace-nowrap">
                       {day.dayName}
                     </span>
-                    <span className="text-[10px] font-mono tabular-nums text-neutral-400 text-center leading-tight">
-                      {formatGregorianAndHijri(
-                        day.dateStr,
-                        settings.showHijriDates ?? true,
-                        'compact'
-                      )}
+                    <span className="text-[10px] font-mono tabular-nums text-neutral-400 text-center leading-tight whitespace-nowrap truncate max-w-full">
+                      {day.dateStr.slice(5)}
                     </span>
                   </div>
                 );
@@ -836,7 +872,7 @@ export const DashboardView: React.FC = () => {
           </div>
         </div>
 
-        {/* Weekly Goals Card with Progress Bars */}
+        {/* Weekly Goals Card with RTL Progress Bars */}
         <div className="lg:col-span-5 rounded-2xl bg-white dark:bg-[#12231a] p-6 border border-neutral-200 dark:border-emerald-900/50 shadow-xs flex flex-col justify-between">
           <div>
             <div className="flex items-center justify-between mb-5">
@@ -857,7 +893,7 @@ export const DashboardView: React.FC = () => {
               </button>
             </div>
 
-            <div className="space-y-4">
+            <div className="space-y-4" dir="rtl">
               {/* Goal 1: New Ayat */}
               <div>
                 <div className="flex items-center justify-between text-xs font-bold mb-1.5">
@@ -866,7 +902,10 @@ export const DashboardView: React.FC = () => {
                     {weeklyProgress.newAyat} / {settings.weeklyGoals.newAyatTarget} آية
                   </span>
                 </div>
-                <div className="w-full h-2.5 rounded-full bg-neutral-100 dark:bg-[#0b1711] overflow-hidden">
+                <div
+                  dir="rtl"
+                  className="w-full h-2.5 rounded-full bg-neutral-100 dark:bg-[#0b1711] overflow-hidden flex justify-start"
+                >
                   <div
                     style={{
                       width: `${Math.min(
@@ -891,7 +930,10 @@ export const DashboardView: React.FC = () => {
                     {weeklyProgress.reviewsCount} / {settings.weeklyGoals.reviewsTarget}
                   </span>
                 </div>
-                <div className="w-full h-2.5 rounded-full bg-neutral-100 dark:bg-[#0b1711] overflow-hidden">
+                <div
+                  dir="rtl"
+                  className="w-full h-2.5 rounded-full bg-neutral-100 dark:bg-[#0b1711] overflow-hidden flex justify-start"
+                >
                   <div
                     style={{
                       width: `${Math.min(
@@ -916,7 +958,10 @@ export const DashboardView: React.FC = () => {
                     {weeklyProgress.sessionsCount} / {settings.weeklyGoals.sessionsTarget} حصة
                   </span>
                 </div>
-                <div className="w-full h-2.5 rounded-full bg-neutral-100 dark:bg-[#0b1711] overflow-hidden">
+                <div
+                  dir="rtl"
+                  className="w-full h-2.5 rounded-full bg-neutral-100 dark:bg-[#0b1711] overflow-hidden flex justify-start"
+                >
                   <div
                     style={{
                       width: `${Math.min(
@@ -941,7 +986,10 @@ export const DashboardView: React.FC = () => {
                     {weeklyProgress.attendanceRate}% / {settings.weeklyGoals.attendanceTarget}%
                   </span>
                 </div>
-                <div className="w-full h-2.5 rounded-full bg-neutral-100 dark:bg-[#0b1711] overflow-hidden">
+                <div
+                  dir="rtl"
+                  className="w-full h-2.5 rounded-full bg-neutral-100 dark:bg-[#0b1711] overflow-hidden flex justify-start"
+                >
                   <div
                     style={{
                       width: `${Math.min(100, weeklyProgress.attendanceRate)}%`,
@@ -970,401 +1018,16 @@ export const DashboardView: React.FC = () => {
         </div>
       </section>
 
-      {/* Recharts Analytics Dashboard: Student Memorization Progression, Completed Pages & Mastery Percentage */}
-      <section className="rounded-2xl bg-white dark:bg-[#12231a] p-6 border-2 border-[#c59b27]/40 shadow-xs space-y-6">
+      {/* Unified Analytics Section: Memorization & Mastery + Unified Student Level & Juz Distribution */}
+      <section className="rounded-2xl bg-white dark:bg-[#12231a] p-6 border border-neutral-200 dark:border-emerald-900/50 shadow-xs space-y-6">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-neutral-100 dark:border-emerald-950">
           <div>
             <h2 className="text-base font-extrabold text-[#14281d] dark:text-white flex items-center gap-2">
-              <TrendingUp className="w-5 h-5 text-[#145a3a] dark:text-[#dfbd69]" />
-              <span>
-                لوحة البيانات التحليلية (Recharts Dashboard) — تطور مستويات الحفظ، الصفحات المنجزة، ونسبة الإتقان
-              </span>
+              <PieChart className="w-5 h-5 text-[#145a3a] dark:text-[#dfbd69]" />
+              <span>إحصائيات الحفظ والإتقان وتوزيع مستويات الطلاب</span>
             </h2>
             <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-0.5">
-              رسوم بيانية تفاعلية توضح منحنى تطور الإتقان والصفحات المنجزة يومياً، ومقارنة عدد الصفحات ونسبة الإتقان لكل طالب
-            </p>
-          </div>
-
-          <div className="flex flex-wrap items-center gap-2">
-            <div className="px-3.5 py-2 rounded-xl bg-[#f6f7f2] dark:bg-[#0b1711] border border-neutral-200 dark:border-emerald-900/50 flex items-center gap-2">
-              <BookOpen className="w-4 h-4 text-[#145a3a] dark:text-[#dfbd69]" />
-              <span className="text-xs text-neutral-500">إجمالي الصفحات المنجزة:</span>
-              <span className="text-sm font-extrabold font-mono tabular-nums text-[#145a3a] dark:text-[#dfbd69]">
-                {rechartsDashboardAnalytics.totalCompletedPages} صفحة
-              </span>
-            </div>
-            <div className="px-3.5 py-2 rounded-xl bg-[#f6f7f2] dark:bg-[#0b1711] border border-neutral-200 dark:border-emerald-900/50 flex items-center gap-2">
-              <Award className="w-4 h-4 text-[#c59b27]" />
-              <span className="text-xs text-neutral-500">متوسط نسبة الإتقان العام:</span>
-              <span className="text-sm font-extrabold font-mono tabular-nums text-emerald-700 dark:text-emerald-400">
-                {rechartsDashboardAnalytics.overallMasteryAvg}%
-              </span>
-            </div>
-          </div>
-        </div>
-
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-          {/* Chart 1: AreaChart for Mastery Rate & Completed Pages Progression */}
-          <div className="lg:col-span-6 p-4 rounded-2xl bg-[#f6f7f2]/60 dark:bg-[#0b1711]/60 border border-neutral-200/80 dark:border-emerald-900/40 space-y-3">
-            <div className="flex items-center justify-between">
-              <h3 className="text-xs font-extrabold text-[#145a3a] dark:text-[#dfbd69]">
-                📈 تطور نسبة الإتقان والصفحات المنجزة عبر الحصص (AreaChart)
-              </h3>
-              <span className="text-[11px] font-bold text-neutral-500">
-                آخر 7 أيام دراسية
-              </span>
-            </div>
-            <div className="w-full h-64">
-              <ResponsiveContainer width="100%" height="100%">
-                <AreaChart
-                  data={rechartsDashboardAnalytics.progressionData}
-                  margin={{ top: 10, right: 12, left: 0, bottom: 0 }}
-                >
-                  <defs>
-                    <linearGradient id="masteryGrad" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="#145a3a" stopOpacity={0.5} />
-                      <stop offset="95%" stopColor="#145a3a" stopOpacity={0.05} />
-                    </linearGradient>
-                    <linearGradient id="pagesGrad" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="#c59b27" stopOpacity={0.5} />
-                      <stop offset="95%" stopColor="#c59b27" stopOpacity={0.05} />
-                    </linearGradient>
-                  </defs>
-                  <CartesianGrid strokeDasharray="3 3" opacity={0.25} />
-                  <XAxis dataKey="dateLabel" tick={{ fontSize: 11 }} />
-                  <YAxis tick={{ fontSize: 11 }} />
-                  <Tooltip
-                    contentStyle={{
-                      borderRadius: '12px',
-                      border: '1px solid rgba(20, 90, 58, 0.25)',
-                      backgroundColor: 'rgba(255, 255, 255, 0.96)',
-                      color: '#14281d',
-                      fontSize: '12px',
-                      fontWeight: 'bold',
-                      direction: 'rtl',
-                      textAlign: 'right',
-                    }}
-                  />
-                  <Legend wrapperStyle={{ fontSize: '11px', fontWeight: 'bold' }} />
-                  <Area
-                    type="monotone"
-                    dataKey="masteryPercentage"
-                    name="نسبة الإتقان (%)"
-                    stroke="#145a3a"
-                    strokeWidth={2.5}
-                    fillOpacity={1}
-                    fill="url(#masteryGrad)"
-                  />
-                  <Area
-                    type="monotone"
-                    dataKey="completedPages"
-                    name="الصفحات المنجزة"
-                    stroke="#c59b27"
-                    strokeWidth={2.5}
-                    fillOpacity={1}
-                    fill="url(#pagesGrad)"
-                  />
-                </AreaChart>
-              </ResponsiveContainer>
-            </div>
-          </div>
-
-          {/* Chart 2: BarChart for Student Completed Pages & Mastery Percentage */}
-          <div className="lg:col-span-6 p-4 rounded-2xl bg-[#f6f7f2]/60 dark:bg-[#0b1711]/60 border border-neutral-200/80 dark:border-emerald-900/40 space-y-3">
-            <div className="flex items-center justify-between">
-              <h3 className="text-xs font-extrabold text-[#145a3a] dark:text-[#dfbd69]">
-                📊 مقارنة عدد الصفحات المنجزة ونسبة الإتقان لكل طالب (BarChart)
-              </h3>
-              <span className="text-[11px] font-bold text-neutral-500">
-                {students.length} طلاب نشطين
-              </span>
-            </div>
-            <div className="w-full h-64">
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart
-                  data={rechartsDashboardAnalytics.studentBarData}
-                  margin={{ top: 10, right: 12, left: 0, bottom: 0 }}
-                >
-                  <CartesianGrid strokeDasharray="3 3" opacity={0.25} />
-                  <XAxis dataKey="name" tick={{ fontSize: 10 }} />
-                  <YAxis tick={{ fontSize: 11 }} />
-                  <Tooltip
-                    contentStyle={{
-                      borderRadius: '12px',
-                      border: '1px solid rgba(20, 90, 58, 0.25)',
-                      backgroundColor: 'rgba(255, 255, 255, 0.96)',
-                      color: '#14281d',
-                      fontSize: '12px',
-                      fontWeight: 'bold',
-                      direction: 'rtl',
-                      textAlign: 'right',
-                    }}
-                  />
-                  <Legend wrapperStyle={{ fontSize: '11px', fontWeight: 'bold' }} />
-                  <Bar
-                    dataKey="completedPages"
-                    name="عدد الصفحات المنجزة"
-                    fill="#145a3a"
-                    radius={[6, 6, 0, 0]}
-                  />
-                  <Bar
-                    dataKey="masteryScore"
-                    name="نسبة الإتقان (%)"
-                    fill="#c59b27"
-                    radius={[6, 6, 0, 0]}
-                  />
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* Dedicated Recharts Donut Chart Card: Total Student Distribution by Level (مبتدئ، متوسط، متقدم) */}
-      <section className="rounded-2xl bg-white dark:bg-[#12231a] p-6 border border-neutral-200 dark:border-emerald-900/50 shadow-xs">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-6 pb-4 border-b border-neutral-100 dark:border-emerald-950">
-          <div>
-            <h2 className="text-base font-bold text-[#14281d] dark:text-white flex items-center gap-2">
-              <Users className="w-4 h-4 text-[#145a3a] dark:text-[#dfbd69]" />
-              <span>
-                توزيع طلاب الأكاديمية حسب المستوى الدراسي (مبتدئ، متوسط، متقدم)
-              </span>
-            </h2>
-            <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-0.5">
-              رسم بياني دائري (Donut Chart) بواسطة مكتبة Recharts يتحدث تلقائياً من قائمة الطلاب فور إضافة طالب أو تعديل مستواه
-            </p>
-          </div>
-
-          <div className="flex flex-wrap items-center gap-2">
-            {academyJuzAndLevels.segments.map((seg) => (
-              <div
-                key={seg.level}
-                className="px-3 py-1.5 rounded-xl bg-[#f6f7f2] dark:bg-[#0b1711] border border-neutral-200 dark:border-emerald-900/50 flex items-center gap-1.5 text-xs font-bold"
-              >
-                <span
-                  className="w-2.5 h-2.5 rounded-full inline-block"
-                  style={{ backgroundColor: seg.color }}
-                />
-                <span>{seg.level}:</span>
-                <span className="font-mono tabular-nums font-extrabold text-[#145a3a] dark:text-[#dfbd69]">
-                  {seg.count} ({seg.percentage}%)
-                </span>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-center">
-          {/* Recharts Donut Chart for Student Level Distribution (5 Cols) */}
-          <div className="lg:col-span-5 flex flex-col items-center justify-center p-4 rounded-2xl bg-[#f6f7f2]/60 dark:bg-[#0b1711]/60 border border-neutral-200/70 dark:border-emerald-900/40">
-            <div className="relative w-56 h-56 flex items-center justify-center">
-              <ResponsiveContainer width="100%" height="100%">
-                <RechartsPieChart>
-                  <Pie
-                    data={academyJuzAndLevels.segments}
-                    dataKey="count"
-                    nameKey="level"
-                    cx="50%"
-                    cy="50%"
-                    innerRadius={62}
-                    outerRadius={88}
-                    paddingAngle={4}
-                    stroke="none"
-                    onMouseLeave={() => setActiveDonutLevel(null)}
-                  >
-                    {academyJuzAndLevels.segments.map((seg) => {
-                      const isActive =
-                        !activeDonutLevel || activeDonutLevel === seg.level;
-                      return (
-                        <Cell
-                          key={seg.level}
-                          fill={seg.color}
-                          fillOpacity={isActive ? 1 : 0.35}
-                          className="cursor-pointer transition-opacity duration-300 outline-none"
-                          onMouseEnter={() => setActiveDonutLevel(seg.level)}
-                          onClick={() =>
-                            setActiveDonutLevel((prev) =>
-                              prev === seg.level ? null : seg.level
-                            )
-                          }
-                        />
-                      );
-                    })}
-                  </Pie>
-                  <Tooltip
-                    formatter={(
-                      value: unknown,
-                      _name: unknown,
-                      item: {
-                        payload?: {
-                          level?: string;
-                          percentage?: number;
-                          juzSum?: number;
-                        };
-                      }
-                    ) => {
-                      const payload = item?.payload;
-                      return [
-                        `${value} طلاب (${payload?.percentage ?? 0}% من الأكاديمية)`,
-                        `المستوى: ${payload?.level ?? ''}`,
-                      ];
-                    }}
-                    contentStyle={{
-                      borderRadius: '12px',
-                      border: '1px solid rgba(20, 90, 58, 0.2)',
-                      backgroundColor: 'rgba(255, 255, 255, 0.96)',
-                      color: '#145a3a',
-                      fontSize: '12px',
-                      fontWeight: 'bold',
-                      direction: 'rtl',
-                      textAlign: 'right',
-                    }}
-                  />
-                </RechartsPieChart>
-              </ResponsiveContainer>
-
-              {/* Center Readout: Total Students */}
-              <div className="absolute inset-0 flex flex-col items-center justify-center text-center pointer-events-none px-4">
-                {activeDonutLevel ? (
-                  (() => {
-                    const seg = academyJuzAndLevels.segments.find(
-                      (s) => s.level === activeDonutLevel
-                    );
-                    if (!seg) return null;
-                    return (
-                      <>
-                        <span className="text-[11px] font-bold text-neutral-500 dark:text-neutral-400">
-                          مستوى {seg.level}
-                        </span>
-                        <span className="text-3xl font-extrabold text-[#145a3a] dark:text-[#dfbd69] font-mono tabular-nums mt-0.5">
-                          {seg.count}
-                        </span>
-                        <span className="text-[11px] font-bold text-neutral-600 dark:text-neutral-300 mt-0.5">
-                          طلاب ({seg.percentage}%)
-                        </span>
-                      </>
-                    );
-                  })()
-                ) : (
-                  <>
-                    <span className="text-[11px] font-bold text-neutral-500 dark:text-neutral-400">
-                      إجمالي الطلاب
-                    </span>
-                    <span className="text-3xl font-extrabold text-[#145a3a] dark:text-[#dfbd69] font-mono tabular-nums mt-0.5">
-                      {students.length}
-                    </span>
-                    <span className="text-[11px] font-bold text-neutral-500 dark:text-neutral-400 mt-0.5">
-                      في 3 مستويات دراسية
-                    </span>
-                  </>
-                )}
-              </div>
-            </div>
-
-            {/* Legend under Student Level Donut */}
-            <div className="flex flex-wrap items-center justify-center gap-2.5 mt-3 text-xs font-bold">
-              {academyJuzAndLevels.segments.map((seg) => (
-                <button
-                  key={seg.level}
-                  type="button"
-                  onClick={() =>
-                    setActiveDonutLevel((prev) =>
-                      prev === seg.level ? null : seg.level
-                    )
-                  }
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border transition-all cursor-pointer ${
-                    activeDonutLevel === seg.level
-                      ? 'border-[#145a3a] bg-white dark:bg-[#12231a] shadow-xs scale-105'
-                      : 'border-transparent bg-white/70 dark:bg-[#12231a]/70'
-                  }`}
-                >
-                  <span
-                    className="w-3 h-3 rounded-full inline-block shrink-0"
-                    style={{ backgroundColor: seg.color }}
-                  />
-                  <span>{seg.level}</span>
-                  <span className="font-mono tabular-nums text-neutral-500">
-                    ({seg.count} • {seg.percentage}%)
-                  </span>
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* Student Level Classification List with Instant Level Switcher (7 Cols) */}
-          <div className="lg:col-span-7 space-y-3">
-            <div className="flex items-center justify-between text-xs font-bold text-neutral-500 pb-1">
-              <span>
-                قائمة الطلاب وتصنيفهم الحالي (يمكنك تغيير مستوى أي طالب لتحديث المخطط فوراً):
-              </span>
-              <button
-                type="button"
-                onClick={() => setActiveTab('students')}
-                className="text-[#145a3a] dark:text-[#dfbd69] hover:underline cursor-pointer"
-              >
-                إدارة الطلاب ←
-              </button>
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 max-h-64 overflow-y-auto pr-1">
-              {students.map((st) => (
-                <div
-                  key={st.id}
-                  className="p-3 rounded-2xl bg-[#f6f7f2]/70 dark:bg-[#0b1711]/70 border border-neutral-200 dark:border-emerald-900/50 flex items-center justify-between gap-2"
-                >
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setSelectedStudentId(st.id);
-                      setActiveTab('students');
-                    }}
-                    className="text-right min-w-0 cursor-pointer"
-                  >
-                    <div className="text-xs font-extrabold text-[#14281d] dark:text-white truncate">
-                      {st.name}
-                    </div>
-                    <div className="text-[10px] text-neutral-500 truncate mt-0.5">
-                      {st.circle} • {st.memorizedJuz.length} جزء
-                    </div>
-                  </button>
-
-                  <select
-                    value={st.level}
-                    onChange={(e) =>
-                      handleQuickChangeStudentLevel(
-                        st.id,
-                        e.target.value as StudentLevel
-                      )
-                    }
-                    className={`px-2.5 py-1 rounded-xl text-[11px] font-extrabold border cursor-pointer shrink-0 ${
-                      st.level === 'متقدم'
-                        ? 'bg-[#145a3a] text-white border-[#145a3a]'
-                        : st.level === 'متوسط'
-                        ? 'bg-[#c59b27] text-[#14281d] border-[#c59b27]'
-                        : 'bg-emerald-500 text-white border-emerald-500'
-                    }`}
-                  >
-                    <option value="مبتدئ">مبتدئ</option>
-                    <option value="متوسط">متوسط</option>
-                    <option value="متقدم">متقدم</option>
-                  </select>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* Recharts Donut Chart Card: Academy-wide Memorized Juz & Student Level Distribution */}
-      <section className="rounded-2xl bg-white dark:bg-[#12231a] p-6 border border-neutral-200 dark:border-emerald-900/50 shadow-xs">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-6 pb-4 border-b border-neutral-100 dark:border-emerald-950">
-          <div>
-            <h2 className="text-base font-bold text-[#14281d] dark:text-white flex items-center gap-2">
-              <PieChart className="w-4 h-4 text-[#145a3a] dark:text-[#dfbd69]" />
-              <span>حصاد الأكاديمية القرآني — إجمالي الأجزاء المحفوظة وتوزيع مستويات الطلاب (Recharts)</span>
-            </h2>
-            <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-0.5">
-              رسم بياني دائري تفاعلي (Donut Chart) يتحدث تلقائياً بناءً على سجلات الطلاب والحصص لتوضيح الأجزاء المحفوظة حسب المستوى (مبتدئ، متوسط، متقدم)
+              ملخص الأجزاء المحفوظة، تطور الإتقان الأسبوعي، وتوزيع الطلاب حسب المستوى الدراسي (مبتدئ، متوسط، متقدم)
             </p>
           </div>
 
@@ -1397,22 +1060,16 @@ export const DashboardView: React.FC = () => {
 
             <div className="px-3.5 py-2 rounded-xl bg-[#f6f7f2] dark:bg-[#0b1711] border border-neutral-200 dark:border-emerald-900/50 flex items-center gap-2">
               <Award className="w-4 h-4 text-[#c59b27]" />
-              <span className="text-xs text-neutral-500">إجمالي الأجزاء المحفوظة:</span>
-              <span className="text-sm font-extrabold font-mono tabular-nums text-[#145a3a] dark:text-[#dfbd69]">
-                {academyJuzAndLevels.totalJuzMemorized} جزءاً
-              </span>
-            </div>
-            <div className="px-3.5 py-2 rounded-xl bg-[#f6f7f2] dark:bg-[#0b1711] border border-neutral-200 dark:border-emerald-900/50 flex items-center gap-2">
-              <span className="text-xs text-neutral-500">مجموع السور المتقنة:</span>
-              <span className="text-sm font-extrabold font-mono tabular-nums text-[#145a3a] dark:text-[#dfbd69]">
-                {academyJuzAndLevels.totalSurahsMemorized} سورة
+              <span className="text-xs text-neutral-500">متوسط الإتقان العام:</span>
+              <span className="text-sm font-extrabold font-mono tabular-nums text-emerald-700 dark:text-emerald-400">
+                {rechartsDashboardAnalytics.overallMasteryAvg}%
               </span>
             </div>
           </div>
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-center">
-          {/* Interactive Recharts Donut Chart (5 Cols) */}
+          {/* Unified Donut Chart (5 Cols) */}
           <div className="lg:col-span-5 flex flex-col items-center justify-center p-4 rounded-2xl bg-[#f6f7f2]/60 dark:bg-[#0b1711]/60 border border-neutral-200/70 dark:border-emerald-900/40">
             <div className="relative w-56 h-56 flex items-center justify-center">
               <ResponsiveContainer width="100%" height="100%">
@@ -1496,10 +1153,10 @@ export const DashboardView: React.FC = () => {
                           مستوى {seg.level}
                         </span>
                         <span className="text-2xl font-extrabold text-[#145a3a] dark:text-[#dfbd69] font-mono tabular-nums mt-0.5">
-                          {seg.juzSum} جزءاً
+                          {donutMetric === 'juz' ? `${seg.juzSum} جزءاً` : `${seg.count} طلاب`}
                         </span>
                         <span className="text-[11px] font-bold text-neutral-600 dark:text-neutral-300 mt-0.5">
-                          {seg.count} طلاب ({seg.juzPercentage}% من الأجزاء)
+                          {seg.count} طلاب ({seg.percentage}%)
                         </span>
                       </>
                     );
@@ -1507,10 +1164,12 @@ export const DashboardView: React.FC = () => {
                 ) : (
                   <>
                     <span className="text-[11px] font-bold text-neutral-500 dark:text-neutral-400">
-                      إجمالي الأجزاء
+                      {donutMetric === 'juz' ? 'إجمالي الأجزاء' : 'إجمالي الطلاب'}
                     </span>
                     <span className="text-3xl font-extrabold text-[#145a3a] dark:text-[#dfbd69] font-mono tabular-nums mt-0.5">
-                      {academyJuzAndLevels.totalJuzMemorized}
+                      {donutMetric === 'juz'
+                        ? academyJuzAndLevels.totalJuzMemorized
+                        : students.length}
                     </span>
                     <span className="text-[11px] font-bold text-neutral-500 dark:text-neutral-400 mt-0.5">
                       بمتوسط {academyJuzAndLevels.avgJuzPerStudent} جزء/طالب
@@ -1588,8 +1247,11 @@ export const DashboardView: React.FC = () => {
                     </div>
                   </div>
 
-                  {/* Progress Bar of Juz Contribution */}
-                  <div className="w-full h-2 rounded-full bg-neutral-200 dark:bg-emerald-950 overflow-hidden mb-2.5">
+                  {/* RTL Progress Bar of Juz Contribution */}
+                  <div
+                    dir="rtl"
+                    className="w-full h-2 rounded-full bg-neutral-200 dark:bg-emerald-950 overflow-hidden mb-2.5 flex justify-start"
+                  >
                     <div
                       style={{
                         width: `${juzSharePercent}%`,
@@ -1599,7 +1261,7 @@ export const DashboardView: React.FC = () => {
                     />
                   </div>
 
-                  {/* Quick Student Chips in this Level with Live Juz Update (+/-) */}
+                  {/* Quick Student Chips in this Level without truncating names */}
                   <div className="flex flex-wrap items-center gap-1.5">
                     {seg.studentsList.map((st) => (
                       <div
@@ -1615,7 +1277,7 @@ export const DashboardView: React.FC = () => {
                           className="px-2.5 py-1 hover:bg-neutral-50 dark:hover:bg-emerald-950/40 text-[11px] font-bold flex items-center gap-1.5 transition-colors cursor-pointer"
                           title="فتح ملف الطالب"
                         >
-                          <span>{st.name.split(' ').slice(0, 2).join(' ')}</span>
+                          <span>{st.name}</span>
                           <span className="text-[10px] font-mono tabular-nums text-[#145a3a] dark:text-[#dfbd69]">
                             ({st.effectiveJuz.length} ج)
                           </span>
@@ -1742,13 +1404,13 @@ export const DashboardView: React.FC = () => {
                   {/* 4 Independent KPI Boxes */}
                   <div className="grid grid-cols-2 gap-2">
                     <div className="p-2.5 rounded-xl bg-white dark:bg-[#12231a] border border-neutral-200/70 dark:border-emerald-900/40">
-                      <div className="text-[10px] text-neutral-500 font-bold">
+                      <div className="text-[10px] text-neutral-500 font-bold whitespace-nowrap">
                         مجموع الأجزاء المحفوظة
                       </div>
-                      <div className="text-sm font-extrabold font-mono tabular-nums text-[#145a3a] dark:text-[#dfbd69] mt-0.5">
+                      <div className="text-sm font-extrabold font-mono tabular-nums text-[#145a3a] dark:text-[#dfbd69] mt-0.5 whitespace-nowrap">
                         {item.totalJuz} جزءاً{' '}
                         <span className="text-[10px] text-neutral-400 font-normal">
-                          (بمتوسط {item.avgJuz})
+                          (معدل {item.avgJuz})
                         </span>
                       </div>
                     </div>
@@ -1993,123 +1655,7 @@ export const DashboardView: React.FC = () => {
         </div>
       )}
 
-      {/* Section: Today's Follow-up Queue (متابعة اليوم) */}
-      <section className="rounded-2xl bg-white dark:bg-[#12231a] p-6 border border-neutral-200 dark:border-emerald-900/50 shadow-xs">
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-5">
-          <div>
-            <h2 className="text-base font-bold text-[#14281d] dark:text-white flex items-center gap-2 flex-wrap">
-              <Clock className="w-4 h-4 text-[#145a3a] dark:text-[#dfbd69]" />
-              <span>
-                متابعة اليوم — الطلاب المجدولون ({DAY_NAMES[todayDow]} •{' '}
-                {formatGregorianAndHijri(todayStr, settings.showHijriDates ?? true)})
-              </span>
-            </h2>
-            <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-0.5">
-              ابدأ الحصة مباشرة أو سجل الحضور والغياب السريع بضغطة زر
-            </p>
-          </div>
-          <div className="text-xs font-bold text-[#145a3a] dark:text-[#dfbd69] tabular-nums">
-            تم إنجاز{' '}
-            {
-              scheduledToday.filter((st) =>
-                sessions.some((s) => s.studentId === st.id && s.date === todayStr)
-              ).length
-            }{' '}
-            من {scheduledToday.length} طالب
-          </div>
-        </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
-          {scheduledToday.map((st) => {
-            const todaySes = sessions.find(
-              (s) => s.studentId === st.id && s.date === todayStr
-            );
-
-            return (
-              <div
-                key={st.id}
-                className="flex items-center justify-between p-4 rounded-2xl border border-neutral-200 dark:border-emerald-900/50 bg-[#f6f7f2]/60 dark:bg-[#0b1711]/60 hover:border-[#145a3a] transition-colors"
-              >
-                <div
-                  className="flex items-center gap-3 cursor-pointer min-w-0"
-                  onClick={() => {
-                    setSelectedStudentId(st.id);
-                    setActiveTab('students');
-                  }}
-                >
-                  <div className="w-11 h-11 rounded-xl bg-[#145a3a] text-white font-bold text-sm flex items-center justify-center shrink-0">
-                    {st.name
-                      .split(' ')
-                      .slice(0, 2)
-                      .map((w) => w[0])
-                      .join('')}
-                  </div>
-                  <div className="min-w-0">
-                    <div className="text-sm font-bold text-[#14281d] dark:text-white truncate">
-                      {st.name}
-                    </div>
-                    <div className="text-xs text-neutral-500 dark:text-neutral-400 truncate mt-0.5">
-                      <span className="tabular-nums font-mono">{st.scheduleTime}</span> ·{' '}
-                      {st.circle.split(' ')[1] || st.circle} · توقف: {st.currentStop.surahName} (
-                      {st.currentStop.ayah})
-                    </div>
-                    {todaySes && (
-                      <div className="text-[11px] font-bold mt-1">
-                        {todaySes.status === 'حضر' ? (
-                          <span className="text-emerald-700 dark:text-emerald-400">
-                            ✓ حضر اليوم · إتقان {todaySes.masteryScore}%
-                          </span>
-                        ) : todaySes.status === 'غاب' ? (
-                          <span className="text-red-600 dark:text-red-400">
-                            ✕ غائب اليوم (تم ترحيل التكليف)
-                          </span>
-                        ) : (
-                          <span className="text-amber-600">إجازة</span>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                </div>
-
-                <div className="flex items-center gap-1.5 shrink-0 mr-2">
-                  <button
-                    onClick={() => handleQuickAttendance(st.id, 'حضر')}
-                    title="تسجيل حضور سريع"
-                    className={`px-2.5 py-2 rounded-xl text-xs font-bold border transition-colors cursor-pointer ${
-                      todaySes?.status === 'حضر'
-                        ? 'bg-emerald-600 text-white border-emerald-600'
-                        : 'border-neutral-200 dark:border-emerald-900 bg-white dark:bg-[#12231a] hover:border-emerald-600'
-                    }`}
-                  >
-                    حضر
-                  </button>
-                  <button
-                    onClick={() => handleQuickAttendance(st.id, 'غاب')}
-                    title="تسجيل غياب وترحيل التكليف"
-                    className={`px-2.5 py-2 rounded-xl text-xs font-bold border transition-colors cursor-pointer ${
-                      todaySes?.status === 'غاب'
-                        ? 'bg-red-600 text-white border-red-600'
-                        : 'border-neutral-200 dark:border-emerald-900 bg-white dark:bg-[#12231a] hover:border-red-600'
-                    }`}
-                  >
-                    غاب
-                  </button>
-                  <button
-                    onClick={() => {
-                      setSelectedStudentId(st.id);
-                      setActiveTab('session');
-                    }}
-                    className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-[#145a3a] hover:bg-[#0f452c] text-white text-xs font-bold transition-colors cursor-pointer"
-                  >
-                    <BookOpen className="w-3.5 h-3.5 text-[#dfbd69]" />
-                    <span>بدء حصة</span>
-                  </button>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      </section>
 
       {/* Section: Sheikh Appreciation, Excellence Badges & Home Recitation Inbox (لوحة شرف وتشجيع المحفظ + وارد التسميع المنزلي + اختبار التنبيهات) */}
       <section className="grid grid-cols-1 lg:grid-cols-12 gap-6">
