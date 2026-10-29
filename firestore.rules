@@ -84,6 +84,28 @@ service cloud.firestore {
         data.updatedAt is timestamp;
     }
 
+    function isValidStaffRegistrationRecord(data) {
+      return data.keys().hasAll(['staffId', 'googleUid', 'name', 'email', 'roleTitle', 'staffRole', 'status', 'assignedCirclesCount', 'motherName', 'grandfatherName', 'grandmotherName', 'uncleName', 'createdAt', 'updatedAt']) &&
+        data.keys().hasOnly(['staffId', 'googleUid', 'name', 'email', 'roleTitle', 'staffRole', 'status', 'assignedCirclesCount', 'motherName', 'grandfatherName', 'grandmotherName', 'uncleName', 'createdAt', 'updatedAt']) &&
+        data.staffId is string && data.staffId.size() >= 1 && data.staffId.size() <= 128 &&
+        data.staffId.matches('^[a-zA-Z0-9_\\-]+$') &&
+        data.googleUid is string && data.googleUid.size() <= 128 &&
+        data.name is string && data.name.size() >= 1 && data.name.size() <= 120 &&
+        data.email is string && data.email.size() >= 3 && data.email.size() <= 160 &&
+        data.roleTitle is string && data.roleTitle.size() >= 1 && data.roleTitle.size() <= 160 &&
+        data.staffRole is string && data.staffRole.size() <= 32 &&
+        (data.staffRole in ['owner', 'supervisor', 'teacher']) &&
+        data.status is string && data.status.size() <= 32 &&
+        (data.status in ['active', 'blocked', 'pending']) &&
+        data.assignedCirclesCount is int && data.assignedCirclesCount >= 0 && data.assignedCirclesCount <= 100 &&
+        data.motherName is string && data.motherName.size() <= 120 &&
+        data.grandfatherName is string && data.grandfatherName.size() <= 120 &&
+        data.grandmotherName is string && data.grandmotherName.size() <= 120 &&
+        data.uncleName is string && data.uncleName.size() <= 120 &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
     match /admins/{adminUid} {
       allow get: if isSignedIn() && isValidId(adminUid) && request.auth.uid == adminUid;
       allow list, create, update, delete: if false;
@@ -147,6 +169,24 @@ service cloud.firestore {
         incoming().updatedAt == request.time &&
         incoming().diff(existing()).affectedKeys().hasOnly(['academyName', 'studentsCount', 'sessionsCount', 'schemaVersion', 'updatedAt']);
       allow delete: if false;
+    }
+
+    match /staff_registrations/{staffId} {
+      allow get, list: if isSignedIn();
+      allow create: if isSignedIn() &&
+        isValidId(staffId) &&
+        incoming().staffId == staffId &&
+        isValidStaffRegistrationRecord(incoming()) &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time;
+      allow update: if isSignedIn() &&
+        isValidId(staffId) &&
+        incoming().staffId == existing().staffId &&
+        isValidStaffRegistrationRecord(incoming()) &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().updatedAt == request.time &&
+        incoming().diff(existing()).affectedKeys().hasOnly(['googleUid', 'name', 'email', 'roleTitle', 'staffRole', 'status', 'assignedCirclesCount', 'motherName', 'grandfatherName', 'grandmotherName', 'uncleName', 'updatedAt']);
+      allow delete: if isSignedIn() && isValidId(staffId);
     }
   }
 }

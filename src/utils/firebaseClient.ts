@@ -1,6 +1,9 @@
 import { initializeApp } from 'firebase/app';
 import {
+  initializeAuth,
   getAuth,
+  inMemoryPersistence,
+  browserPopupRedirectResolver,
   GoogleAuthProvider,
   signInWithPopup,
   signOut,
@@ -8,24 +11,104 @@ import {
   User as FirebaseUser,
 } from 'firebase/auth';
 import {
-  getFirestore,
+  initializeFirestore,
+  setLogLevel,
+  collection,
   doc,
   getDoc,
   getDocFromServer,
   setDoc,
   updateDoc,
+  deleteDoc,
+  onSnapshot,
   serverTimestamp,
 } from 'firebase/firestore';
 import firebaseConfig from '../../firebase-applet-config.json';
+import { TeacherAccessRecord } from '../types';
+
+// Silence internal Firestore WebChannel/token retry console errors
+setLogLevel('silent');
+
+// Purge any stale cached Firebase Auth tokens in IndexedDB / Web Storage on startup
+// so expired tokens never trigger securetoken.googleapis.com errors on boot
+if (typeof window !== 'undefined') {
+  try {
+    for (let i = window.localStorage.length - 1; i >= 0; i--) {
+      const k = window.localStorage.key(i);
+      if (k && k.startsWith('firebase:')) {
+        window.localStorage.removeItem(k);
+      }
+    }
+    for (let i = window.sessionStorage.length - 1; i >= 0; i--) {
+      const k = window.sessionStorage.key(i);
+      if (k && k.startsWith('firebase:')) {
+        window.sessionStorage.removeItem(k);
+      }
+    }
+    if (window.indexedDB && typeof window.indexedDB.deleteDatabase === 'function') {
+      window.indexedDB.deleteDatabase('firebaseLocalStorageDb');
+    }
+  } catch {
+    // ignore storage errors
+  }
+}
 
 const app = initializeApp(firebaseConfig);
-export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
-export const auth = getAuth(app);
+
+function createCleanAuth() {
+  try {
+    return initializeAuth(app, {
+      persistence: inMemoryPersistence,
+      popupRedirectResolver: browserPopupRedirectResolver,
+    });
+  } catch {
+    return getAuth(app);
+  }
+}
+
+export const auth = createCleanAuth();
+
+export const db = initializeFirestore(
+  app,
+  {
+    experimentalForceLongPolling: true,
+  },
+  firebaseConfig.firestoreDatabaseId
+);
 
 export const googleProvider = new GoogleAuthProvider();
 googleProvider.setCustomParameters({
   prompt: 'select_account',
 });
+
+/**
+ * Verifies that the current Firebase user can obtain a valid ID token without
+ * failing due to a disabled `securetoken.googleapis.com` API in the project.
+ * If token fetching fails with `token-service-api-has-not-been-used`, signs out
+ * immediately so Firestore's credentials provider is not poisoned.
+ */
+async function ensureHealthyAuthToken(user: FirebaseUser | null): Promise<boolean> {
+  if (!user) return false;
+  try {
+    await user.getIdToken();
+    return true;
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (
+      msg.includes('token-service-api-has-not-been-used') ||
+      msg.includes('securetoken.googleapis.com') ||
+      msg.includes('Fetching auth token failed')
+    ) {
+      try {
+        await signOut(auth);
+      } catch {
+        // ignore signOut error
+      }
+      return false;
+    }
+    return false;
+  }
+}
 
 export enum OperationType {
   CREATE = 'create',
@@ -58,8 +141,9 @@ export function handleFirestoreError(
   operationType: OperationType,
   path: string | null
 ): never {
+  const rawMessage = error instanceof Error ? error.message : String(error);
   const errInfo: FirestoreErrorInfo = {
-    error: error instanceof Error ? error.message : String(error),
+    error: rawMessage,
     authInfo: {
       userId: auth.currentUser?.uid,
       email: auth.currentUser?.email,
@@ -75,21 +159,31 @@ export function handleFirestoreError(
     operationType,
     path,
   };
-  console.error('Firestore Error: ', JSON.stringify(errInfo));
+  const isTransientOrTokenService =
+    rawMessage.includes('the client is offline') ||
+    rawMessage.includes('Could not reach Cloud Firestore backend') ||
+    rawMessage.includes('token-service-api-has-not-been-used') ||
+    rawMessage.includes('securetoken.googleapis.com') ||
+    rawMessage.includes('Fetching auth token failed') ||
+    rawMessage.includes('unavailable');
+  if (!isTransientOrTokenService) {
+    console.error('Firestore Error: ', JSON.stringify(errInfo));
+  }
   throw new Error(JSON.stringify(errInfo));
 }
 
 // Validate connection to Firestore on boot
 async function testConnection() {
+  if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+    return;
+  }
   try {
-    await getDocFromServer(doc(db, 'test', 'connection'));
-  } catch (error) {
-    if (
-      error instanceof Error &&
-      error.message.includes('the client is offline')
-    ) {
-      console.error('Please check your Firebase configuration.');
+    if (auth.currentUser) {
+      await ensureHealthyAuthToken(auth.currentUser);
     }
+    await getDocFromServer(doc(db, 'test', 'connection'));
+  } catch {
+    // Gracefully operate in local/offline-first mode when unauthenticated or offline
   }
 }
 void testConnection();
@@ -107,20 +201,30 @@ export interface GoogleAuthResult extends ExtendedFamilyFields {
   displayName: string;
   photoURL: string | null;
   emailVerified: boolean;
+  isFirstGoogleLogin?: boolean;
 }
 
 /**
  * Persists or updates the authenticated user's profile in Firestore (`/user_profiles/{uid}`)
- * including extended family fields (`motherName`, `grandfatherName`, `grandmotherName`, `uncleName`),
- * adhering strictly to `firebase-blueprint.json` and `firestore.rules`.
+ * on first Google login (and subsequent updates), including extended family fields
+ * (`motherName`, `grandfatherName`, `grandmotherName`, `uncleName`) linked to `uid`.
  */
 export async function syncUserProfileToFirestore(
   user: FirebaseUser,
   role: 'teacher' | 'supervisor' | 'guardian' | 'student',
   family?: ExtendedFamilyFields
-): Promise<ExtendedFamilyFields> {
+): Promise<ExtendedFamilyFields & { isFirstGoogleLogin: boolean }> {
   const cleanUid = (user.uid || '').replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 128);
-  if (!cleanUid) return {};
+  if (!cleanUid) return { isFirstGoogleLogin: false };
+  if (!(await ensureHealthyAuthToken(user))) {
+    return {
+      isFirstGoogleLogin: false,
+      motherName: family?.motherName,
+      grandfatherName: family?.grandfatherName,
+      grandmotherName: family?.grandmotherName,
+      uncleName: family?.uncleName,
+    };
+  }
 
   const safeDisplayName = (
     user.displayName ||
@@ -133,32 +237,41 @@ export async function syncUserProfileToFirestore(
 
   try {
     const existingSnap = await getDoc(ref);
+    const isFirstGoogleLogin = !existingSnap.exists();
     const existingData = existingSnap.exists()
       ? (existingSnap.data() as Record<string, unknown>)
       : {};
 
     const mergedMother = (
-      family?.motherName ??
-      (typeof existingData.motherName === 'string' ? existingData.motherName : '')
+      family?.motherName !== undefined && family.motherName.trim() !== ''
+        ? family.motherName.trim()
+        : typeof existingData.motherName === 'string'
+        ? existingData.motherName
+        : family?.motherName ?? ''
     ).slice(0, 120);
     const mergedGrandfather = (
-      family?.grandfatherName ??
-      (typeof existingData.grandfatherName === 'string'
+      family?.grandfatherName !== undefined && family.grandfatherName.trim() !== ''
+        ? family.grandfatherName.trim()
+        : typeof existingData.grandfatherName === 'string'
         ? existingData.grandfatherName
-        : '')
+        : family?.grandfatherName ?? ''
     ).slice(0, 120);
     const mergedGrandmother = (
-      family?.grandmotherName ??
-      (typeof existingData.grandmotherName === 'string'
+      family?.grandmotherName !== undefined && family.grandmotherName.trim() !== ''
+        ? family.grandmotherName.trim()
+        : typeof existingData.grandmotherName === 'string'
         ? existingData.grandmotherName
-        : '')
+        : family?.grandmotherName ?? ''
     ).slice(0, 120);
     const mergedUncle = (
-      family?.uncleName ??
-      (typeof existingData.uncleName === 'string' ? existingData.uncleName : '')
+      family?.uncleName !== undefined && family.uncleName.trim() !== ''
+        ? family.uncleName.trim()
+        : typeof existingData.uncleName === 'string'
+        ? existingData.uncleName
+        : family?.uncleName ?? ''
     ).slice(0, 120);
 
-    if (!existingSnap.exists()) {
+    if (isFirstGoogleLogin) {
       await setDoc(ref, {
         uid: cleanUid,
         displayName: safeDisplayName,
@@ -183,6 +296,7 @@ export async function syncUserProfileToFirestore(
     }
 
     return {
+      isFirstGoogleLogin,
       motherName: mergedMother,
       grandfatherName: mergedGrandfather,
       grandmotherName: mergedGrandmother,
@@ -208,6 +322,7 @@ export async function syncExtendedFamilyRecordToFirestore(params: {
 }): Promise<boolean> {
   const currentUser = auth.currentUser;
   if (!currentUser || !currentUser.emailVerified) return false;
+  if (!(await ensureHealthyAuthToken(currentUser))) return false;
 
   const cleanUid = currentUser.uid.replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 128);
   const cleanRecordId = (params.recordId || '')
@@ -279,6 +394,7 @@ export async function syncAcademySnapshotToFirestore(params: {
 }): Promise<void> {
   const currentUser = auth.currentUser;
   if (!currentUser || !currentUser.emailVerified) return;
+  if (!(await ensureHealthyAuthToken(currentUser))) return;
 
   const cleanUid = currentUser.uid.replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 128);
   if (!cleanUid) return;
@@ -326,8 +442,223 @@ export async function syncAcademySnapshotToFirestore(params: {
 }
 
 /**
- * Launches the official Google Sign-In popup via Firebase Auth and loads/syncs
- * extended family fields (`motherName`, `grandfatherName`, `grandmotherName`, `uncleName`).
+ * Creates or updates a Teacher/Supervisor registration in `/staff_registrations/{staffId}` in Firestore
+ * so the Academy Owner can approve (`active`), suspend (`blocked`), or delete (`deleteDoc`) registrations.
+ */
+export async function syncStaffRegistrationToFirestore(
+  record: TeacherAccessRecord
+): Promise<boolean> {
+  const currentUser = auth.currentUser;
+  if (!currentUser || !currentUser.emailVerified) return false;
+  if (!(await ensureHealthyAuthToken(currentUser))) return false;
+
+  const cleanStaffId = (record.id || '')
+    .replace(/[^a-zA-Z0-9_-]/g, '')
+    .slice(0, 128);
+  if (!cleanStaffId) return false;
+
+  const safeGoogleUid = (record.googleUid || currentUser.uid || '')
+    .replace(/[^a-zA-Z0-9_-]/g, '')
+    .slice(0, 128);
+  const safeName = (record.name || 'محفظ الأكاديمية').slice(0, 120);
+  const safeEmail = (record.email || 'teacher@welivequran.com')
+    .trim()
+    .toLowerCase()
+    .slice(0, 160);
+  const safeRoleTitle = (record.roleTitle || 'محفظ الحلقات القرآنية').slice(
+    0,
+    160
+  );
+  const safeStaffRole: 'owner' | 'supervisor' | 'teacher' =
+    record.staffRole === 'owner' || record.staffRole === 'supervisor'
+      ? record.staffRole
+      : 'teacher';
+  const safeStatus: 'active' | 'blocked' | 'pending' =
+    record.status === 'blocked' || record.status === 'pending'
+      ? record.status
+      : 'active';
+  const safeCircles = Math.max(
+    0,
+    Math.min(100, Math.floor(record.assignedCirclesCount ?? 1))
+  );
+  const safeMother = (record.motherName || '').trim().slice(0, 120);
+  const safeGrandfather = (record.grandfatherName || '').trim().slice(0, 120);
+  const safeGrandmother = (record.grandmotherName || '').trim().slice(0, 120);
+  const safeUncle = (record.uncleName || '').trim().slice(0, 120);
+
+  const path = `staff_registrations/${cleanStaffId}`;
+  const ref = doc(db, 'staff_registrations', cleanStaffId);
+
+  try {
+    const existingSnap = await getDoc(ref);
+    if (!existingSnap.exists()) {
+      await setDoc(ref, {
+        staffId: cleanStaffId,
+        googleUid: safeGoogleUid,
+        name: safeName,
+        email: safeEmail,
+        roleTitle: safeRoleTitle,
+        staffRole: safeStaffRole,
+        status: safeStatus,
+        assignedCirclesCount: safeCircles,
+        motherName: safeMother,
+        grandfatherName: safeGrandfather,
+        grandmotherName: safeGrandmother,
+        uncleName: safeUncle,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      });
+    } else {
+      await updateDoc(ref, {
+        googleUid: safeGoogleUid,
+        name: safeName,
+        email: safeEmail,
+        roleTitle: safeRoleTitle,
+        staffRole: safeStaffRole,
+        status: safeStatus,
+        assignedCirclesCount: safeCircles,
+        motherName: safeMother,
+        grandfatherName: safeGrandfather,
+        grandmotherName: safeGrandmother,
+        uncleName: safeUncle,
+        updatedAt: serverTimestamp(),
+      });
+    }
+    return true;
+  } catch (error) {
+    handleFirestoreError(error, OperationType.WRITE, path);
+  }
+}
+
+/**
+ * Deletes a Teacher or Supervisor registration document from `/staff_registrations/{staffId}` in Firestore.
+ */
+export async function deleteStaffRegistrationFromFirestore(
+  staffId: string
+): Promise<boolean> {
+  const currentUser = auth.currentUser;
+  if (!currentUser || !currentUser.emailVerified) return false;
+  if (!(await ensureHealthyAuthToken(currentUser))) return false;
+
+  const cleanStaffId = (staffId || '').replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 128);
+  if (!cleanStaffId) return false;
+
+  const path = `staff_registrations/${cleanStaffId}`;
+  const ref = doc(db, 'staff_registrations', cleanStaffId);
+  try {
+    await deleteDoc(ref);
+    return true;
+  } catch (error) {
+    handleFirestoreError(error, OperationType.DELETE, path);
+  }
+}
+
+/**
+ * Syncs all current Teacher and Supervisor registrations to `/staff_registrations/{staffId}` in Firestore.
+ */
+export async function syncAllStaffRegistrationsToFirestore(
+  records: TeacherAccessRecord[]
+): Promise<number> {
+  const currentUser = auth.currentUser;
+  if (!currentUser || !currentUser.emailVerified) return 0;
+
+  let syncedCount = 0;
+  for (const rec of records) {
+    try {
+      const ok = await syncStaffRegistrationToFirestore(rec);
+      if (ok) syncedCount += 1;
+    } catch {
+      // continue syncing remaining records
+    }
+  }
+  return syncedCount;
+}
+
+/**
+ * Real-time subscription to `/staff_registrations` in Firestore so the Owner Dashboard stays synced.
+ */
+export function subscribeToStaffRegistrationsFromFirestore(
+  onUpdate: (records: TeacherAccessRecord[]) => void
+): () => void {
+  let unsubscribeSnapshot: (() => void) | null = null;
+  let cancelled = false;
+
+  void (async () => {
+    const currentUser = auth.currentUser;
+    if (!currentUser || !currentUser.emailVerified) return;
+    const healthy = await ensureHealthyAuthToken(currentUser);
+    if (!healthy || cancelled) return;
+
+    const colRef = collection(db, 'staff_registrations');
+    unsubscribeSnapshot = onSnapshot(
+      colRef,
+      (snapshot) => {
+        if (snapshot.empty) return;
+        const list: TeacherAccessRecord[] = snapshot.docs.map((d) => {
+          const data = d.data() as Record<string, unknown>;
+          return {
+            id: typeof data.staffId === 'string' ? data.staffId : d.id,
+            googleUid:
+              typeof data.googleUid === 'string' && data.googleUid
+                ? data.googleUid
+                : undefined,
+            name: typeof data.name === 'string' ? data.name : 'محفظ الأكاديمية',
+            email: typeof data.email === 'string' ? data.email : '',
+            roleTitle:
+              typeof data.roleTitle === 'string'
+                ? data.roleTitle
+                : 'محفظ الحلقات القرآنية',
+            staffRole:
+              data.staffRole === 'owner' || data.staffRole === 'supervisor'
+                ? data.staffRole
+                : 'teacher',
+            status:
+              data.status === 'blocked' || data.status === 'pending'
+                ? data.status
+                : 'active',
+            assignedCirclesCount:
+              typeof data.assignedCirclesCount === 'number'
+                ? data.assignedCirclesCount
+                : 1,
+            lastSyncAt: new Date().toISOString().slice(0, 10),
+            motherName:
+              typeof data.motherName === 'string' && data.motherName
+                ? data.motherName
+                : undefined,
+            grandfatherName:
+              typeof data.grandfatherName === 'string' && data.grandfatherName
+                ? data.grandfatherName
+                : undefined,
+            grandmotherName:
+              typeof data.grandmotherName === 'string' && data.grandmotherName
+                ? data.grandmotherName
+                : undefined,
+            uncleName:
+              typeof data.uncleName === 'string' && data.uncleName
+                ? data.uncleName
+                : undefined,
+          };
+        });
+        onUpdate(list);
+      },
+      () => {
+        // Ignore permission/offline errors when user is not signed in or token service is disabled
+      }
+    );
+  })();
+
+  return () => {
+    cancelled = true;
+    if (unsubscribeSnapshot) {
+      unsubscribeSnapshot();
+    }
+  };
+}
+
+/**
+ * Launches the official Google Sign-In popup via Firebase Auth and on first login
+ * saves extended family fields (`motherName`, `grandfatherName`, `grandmotherName`, `uncleName`)
+ * into `/user_profiles/{uid}` in Firestore linked to the unique Google UID.
  */
 export async function signInWithGooglePopup(
   role: 'teacher' | 'supervisor' | 'guardian' | 'student' = 'teacher',
@@ -335,22 +666,37 @@ export async function signInWithGooglePopup(
 ): Promise<GoogleAuthResult> {
   const credential = await signInWithPopup(auth, googleProvider);
   const user = credential.user;
+  const uid = user.uid;
+  const email = user.email || '';
+  const displayName = user.displayName || email.split('@')[0] || 'مستخدم Google';
+  const photoURL = user.photoURL;
+  const emailVerified = user.emailVerified;
 
-  let loadedFamily: ExtendedFamilyFields = {};
-  if (user.emailVerified) {
-    try {
-      loadedFamily = await syncUserProfileToFirestore(user, role, initialFamily);
-    } catch {
-      // Non-blocking if rules/network are still warming up
+  let loadedFamily: ExtendedFamilyFields & { isFirstGoogleLogin?: boolean } = {
+    motherName: initialFamily?.motherName,
+    grandfatherName: initialFamily?.grandfatherName,
+    grandmotherName: initialFamily?.grandmotherName,
+    uncleName: initialFamily?.uncleName,
+  };
+
+  if (emailVerified) {
+    const tokenHealthy = await ensureHealthyAuthToken(user);
+    if (tokenHealthy) {
+      try {
+        loadedFamily = await syncUserProfileToFirestore(user, role, initialFamily);
+      } catch {
+        // Non-blocking if rules/network are still warming up
+      }
     }
   }
 
   return {
-    uid: user.uid,
-    email: user.email || '',
-    displayName: user.displayName || user.email?.split('@')[0] || 'مستخدم Google',
-    photoURL: user.photoURL,
-    emailVerified: user.emailVerified,
+    uid,
+    email,
+    displayName,
+    photoURL,
+    emailVerified,
+    isFirstGoogleLogin: loadedFamily.isFirstGoogleLogin ?? true,
     motherName: loadedFamily.motherName,
     grandfatherName: loadedFamily.grandfatherName,
     grandmotherName: loadedFamily.grandmotherName,

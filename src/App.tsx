@@ -18,6 +18,7 @@ import { OfflineIndicator, PWAInstallButton } from './components/PWAComponents';
 import { HybridFoundationView } from './components/HybridFoundationView';
 import { OfflineResourceCenterView } from './components/OfflineResourceCenterView';
 import { PublicMushafWaqfPortalView } from './components/PublicMushafWaqfPortalView';
+import { OwnerControlPanelView } from './components/OwnerControlPanelView';
 import { OFFICIAL_ACADEMY_WHATSAPP } from './data/hybridFoundationData';
 import { formatGregorianAndHijri } from './utils/dateUtils';
 import {
@@ -38,6 +39,7 @@ import {
   Moon,
   Search,
   Settings,
+  Shield,
   Sparkles,
   Sun,
   Type,
@@ -102,8 +104,8 @@ const MainShell: React.FC = () => {
   // If logged in as Guardian or Guest, render the dedicated Guardian/Guest Portal
   if (userRole === 'guardian' || userRole === 'guest') {
     return (
-      <div className="min-h-screen bg-[#f6f7f2] dark:bg-[#0b1711] text-[#14281d] dark:text-[#e9f2ec]">
-        <div className="max-w-6xl mx-auto p-4 md:p-6">
+      <div className="min-h-screen bg-[#f8f9f6] dark:bg-[#0b1510] text-[#14281d] dark:text-[#e9f2ec] selection:bg-[#145a3a] selection:text-white">
+        <div className="max-w-[1380px] mx-auto px-4 sm:px-6 lg:px-8 py-5 md:py-7">
           <GuardianAndGuestView />
         </div>
         <OfflineIndicator />
@@ -127,6 +129,11 @@ const MainShell: React.FC = () => {
           id: 'dashboard',
           label: 'الرئيسية',
           icon: <LayoutDashboard className="w-4 h-4" />,
+        },
+        {
+          id: 'owner_panel',
+          label: 'لوحة تحكم المالك (Firestore)',
+          icon: <Shield className="w-4 h-4" />,
         },
         {
           id: 'session',
@@ -510,6 +517,7 @@ const MainShell: React.FC = () => {
         {/* Active View Viewport */}
         <main className="max-w-7xl w-full mx-auto p-4 md:p-6 flex-1">
           {activeTab === 'dashboard' && <DashboardView />}
+          {activeTab === 'owner_panel' && <OwnerControlPanelView />}
           {activeTab === 'students' && <StudentsView />}
           {activeTab === 'session' && <SessionEngineView />}
           {activeTab === 'smartboard' && <SmartBoardView />}

@@ -55,19 +55,34 @@ import {
   Pause,
   Play,
   Printer,
+  Calendar,
+  Clock,
+  Layers,
   Repeat,
   RotateCcw,
   RotateCw,
   Send,
+  Shield,
   SkipBack,
   SkipForward,
   Sparkles,
   Square,
   Star,
+  TrendingUp,
   Upload,
+  Users,
   Volume2,
   Wallet,
 } from 'lucide-react';
+import {
+  Bar,
+  BarChart,
+  CartesianGrid,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from 'recharts';
 import { WaqfDedicationBannerCard } from './PublicMushafWaqfPortalView';
 
 const FORTRESS_TASKS: {
@@ -623,20 +638,18 @@ export const StudentAudioRecorder: React.FC<StudentAudioRecorderProps> = ({
   };
 
   return (
-    <div className="p-4 rounded-2xl bg-[#fcfaf2] dark:bg-[#0b1711] border border-[#c59b27]/50 space-y-3">
+    <div className="p-5 rounded-2xl bg-[#fcfaf2] dark:bg-[#0b1711] border border-[#c59b27]/50 space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h3 className="text-xs font-extrabold text-[#145a3a] dark:text-[#dfbd69] flex items-center gap-1.5">
+          <h3 className="text-sm font-extrabold text-[#145a3a] dark:text-[#dfbd69] flex items-center gap-2">
             <Mic className="w-4 h-4 text-[#c59b27]" />
-            <span>
-              مسجل تلاوة الطالب (StudentAudioRecorder) — MediaRecorder API & IndexedDB (+25 XP)
-            </span>
-            <span className="px-2 py-0.5 rounded-full bg-emerald-500/15 text-[#145a3a] dark:text-[#dfbd69] font-mono text-[10px]">
-              studentId: {studentId} • IndexedDB Blobs: {storedBlobsForStudent.length}
+            <span>مسجل التسميع الصوتي المنزلي (+25 نقطة همة)</span>
+            <span className="px-2.5 py-0.5 rounded-full bg-emerald-500/15 text-[#145a3a] dark:text-[#dfbd69] text-[11px] font-bold">
+              التلاوات المحفوظة: {storedBlobsForStudent.length}
             </span>
           </h3>
-          <p className="text-[11px] text-neutral-500">
-            يلتقط صوت الطالب عبر MediaRecorder API ويربط الـ Blob الناتج بـ ({studentId}) ويخزنه مباشرة في IndexedDB الخاص بالطالب
+          <p className="text-xs text-neutral-500 mt-0.5">
+            سجّل تلاوة الورد بصوتك بوضوح ليسمعها الشيخ المحفظ ويضع لك ملاحظاته التشجيعية والتجويدية
           </p>
         </div>
 
@@ -648,17 +661,17 @@ export const StudentAudioRecorder: React.FC<StudentAudioRecorderProps> = ({
                 e.target.value as 'حفظ جديد' | 'ربط قريب' | 'مراجعة بعيدة'
               )
             }
-            className="px-2.5 py-2 rounded-xl border border-[#c59b27]/60 bg-white dark:bg-[#12231a] text-xs font-extrabold text-[#145a3a] dark:text-[#dfbd69]"
+            className="px-3 py-2 rounded-xl border border-[#c59b27]/60 bg-white dark:bg-[#12231a] text-xs font-extrabold text-[#145a3a] dark:text-[#dfbd69]"
           >
-            <option value="حفظ جديد">مقطع: ورد الحفظ الجديد</option>
-            <option value="ربط قريب">مقطع: ورد الربط القريب</option>
-            <option value="مراجعة بعيدة">مقطع: ورد المراجعة البعيدة</option>
+            <option value="حفظ جديد">الورد: الحفظ الجديد</option>
+            <option value="ربط قريب">الورد: المراجعة القريبة والربط</option>
+            <option value="مراجعة بعيدة">الورد: المراجعة البعيدة</option>
           </select>
 
           <button
             type="button"
             onClick={handleToggleRecording}
-            className={`px-3.5 py-2 rounded-xl text-xs font-extrabold flex items-center gap-1.5 cursor-pointer ${
+            className={`px-4 py-2 rounded-xl text-xs font-extrabold flex items-center gap-1.5 cursor-pointer transition ${
               isRecording
                 ? 'bg-red-600 text-white animate-pulse'
                 : 'bg-[#145a3a] hover:bg-[#0f452c] text-white'
@@ -667,19 +680,19 @@ export const StudentAudioRecorder: React.FC<StudentAudioRecorderProps> = ({
             {isRecording ? (
               <>
                 <Square className="w-3.5 h-3.5" />
-                <span>إيقاف التسجيل وحفظ الـ Blob في IndexedDB ({recSeconds}ث)</span>
+                <span>إيقاف التسجيل الصوتي ({recSeconds} ثانية)</span>
               </>
             ) : (
               <>
                 <Mic className="w-3.5 h-3.5 text-[#dfbd69]" />
-                <span>بدء التقاط الصوت (MediaRecorder)</span>
+                <span>بدء تسجيل التلاوة بصوتك</span>
               </>
             )}
           </button>
 
           <label className="px-3.5 py-2 rounded-xl bg-white dark:bg-[#12231a] border border-[#c59b27] hover:bg-amber-50 dark:hover:bg-emerald-950/50 text-[#145a3a] dark:text-[#dfbd69] text-xs font-extrabold flex items-center gap-1.5 cursor-pointer">
             <Upload className="w-3.5 h-3.5 text-[#c59b27]" />
-            <span>رفع مقطع صوتي كـ Blob</span>
+            <span>إرفاق تسجيل صوتي من الجهاز</span>
             <input
               type="file"
               accept="audio/*"
@@ -692,10 +705,10 @@ export const StudentAudioRecorder: React.FC<StudentAudioRecorderProps> = ({
             <button
               type="button"
               onClick={handleSendRecitation}
-              className="px-4 py-2 rounded-xl bg-[#c59b27] hover:bg-[#b58c1e] text-[#14281d] text-xs font-extrabold flex items-center gap-1.5 cursor-pointer"
+              className="px-4 py-2 rounded-xl bg-[#c59b27] hover:bg-[#b58c1e] text-[#14281d] text-xs font-extrabold flex items-center gap-1.5 cursor-pointer shadow-xs"
             >
               <Send className="w-3.5 h-3.5" />
-              <span>تأكيد حفظ الـ Blob في IndexedDB وإرساله للمحفظ</span>
+              <span>حفظ التلاوة وإرسالها للشيخ المحفظ</span>
             </button>
           )}
         </div>
@@ -703,18 +716,11 @@ export const StudentAudioRecorder: React.FC<StudentAudioRecorderProps> = ({
 
       {(audioDataUrl || blobObjectUrl) && (
         <div className="space-y-2 pt-1">
-          <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] bg-white dark:bg-[#12231a] p-2.5 rounded-xl border border-neutral-200 dark:border-emerald-900">
+          <div className="flex flex-wrap items-center justify-between gap-2 text-xs bg-white dark:bg-[#12231a] p-3 rounded-xl border border-neutral-200 dark:border-emerald-900">
             <div className="flex flex-wrap items-center gap-2">
               <span className="font-bold text-[#145a3a] dark:text-[#dfbd69]">
-                🎙️ معاينة الـ Blob الملتقط للطالب ({studentId}){' '}
-                {audioFileName ? `— ${audioFileName}` : `(${recSeconds} ثانية)`}:
+                🎙️ معاينة التلاوة المسجلة قبل الإرسال ({recSeconds} ثانية):
               </span>
-              {recordedBlob && (
-                <span className="px-2 py-0.5 rounded bg-amber-500/15 text-amber-800 dark:text-amber-300 font-mono text-[10px] font-bold">
-                  {recordedBlob.type || 'audio/webm'} •{' '}
-                  {Math.max(1, Math.round(recordedBlob.size / 1024))} KB
-                </span>
-              )}
             </div>
             <audio
               controls
@@ -734,21 +740,21 @@ export const StudentAudioRecorder: React.FC<StudentAudioRecorderProps> = ({
                 e.target.value
               );
             }}
-            placeholder="ملاحظة اختيارية للشيخ المحفظ مع التسجيل الصوتي..."
+            placeholder="اكتب ملاحظة أو سؤالاً للشيخ المحفظ مع التلاوة..."
             className="w-full px-3 py-2 rounded-xl border border-neutral-300 dark:border-emerald-900 bg-white dark:bg-[#12231a] text-xs"
           />
         </div>
       )}
 
-      {/* Stored Student Audio Blobs in Student's IndexedDB */}
+      {/* Stored Student Audio Recordings */}
       {storedBlobsForStudent.length > 0 && (
-        <div className="p-3 rounded-xl bg-white dark:bg-[#12231a] border border-emerald-500/30 space-y-2 text-xs">
+        <div className="p-3.5 rounded-xl bg-white dark:bg-[#12231a] border border-emerald-500/30 space-y-2.5 text-xs">
           <div className="flex items-center justify-between">
             <span className="font-extrabold text-[#145a3a] dark:text-[#dfbd69]">
-              💾 مقاطع الـ Blob الصوتية المخزنة في IndexedDB الخاص بالطالب ({studentId}):
+              🎙️ أرشيف التلاوات الصوتية المحفوظة للطالب ({studentName}):
             </span>
-            <span className="text-[10px] font-mono text-neutral-500">
-              {storedBlobsForStudent.length} مقطع محفوظ في IndexedDB
+            <span className="text-[11px] font-bold text-neutral-500">
+              {storedBlobsForStudent.length} تلاوة محفوظة
             </span>
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
@@ -760,20 +766,15 @@ export const StudentAudioRecorder: React.FC<StudentAudioRecorderProps> = ({
                 <div className="flex items-center justify-between gap-2">
                   <span className="font-extrabold text-[11px] text-[#145a3a] dark:text-[#dfbd69] truncate">
                     سورة {blobRec.surahName} ({blobRec.fromAyah}-{blobRec.toAyah}) •{' '}
-                    {blobRec.durationSeconds}ث
+                    {blobRec.durationSeconds} ثانية
                   </span>
-                  <div className="flex items-center gap-1.5">
-                    <span className="px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-800 dark:text-emerald-300 font-mono text-[9px] font-bold">
-                      {blobRec.mimeType} • {Math.max(1, Math.round(blobRec.sizeBytes / 1024))} KB
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => handleDeleteStoredBlob(blobRec.id)}
-                      className="text-[10px] text-rose-600 hover:underline font-bold cursor-pointer"
-                    >
-                      حذف
-                    </button>
-                  </div>
+                  <button
+                    type="button"
+                    onClick={() => handleDeleteStoredBlob(blobRec.id)}
+                    className="text-[10px] text-rose-600 hover:underline font-bold cursor-pointer"
+                  >
+                    حذف التلاوة
+                  </button>
                 </div>
                 <audio
                   controls
@@ -790,10 +791,10 @@ export const StudentAudioRecorder: React.FC<StudentAudioRecorderProps> = ({
         <div className="pt-3 border-t border-neutral-200/70 dark:border-emerald-900/40 space-y-2.5">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div className="text-xs font-extrabold text-[#145a3a] dark:text-[#dfbd69]">
-              📋 لوحة التصحيح الزمني للطالب (Timeline Correction Board & Timestamp Pins):
+              📋 ملاحظات وتصحيحات الشيخ المحفظ على التلاوة الصوتية:
             </div>
             <span className="text-[11px] text-neutral-500">
-              انقر على أي دبوس زمني (MM:SS) للانتقال مباشرة لموضع تصحيح الشيخ في مشغل HTML5 Audio
+              اضغط على أي علامة زمنية للاستماع مباشرة إلى الموضع الذي علّق عليه الشيخ
             </span>
           </div>
           {studentSubmissions.slice(0, 3).map((sub) => {
@@ -859,14 +860,14 @@ export const StudentAudioRecorder: React.FC<StudentAudioRecorderProps> = ({
                   </span>
                 </div>
 
-                {/* HTML5 Audio + Visual Timeline Bar with Interactive Timestamp Pins + Speed & ±10s Controls */}
+                {/* Audio Player + Visual Timeline Bar with Interactive Timestamp Pins */}
                 <div className="p-2.5 rounded-xl bg-[#fcfaf2] dark:bg-[#0b1711] border border-neutral-200/80 dark:border-emerald-900/40 space-y-2.5">
                   <div className="flex flex-wrap items-center justify-between gap-2 text-[11px]">
                     <span className="font-bold text-neutral-600 dark:text-neutral-300">
-                      ▶️ مشغل تلاوة الطالب (HTML5 Audio — {totalDur} ثانية)
+                      ▶️ تلاوة الطالب المسجلة ({totalDur} ثانية)
                       {activeAudioSubId === sub.id && (
                         <span className="mr-2 text-amber-600 font-mono font-extrabold">
-                          [الموضع الحالي: {String(Math.floor(activePlaybackSec / 60)).padStart(2, '0')}:
+                          [الدقيقة: {String(Math.floor(activePlaybackSec / 60)).padStart(2, '0')}:
                           {String(activePlaybackSec % 60).padStart(2, '0')}]
                         </span>
                       )}
@@ -983,7 +984,7 @@ export const StudentAudioRecorder: React.FC<StudentAudioRecorderProps> = ({
                           <span>{textVal}</span>
                           {pin.linkedErrorType && (
                             <span className="px-1.5 py-0.5 rounded bg-rose-600 text-white text-[9px] font-extrabold">
-                              سجل تقني ({pin.linkedErrorType})
+                              تنبيه ({pin.linkedErrorType})
                             </span>
                           )}
                         </button>
@@ -1032,10 +1033,35 @@ export const GuardianAndGuestView: React.FC = () => {
     awardStudentBadge,
     logout,
     loginAsTeacher,
+    setActiveTab,
+    currentStaffTier,
+    setCurrentStaffTier,
+    isStaffPortalPreview,
+    setIsStaffPortalPreview,
+    publishFamilyGuidanceToGuardian,
     showToast,
   } = useAcademy();
   const [familyCertificateModalOpen, setFamilyCertificateModalOpen] =
     useState<boolean>(false);
+
+  // Role-based View Persona inside GuardianAndGuestView:
+  // - 'guardian': What the Parent sees (follow-up, charts, schedule timeline, receipts, teacher evaluation)
+  // - 'student': What the Student sees (daily colorful cards, interactive timeline, Tahfeez & audio studio, Tree of Light)
+  // - 'staff_supervision': Exclusive view when Owner / Supervisor / Teacher previews the portal
+  const [portalViewPersona, setPortalViewPersona] = useState<
+    'guardian' | 'student' | 'staff_supervision'
+  >(() => (isStaffPortalPreview ? 'staff_supervision' : 'guardian'));
+
+  // Internal sub-tabs inside the Tahfeez Studio so it is button-driven and never a long scroll
+  const [tahfeezSubTab, setTahfeezSubTab] = useState<
+    'player' | 'recorder' | 'mutashabihat'
+  >('player');
+
+  // Quick pedagogical note state for Supervisor / Teacher / Owner supervision mode
+  const [quickStaffGuidanceTitle, setQuickStaffGuidanceTitle] = useState(
+    'توجيه ومتابعة من المشرف والشيخ المحفظ للأسرة'
+  );
+  const [quickStaffGuidanceBody, setQuickStaffGuidanceBody] = useState('');
 
   const [selectedStudentId, setSelectedStudentId] = useState<string>(
     guardianStudentId || students[0]?.id || ''
@@ -1059,10 +1085,12 @@ export const GuardianAndGuestView: React.FC = () => {
 
   const availableGuardianStudents = useMemo(
     () =>
-      userRole === 'guardian' && guardianSiblings.length > 0
+      isStaffPortalPreview
+        ? students
+        : userRole === 'guardian' && guardianSiblings.length > 0
         ? guardianSiblings
         : students,
-    [userRole, guardianSiblings, students]
+    [isStaffPortalPreview, userRole, guardianSiblings, students]
   );
 
   const student = useMemo(
@@ -1079,7 +1107,12 @@ export const GuardianAndGuestView: React.FC = () => {
   );
 
   const [guardianScreenTab, setGuardianScreenTab] = useState<
-    'overview' | 'followup_log'
+    | 'overview'
+    | 'schedule_timeline'
+    | 'tahfeez_studio'
+    | 'followup_log'
+    | 'family_oasis'
+    | 'documents_billing'
   >('overview');
   const [followupFilter, setFollowupFilter] = useState<
     'all' | 'present' | 'excellent' | 'notes'
@@ -1675,6 +1708,8 @@ export const GuardianAndGuestView: React.FC = () => {
     trackLabel: string,
     autoPlay = false
   ) => {
+    setGuardianScreenTab('tahfeez_studio');
+    setTahfeezSubTab('player');
     if (trackLabel.includes('المراجعة القريبة')) {
       handleLoadAssignmentTrack('near_review');
       if (autoPlay) {
@@ -1987,308 +2022,532 @@ export const GuardianAndGuestView: React.FC = () => {
           : ''
       }`}
     >
-      {/* Top Role Banner */}
-      <div className="rounded-3xl bg-gradient-to-l from-[#145a3a] to-[#0f452c] text-white p-6 border border-[#c59b27]/40 flex flex-col md:flex-row md:items-center justify-between gap-4 shadow-md">
-        <div>
-          <span className="text-xs font-bold text-[#dfbd69] block mb-1">
-            {userRole === 'guardian'
-              ? 'بوابة ولي الأمر والطالب الذكية (متابعة، حصون خمسة، منبه آلي، وتدريب منزلي)'
-              : 'مركز التحفيظ الحر والتلاوة (وضع الضيف)'}
-          </span>
-          <div className="flex flex-wrap items-center gap-2">
-            <h1 className="text-2xl font-extrabold">
-              {userRole === 'guardian' && student
-                ? `متابعة الطالب: ${student.name}`
-                : 'مركز التحفيظ والتكرار السمعي الذاتي'}
-            </h1>
-            {student?.hasGoldenCrown && (
-              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-amber-400/25 border border-[#dfbd69] text-[#dfbd69] text-xs font-extrabold">
-                <Crown className="w-3.5 h-3.5" /> حامل تاج الإتقان الذهبي
-              </span>
-            )}
-            {student && (
-              <span className="px-2.5 py-0.5 rounded-full bg-[#c59b27] text-[#14281d] text-xs font-mono font-extrabold">
-                ⚡ {student.xpPoints || 120} XP
-              </span>
-            )}
-          </div>
-          {userRole === 'guardian' && student && (
-            <p className="text-xs text-emerald-100 mt-1">
-              {student.circle} · المستوى: {student.level} · منهج الإمام للتأسيس: المستوى{' '}
-              {student.foundationLevel || 1}/8
-            </p>
-          )}
-        </div>
+      {/* Staff / Supervisor / Teacher / Owner Supervision Top Control Bar */}
+      {isStaffPortalPreview && userRole === 'guardian' && student && (
+        <div className="rounded-2xl bg-[#14281d] text-white p-4 sm:p-5 border border-[#c59b27]/70 shadow-md space-y-3.5">
+          <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+            <div className="flex items-start gap-3">
+              <div className="w-10 h-10 rounded-xl bg-[#c59b27] text-[#14281d] flex items-center justify-center shrink-0 shadow-xs">
+                <Shield className="w-5 h-5" />
+              </div>
+              <div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="px-2.5 py-0.5 rounded-md bg-[#c59b27] text-[#14281d] text-[11px] font-black whitespace-nowrap">
+                    وضع الإشراف والمعاينة ({currentStaffTier === 'owner' ? 'المالك والمشرف العام' : currentStaffTier === 'supervisor' ? 'المشرف التعليمي' : 'الشيخ المحفظ'})
+                  </span>
+                  <span className="text-xs text-emerald-200 font-bold">
+                    شريط تحكم خاص بالإدارة والهيئة التعليمية فقط
+                  </span>
+                </div>
+                <p className="text-xs text-neutral-300 mt-1">
+                  بدّل بين العدسات الثلاث بالأسفل لرؤية الاختلاف الفعلي بين <strong>منظور الإدارة</strong> و<strong>واجهة ولي الأمر</strong> و<strong>واجهة الطالب</strong>.
+                </p>
+              </div>
+            </div>
 
-        <div className="flex flex-wrap items-center gap-2">
-          {userRole === 'guardian' && availableGuardianStudents.length > 1 && (
-            <select
-              value={student?.id || ''}
-              onChange={(e) => setSelectedStudentId(e.target.value)}
-              className="px-3 py-2 rounded-xl bg-white/15 text-white text-xs font-bold border border-white/25"
-              title="التبديل بين أبناء ولي الأمر المسجلين بنفس رقم الهاتف فقط"
-            >
-              {availableGuardianStudents.map((st) => (
-                <option key={st.id} value={st.id} className="text-black">
-                  أبناء ولي الأمر: {st.name} ({st.level})
-                </option>
-              ))}
-            </select>
-          )}
-
-          {userRole === 'guardian' && student && (
-            <>
-              <button
-                type="button"
-                onClick={() => setGuardianIdCardOpen(true)}
-                className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-amber-400/20 hover:bg-amber-400/30 border border-[#dfbd69] text-[#dfbd69] text-xs font-extrabold cursor-pointer"
+            <div className="flex flex-wrap items-center gap-2">
+              <select
+                value={student.id}
+                onChange={(e) => setSelectedStudentId(e.target.value)}
+                className="px-3 py-2 rounded-xl bg-white/10 text-white text-xs font-extrabold border border-[#c59b27]/50 cursor-pointer"
+                title="معاينة أي طالب في الأكاديمية"
               >
-                <IdCard className="w-3.5 h-3.5" />
-                <span>بطاقة الطالب الذكية (QR)</span>
-              </button>
+                {availableGuardianStudents.map((st) => (
+                  <option key={st.id} value={st.id} className="text-black">
+                    الطالب: {st.name} ({st.circle})
+                  </option>
+                ))}
+              </select>
 
               <button
                 type="button"
-                onClick={() => setGuardianBisharahOpen(true)}
-                className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-[#c59b27] hover:bg-[#b58c1e] text-[#14281d] text-xs font-extrabold cursor-pointer shadow-xs"
+                onClick={() => {
+                  setIsStaffPortalPreview(false);
+                  loginAsTeacher();
+                  setActiveTab('dashboard');
+                }}
+                className="px-3.5 py-2 rounded-xl bg-emerald-700 hover:bg-emerald-600 text-white text-xs font-extrabold transition cursor-pointer whitespace-nowrap shrink-0"
               >
-                <Sparkles className="w-3.5 h-3.5" />
-                <span>🎉 بطاقة البشارة العائلية</span>
+                العودة لمنصة المعلم
               </button>
 
               <button
                 type="button"
                 onClick={() => {
-                  const latestFee = student.fees[0] || {
-                    month: todayStr.slice(0, 7),
-                    amount: student.monthlyFee || 350,
-                    status: 'مدفوع' as const,
-                    paidAt: todayStr,
-                    method: 'إنستا باي (InstaPay)',
-                    receiptNumber: `REC-${todayStr
-                      .slice(0, 7)
-                      .replace('-', '')}-${
-                      student.id.replace(/\D/g, '') || '101'
-                    }`,
-                  };
-                  setGuardianActiveReceipt(latestFee);
+                  setIsStaffPortalPreview(false);
+                  setCurrentStaffTier('owner');
+                  loginAsTeacher();
+                  setActiveTab('owner_panel');
                 }}
-                className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-white/15 hover:bg-white/25 border border-white/25 text-white text-xs font-extrabold cursor-pointer"
+                className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-[#dfbd69] hover:bg-[#c59b27] text-[#14281d] text-xs font-black transition cursor-pointer whitespace-nowrap shrink-0"
               >
-                <FileText className="w-3.5 h-3.5 text-[#dfbd69]" />
-                <span>إيصالات السداد</span>
+                <Crown className="w-3.5 h-3.5" />
+                <span>لوحة تحكم المالك</span>
               </button>
-            </>
-          )}
-
-          <a
-            href={`https://wa.me/${OFFICIAL_ACADEMY_WHATSAPP}?text=${encodeURIComponent(
-              `السلام عليكم ورحمة الله وبركاته، معكم ولي أمر الطالب (${student?.name || ''}) في ${settings.academyName}`
-            )}`}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-white text-xs font-extrabold shadow-xs cursor-pointer"
-          >
-            <MessageCircle className="w-3.5 h-3.5" />
-            <span>واتساب الأكاديمية ({OFFICIAL_ACADEMY_WHATSAPP})</span>
-          </a>
-
-          <button
-            type="button"
-            onClick={() => setPublicMushafPortalOpen(true)}
-            className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-gradient-to-r from-amber-400 to-amber-500 hover:from-amber-500 hover:to-amber-600 text-[#14281d] text-xs font-black shadow-md cursor-pointer"
-          >
-            <BookOpen className="w-4 h-4" />
-            <span>📖 بوابة المصحف العام والورد اليومي (وقف وصدقة جارية)</span>
-          </button>
-
-          <button
-            type="button"
-            onClick={() => setAdmissionModalOpen(true)}
-            className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-amber-400 hover:bg-amber-300 text-[#14281d] text-xs font-extrabold shadow-xs cursor-pointer"
-          >
-            <Sparkles className="w-3.5 h-3.5" />
-            <span>📝 التحق بالأكاديمية / حجز تحديد مستوى</span>
-          </button>
-
-          <button
-            onClick={logout}
-            className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-white/15 hover:bg-white/25 text-white text-xs font-bold cursor-pointer"
-          >
-            <LogOut className="w-3.5 h-3.5" />
-            <span>خروج</span>
-          </button>
-        </div>
-      </div>
-
-      {/* Sadaqah Jariyah & Waqf Banner in Student/Guardian/Guest Portal */}
-      <WaqfDedicationBannerCard compact />
-
-      {/* Guardian Portal Screen Navigation Tabs (Overview vs Follow-up Log & Weekly Progress Screen) */}
-      {userRole === 'guardian' && student && (
-        <div className="rounded-2xl bg-white dark:bg-[#12231a] p-2.5 border-2 border-[#c59b27]/50 flex flex-wrap items-center justify-between gap-2 shadow-xs">
-          <div className="flex flex-wrap items-center gap-2">
-            <button
-              type="button"
-              onClick={() => setGuardianScreenTab('overview')}
-              className={`px-4 py-2.5 rounded-xl text-xs sm:text-sm font-extrabold flex items-center gap-2 transition cursor-pointer ${
-                guardianScreenTab === 'overview'
-                  ? 'bg-[#145a3a] text-white shadow-sm'
-                  : 'bg-[#fcfaf2] dark:bg-[#0b1711] text-[#14281d] dark:text-[#e9f2ec] hover:border-[#c59b27] border border-transparent'
-              }`}
-            >
-              <BookOpen className="w-4 h-4 text-[#dfbd69]" />
-              <span>الرئيسية والورد اليومي</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setGuardianScreenTab('followup_log')}
-              className={`px-4 py-2.5 rounded-xl text-xs sm:text-sm font-extrabold flex items-center gap-2 transition cursor-pointer ${
-                guardianScreenTab === 'followup_log'
-                  ? 'bg-[#145a3a] text-white shadow-sm'
-                  : 'bg-[#fcfaf2] dark:bg-[#0b1711] text-[#14281d] dark:text-[#e9f2ec] hover:border-[#c59b27] border border-transparent'
-              }`}
-            >
-              <FileText className="w-4 h-4 text-[#c59b27]" />
-              <span>سجل المتابعة وتطور الحفظ الأسبوعي</span>
-              <span className="px-2 py-0.5 rounded-md bg-[#c59b27]/20 text-[#145a3a] dark:text-[#dfbd69] font-mono text-[11px]">
-                {studentSessions.length} حصص
-              </span>
-            </button>
+            </div>
           </div>
 
-          <span className="text-[11px] font-bold text-neutral-500 px-2">
-            شفافية المتابعة المباشرة بين الأكاديمية والمنزل
-          </span>
+          <div className="pt-3 border-t border-white/15 flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+            <div className="flex flex-wrap items-center gap-1.5">
+              <span className="text-xs font-bold text-[#dfbd69] ml-1">
+                اختر منظور العرض:
+              </span>
+              {(
+                [
+                  {
+                    id: 'staff_supervision' as const,
+                    label: 'منظور المشرف والمحفظ والمالك',
+                  },
+                  {
+                    id: 'guardian' as const,
+                    label: 'واجهة ولي الأمر (متابعة وإيصالات)',
+                  },
+                  {
+                    id: 'student' as const,
+                    label: 'واجهة الطالب (حصون وتسميع)',
+                  },
+                ]
+              ).map((lens) => (
+                <button
+                  key={lens.id}
+                  type="button"
+                  onClick={() => setPortalViewPersona(lens.id)}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-extrabold transition cursor-pointer whitespace-nowrap shrink-0 ${
+                    portalViewPersona === lens.id
+                      ? 'bg-[#dfbd69] text-[#14281d] shadow-xs'
+                      : 'bg-white/10 text-white hover:bg-white/20'
+                  }`}
+                >
+                  {lens.label}
+                </button>
+              ))}
+            </div>
+
+            {/* Quick Staff Guidance Sender */}
+            <div className="flex flex-wrap items-center gap-2">
+              <input
+                type="text"
+                value={quickStaffGuidanceBody}
+                onChange={(e) => setQuickStaffGuidanceBody(e.target.value)}
+                placeholder="اكتب توجيهاً تربوياً يظهر فوراً لولي الأمر والطالب..."
+                className="px-3 py-1.5 rounded-xl bg-black/30 border border-white/20 text-white placeholder:text-neutral-400 text-xs w-64 sm:w-80"
+              />
+              <button
+                type="button"
+                onClick={() => {
+                  if (!quickStaffGuidanceBody.trim()) {
+                    showToast('يرجى كتابة نص التوجيه أولاً', 'info');
+                    return;
+                  }
+                  publishFamilyGuidanceToGuardian(student.id, {
+                    title: quickStaffGuidanceTitle || 'توجيه تربوي من إدارة الأكاديمية',
+                    categoryLabel: 'توجيه تربوي وتشجيع',
+                    bodyText: quickStaffGuidanceBody.trim(),
+                  });
+                  setQuickStaffGuidanceBody('');
+                  showToast('تم إرسال التوجيه التربوي لبوابة ولي الأمر والطالب بنجاح', 'success');
+                }}
+                className="px-3.5 py-1.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-[#14281d] text-xs font-black cursor-pointer whitespace-nowrap shrink-0"
+              >
+                إرسال التوجيه الفوري
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
-      {/* 5. أوضاع الوصول الشامل لبوابة الطالب (Accessibility Modes Bar: Standard / Kids / Seniors) + Riwayah Badge */}
-      <div className="rounded-2xl bg-white dark:bg-[#12231a] p-4 border border-[#c59b27]/40 flex flex-wrap items-center justify-between gap-3 shadow-xs">
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="text-xs font-extrabold text-[#145a3a] dark:text-[#dfbd69]">
-            ♿ وضع عرض بوابة الطالب (الوصول الشامل):
-          </span>
-          {(
-            [
-              {
-                id: 'standard' as StudentAccessibilityMode,
-                label: '🖥️ الوضع القياسي',
-              },
-              {
-                id: 'kids' as StudentAccessibilityMode,
-                label: '🎈 وضع الطفل الصغير (أيقونات كبيرة ومبسطة)',
-              },
-              {
-                id: 'seniors' as StudentAccessibilityMode,
-                label: '👓 وضع الخط الفائق لحلقات الكبار',
-              },
-            ]
-          ).map((m) => (
-            <button
-              key={m.id}
-              type="button"
-              onClick={() => {
-                if (student) {
-                  updateStudentAccessibilityMode(student.id, m.id);
-                }
-              }}
-              className={`px-3 py-1.5 rounded-xl text-xs font-extrabold border transition cursor-pointer ${
-                accessibilityMode === m.id
-                  ? 'bg-[#145a3a] text-[#dfbd69] border-[#c59b27] shadow-xs'
-                  : 'bg-[#fcfaf2] dark:bg-[#0b1711] text-neutral-700 dark:text-neutral-300 border-neutral-200 dark:border-emerald-900'
-              }`}
-            >
-              {m.label}
-            </button>
-          ))}
-        </div>
+      {/* Top Executive Student & Guardian Header (Clean 3-Zone Architectural Bar) */}
+      <header className="rounded-3xl bg-gradient-to-l from-[#145a3a] via-[#114c31] to-[#0c3823] text-white p-5 sm:p-6 border border-[#c59b27]/45 shadow-md space-y-4">
+        <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-4">
+          {/* Right Zone: Student Identity & Unboxed Metadata */}
+          <div className="flex items-start gap-3.5">
+            <div className="w-12 h-12 sm:w-14 sm:h-14 rounded-2xl bg-white/10 border border-[#dfbd69]/40 flex items-center justify-center shrink-0 text-[#dfbd69] font-black text-xl shadow-inner">
+              {student?.hasGoldenCrown ? (
+                <Crown className="w-7 h-7 text-[#dfbd69]" />
+              ) : (
+                <span>{student?.name?.trim().charAt(0) || 'ق'}</span>
+              )}
+            </div>
 
-        <div className="flex flex-wrap items-center gap-2 text-xs">
-          {/* Global Font Size A+ / A- Controls */}
-          <div className="flex items-center gap-1 bg-[#f6f7f2] dark:bg-[#0b1711] p-1 rounded-xl border border-[#c59b27]/40">
-            <button
-              type="button"
-              onClick={() => {
-                const order: Array<'sm' | 'md' | 'lg'> = ['sm', 'md', 'lg'];
-                const idx = order.indexOf(settings.fontScale || 'md');
-                const next = order[Math.min(order.length - 1, idx + 1)];
-                updateSettings({ fontScale: next });
-                showToast('تم تكبير الخط لراحة القراءة', 'info');
-              }}
-              className="px-2 py-1 rounded-lg text-[11px] font-extrabold text-[#145a3a] dark:text-[#dfbd69] hover:bg-emerald-500/10 cursor-pointer"
-              title="تكبير حجم الخط (أ+)"
-            >
-              أ+
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                const order: Array<'sm' | 'md' | 'lg'> = ['sm', 'md', 'lg'];
-                const idx = order.indexOf(settings.fontScale || 'md');
-                const next = order[Math.max(0, idx - 1)];
-                updateSettings({ fontScale: next });
-                showToast('تم تصغير الخط', 'info');
-              }}
-              className="px-2 py-1 rounded-lg text-[11px] font-extrabold text-neutral-600 dark:text-neutral-300 hover:bg-emerald-500/10 cursor-pointer"
-              title="تصغير حجم الخط (أ-)"
-            >
-              أ-
-            </button>
+            <div className="space-y-1">
+              <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs font-bold text-[#dfbd69]">
+                <span>
+                  {userRole === 'guardian'
+                    ? portalViewPersona === 'student'
+                      ? 'واجهة الطالب الذكية للتدريب والحصون الخمسة'
+                      : portalViewPersona === 'staff_supervision'
+                      ? 'لوحة الإشراف التربوي والمتابعة الشاملة'
+                      : 'بوابة ولي الأمر الذكية لمتابعة الحفظ والأسرة'
+                    : 'مركز التحفيظ الحر والتلاوة (وضع الضيف)'}
+                </span>
+                {student && (
+                  <>
+                    <span aria-hidden="true" className="opacity-50">·</span>
+                    <span className="text-emerald-100 font-extrabold font-mono tabular-nums">
+                      رصيد الهمة: {student.xpPoints || 120} نقطة
+                    </span>
+                  </>
+                )}
+                {student?.hasGoldenCrown && (
+                  <>
+                    <span aria-hidden="true" className="opacity-50">·</span>
+                    <span className="text-amber-300 font-extrabold">
+                      حامل تاج الإتقان الذهبي
+                    </span>
+                  </>
+                )}
+              </div>
+
+              <div className="flex flex-wrap items-center gap-3">
+                <h1 className="text-xl sm:text-2xl md:text-3xl font-extrabold tracking-tight">
+                  {userRole === 'guardian' && student
+                    ? portalViewPersona === 'student'
+                      ? `مرحباً بك يا بطل القرآن: ${student.name}`
+                      : `ملف متابعة الطالب: ${student.name}`
+                    : 'مركز التحفيظ والتكرار السمعي الذاتي'}
+                </h1>
+
+                {userRole === 'guardian' && !isStaffPortalPreview && availableGuardianStudents.length > 1 && (
+                  <select
+                    value={student?.id || ''}
+                    onChange={(e) => setSelectedStudentId(e.target.value)}
+                    className="px-3 py-1.5 rounded-xl bg-white/15 text-white text-xs font-bold border border-white/25 cursor-pointer"
+                    title="التبديل بين الأبناء المسجلين لولي الأمر"
+                  >
+                    {availableGuardianStudents.map((st) => (
+                      <option key={st.id} value={st.id} className="text-black">
+                        أبناء الأسرة: {st.name} ({st.level})
+                      </option>
+                    ))}
+                  </select>
+                )}
+              </div>
+
+              {userRole === 'guardian' && student && (
+                <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1 text-xs text-emerald-100/90">
+                  <span>{student.circle}</span>
+                  <span aria-hidden="true" className="opacity-40">·</span>
+                  <span>المستوى: {student.level}</span>
+                  <span aria-hidden="true" className="opacity-40">·</span>
+                  <span>منهج الإمام للتأسيس: المستوى <strong className="font-mono tabular-nums">{student.foundationLevel || 1}/8</strong></span>
+                  <span aria-hidden="true" className="opacity-40">·</span>
+                  <span>الرواية: {student.riwayah || 'حفص عن عاصم'}</span>
+                </div>
+              )}
+            </div>
           </div>
 
-          {/* 3-Mode Global Theme Switcher (Light / Dark / Sepia) */}
-          <div className="flex items-center gap-1 bg-[#f6f7f2] dark:bg-[#0b1711] p-1 rounded-xl border border-[#c59b27]/40">
+          {/* Left Zone: Segmented Persona Switcher & Clean Action Toolbar */}
+          <div className="flex flex-wrap items-center gap-2">
+            {/* Role Switcher for Real Guardian vs Student */}
+            {userRole === 'guardian' && student && (
+              <div className="flex items-center bg-black/25 p-1 rounded-xl border border-[#dfbd69]/40">
+                <button
+                  type="button"
+                  onClick={() => setPortalViewPersona('guardian')}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-extrabold transition cursor-pointer whitespace-nowrap shrink-0 ${
+                    portalViewPersona === 'guardian'
+                      ? 'bg-[#dfbd69] text-[#14281d] shadow-xs'
+                      : 'text-emerald-100 hover:text-white'
+                  }`}
+                >
+                  واجهة ولي الأمر
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPortalViewPersona('student')}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-extrabold transition cursor-pointer whitespace-nowrap shrink-0 ${
+                    portalViewPersona === 'student'
+                      ? 'bg-[#dfbd69] text-[#14281d] shadow-xs'
+                      : 'text-emerald-100 hover:text-white'
+                  }`}
+                >
+                  واجهة الطالب
+                </button>
+                {isStaffPortalPreview && (
+                  <button
+                    type="button"
+                    onClick={() => setPortalViewPersona('staff_supervision')}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-extrabold transition cursor-pointer whitespace-nowrap shrink-0 ${
+                      portalViewPersona === 'staff_supervision'
+                        ? 'bg-[#dfbd69] text-[#14281d] shadow-xs'
+                        : 'text-emerald-100 hover:text-white'
+                    }`}
+                  >
+                    إشراف الإدارة
+                  </button>
+                )}
+              </div>
+            )}
+
+            <button
+              type="button"
+              onClick={() => setPublicMushafPortalOpen(true)}
+              className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-[#c59b27] hover:bg-[#b58c1e] text-[#14281d] text-xs font-black shadow-xs transition cursor-pointer whitespace-nowrap shrink-0"
+            >
+              <BookOpen className="w-4 h-4" />
+              <span>بوابة المصحف العام والوقف</span>
+            </button>
+
+            {userRole === 'guardian' && student && (
+              <>
+                <button
+                  type="button"
+                  onClick={() => setGuardianIdCardOpen(true)}
+                  className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-white/10 hover:bg-white/20 border border-white/20 text-white text-xs font-extrabold transition cursor-pointer whitespace-nowrap shrink-0"
+                >
+                  <IdCard className="w-3.5 h-3.5 text-[#dfbd69]" />
+                  <span>بطاقة الطالب</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setGuardianBisharahOpen(true)}
+                  className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-white/10 hover:bg-white/20 border border-white/20 text-white text-xs font-extrabold transition cursor-pointer whitespace-nowrap shrink-0"
+                >
+                  <Sparkles className="w-3.5 h-3.5 text-[#dfbd69]" />
+                  <span>بطاقة البشارة</span>
+                </button>
+              </>
+            )}
+
+            {portalViewPersona !== 'student' && (
+              <a
+                href={`https://wa.me/${OFFICIAL_ACADEMY_WHATSAPP}?text=${encodeURIComponent(
+                  `السلام عليكم ورحمة الله وبركاته، معكم ولي أمر الطالب (${student?.name || ''}) في ${settings.academyName}`
+                )}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-emerald-600/90 hover:bg-emerald-500 text-white text-xs font-extrabold transition cursor-pointer whitespace-nowrap shrink-0"
+              >
+                <MessageCircle className="w-3.5 h-3.5" />
+                <span>تواصل مع الإدارة</span>
+              </a>
+            )}
+
+            <button
+              onClick={logout}
+              className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-black/25 hover:bg-black/40 text-white text-xs font-bold transition cursor-pointer whitespace-nowrap shrink-0"
+            >
+              <LogOut className="w-3.5 h-3.5" />
+              <span>خروج</span>
+            </button>
+          </div>
+        </div>
+
+        {/* Integrated Compact Accessibility & Display Bar */}
+        <div className="pt-3 border-t border-white/15 flex flex-wrap items-center justify-between gap-3 text-xs">
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className="text-emerald-200 font-bold ml-1">تخصيص القراءة والعرض:</span>
             {(
               [
-                { id: 'light' as const, label: '☀️ نهاري' },
-                { id: 'dark' as const, label: '🌙 ليلي' },
-                { id: 'sepia' as const, label: '📜 كريمي' },
+                {
+                  id: 'standard' as StudentAccessibilityMode,
+                  label: 'الوضع القياسي',
+                },
+                {
+                  id: 'kids' as StudentAccessibilityMode,
+                  label: 'وضع الطفل',
+                },
+                {
+                  id: 'seniors' as StudentAccessibilityMode,
+                  label: 'خط واضح للكبار',
+                },
               ]
-            ).map((tm) => (
+            ).map((m) => (
               <button
-                key={tm.id}
+                key={m.id}
                 type="button"
-                onClick={() => updateSettings({ theme: tm.id })}
-                className={`px-2.5 py-1 rounded-lg text-[11px] font-extrabold transition cursor-pointer ${
-                  settings.theme === tm.id
-                    ? 'bg-[#c59b27] text-[#14281d] shadow-xs'
-                    : 'text-neutral-700 dark:text-neutral-300 hover:bg-emerald-500/10'
+                onClick={() => {
+                  if (student) {
+                    updateStudentAccessibilityMode(student.id, m.id);
+                  }
+                }}
+                className={`px-2.5 py-1 rounded-lg text-xs font-bold transition cursor-pointer whitespace-nowrap shrink-0 ${
+                  accessibilityMode === m.id
+                    ? 'bg-[#c59b27] text-[#14281d] font-extrabold'
+                    : 'bg-white/10 text-emerald-100 hover:bg-white/20'
                 }`}
               >
-                {tm.label}
+                {m.label}
               </button>
             ))}
           </div>
 
-          {student && (
-            <span className="px-3 py-1 rounded-xl bg-amber-500/15 border border-amber-500/40 text-[#145a3a] dark:text-[#dfbd69] font-extrabold">
-              📖 الرواية المعتمدة: {student.riwayah || 'حفص عن عاصم'}
-            </span>
-          )}
-        </div>
-      </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="flex items-center gap-1 bg-black/20 p-0.5 rounded-lg border border-white/15">
+              <button
+                type="button"
+                onClick={() => {
+                  const order: Array<'sm' | 'md' | 'lg'> = ['sm', 'md', 'lg'];
+                  const idx = order.indexOf(settings.fontScale || 'md');
+                  const next = order[Math.min(order.length - 1, idx + 1)];
+                  updateSettings({ fontScale: next });
+                  showToast('تم تكبير الخط لراحة القراءة', 'info');
+                }}
+                className="px-2 py-0.5 rounded text-[11px] font-extrabold text-[#dfbd69] hover:bg-white/10 cursor-pointer"
+                title="تكبير حجم الخط (أ+)"
+              >
+                أ+
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const order: Array<'sm' | 'md' | 'lg'> = ['sm', 'md', 'lg'];
+                  const idx = order.indexOf(settings.fontScale || 'md');
+                  const next = order[Math.max(0, idx - 1)];
+                  updateSettings({ fontScale: next });
+                  showToast('تم تصغير الخط', 'info');
+                }}
+                className="px-2 py-0.5 rounded text-[11px] font-extrabold text-emerald-100 hover:bg-white/10 cursor-pointer"
+                title="تصغير حجم الخط (أ-)"
+              >
+                أ-
+              </button>
+            </div>
 
-      {/* Automated Smart Session Reminder Preview Modal / Banner */}
+            <div className="flex items-center gap-1 bg-black/20 p-0.5 rounded-lg border border-white/15">
+              {(
+                [
+                  { id: 'light' as const, label: 'نهاري' },
+                  { id: 'dark' as const, label: 'ليلي' },
+                  { id: 'sepia' as const, label: 'كريمي' },
+                ]
+              ).map((tm) => (
+                <button
+                  key={tm.id}
+                  type="button"
+                  onClick={() => updateSettings({ theme: tm.id })}
+                  className={`px-2 py-0.5 rounded text-[11px] font-bold transition cursor-pointer ${
+                    settings.theme === tm.id
+                      ? 'bg-[#c59b27] text-[#14281d] font-extrabold'
+                      : 'text-emerald-100 hover:bg-white/10'
+                  }`}
+                >
+                  {tm.label}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      </header>
+
+      {/* Show Waqf Banner at top only in Guest Mode; for Guardian/Student it lives cleanly inside the Family Oasis tab */}
+      {userRole !== 'guardian' && <WaqfDedicationBannerCard compact />}
+
+      {/* Guardian & Student Interactive Segmented Navigation Bar (6 Focused Single-Screen Tabs) */}
+      {userRole === 'guardian' && student && (
+        <nav
+          aria-label="أقسام بوابة ولي الأمر والطالب"
+          className="rounded-2xl bg-white/95 dark:bg-[#112119]/95 backdrop-blur-md p-2 border border-neutral-200/90 dark:border-emerald-900/60 flex items-center justify-between gap-2 shadow-sm sticky top-2 z-20 overflow-x-auto"
+        >
+          <div className="flex items-center gap-1.5 min-w-max">
+            {(
+              [
+                {
+                  id: 'overview' as const,
+                  label:
+                    portalViewPersona === 'student'
+                      ? 'الحصون الخمسة وأوراد اليوم'
+                      : 'الملخص اليومي وحالة الحفظ',
+                  icon: Layers,
+                  badge: `${completedFortressCount}/4`,
+                },
+                {
+                  id: 'schedule_timeline' as const,
+                  label:
+                    portalViewPersona === 'student'
+                      ? 'رحلتي اليوم والمنبه'
+                      : 'الجدول الزمني والمنبه الذكي',
+                  icon: Calendar,
+                  badge: student.scheduleTime,
+                },
+                {
+                  id: 'tahfeez_studio' as const,
+                  label: 'المصحف المعلم والتسميع',
+                  icon: Volume2,
+                  badge: 'تلقين وتسجيل',
+                },
+                {
+                  id: 'followup_log' as const,
+                  label: 'رسم التقدم وسجل الحصص',
+                  icon: TrendingUp,
+                  badge: `${studentSessions.length} حصص`,
+                },
+                {
+                  id: 'family_oasis' as const,
+                  label:
+                    portalViewPersona === 'student'
+                      ? 'شجرة النور وبرّ الوالدين'
+                      : 'تاج الوقار وتقييم المعلم',
+                  icon: Crown,
+                },
+                {
+                  id: 'documents_billing' as const,
+                  label:
+                    portalViewPersona === 'student'
+                      ? 'بطاقة الطالب الذكية'
+                      : 'البطاقة الذكية والإيصالات',
+                  icon: IdCard,
+                },
+              ]
+            ).map((tab) => {
+              const IconComp = tab.icon;
+              const isActive = guardianScreenTab === tab.id;
+              return (
+                <button
+                  key={tab.id}
+                  type="button"
+                  onClick={() => setGuardianScreenTab(tab.id)}
+                  className={`px-3.5 py-2.5 rounded-xl text-xs font-extrabold flex items-center gap-2 transition-all cursor-pointer whitespace-nowrap shrink-0 ${
+                    isActive
+                      ? 'bg-[#145a3a] text-white shadow-xs ring-1 ring-[#c59b27]'
+                      : 'bg-transparent text-neutral-700 dark:text-emerald-100/80 hover:bg-neutral-100 dark:hover:bg-emerald-950/60'
+                  }`}
+                >
+                  <IconComp
+                    className={`w-4 h-4 shrink-0 ${
+                      isActive ? 'text-[#dfbd69]' : 'text-[#145a3a] dark:text-[#c59b27]'
+                    }`}
+                  />
+                  <span>{tab.label}</span>
+                  {tab.badge && (
+                    <span
+                      className={`text-[10px] font-mono tabular-nums font-extrabold px-2 py-0.5 rounded-md ${
+                        isActive
+                          ? 'bg-[#c59b27] text-[#14281d]'
+                          : 'bg-neutral-100 dark:bg-emerald-950 text-neutral-600 dark:text-emerald-300'
+                      }`}
+                    >
+                      {tab.badge}
+                    </span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+        </nav>
+      )}
+
+      {/* Automated Smart Session Reminder Preview Banner */}
       {sessionReminderPreview && student && (
-        <div className="rounded-3xl bg-gradient-to-l from-amber-500 via-[#c59b27] to-[#145a3a] text-white p-5 border-2 border-white shadow-xl flex flex-col sm:flex-row items-center justify-between gap-4 animate-in fade-in duration-200">
+        <div className="rounded-2xl bg-gradient-to-l from-[#145a3a] via-[#1b6b46] to-[#c59b27] text-white p-4 sm:p-5 border border-white/30 shadow-lg flex flex-col sm:flex-row items-center justify-between gap-4">
           <div className="flex items-start gap-3.5">
-            <div className="w-12 h-12 rounded-2xl bg-white text-[#145a3a] flex items-center justify-center text-2xl shrink-0 shadow-md">
-              {sessionReminderPreview === '1hour' ? '🔔' : '🚀'}
+            <div className="w-11 h-11 rounded-xl bg-white text-[#145a3a] flex items-center justify-center shrink-0 shadow-xs">
+              <Bell className="w-5 h-5" />
             </div>
             <div>
               <div className="text-xs font-extrabold text-amber-100">
                 منبه الحلقات الذكي الآلي — {settings.academyName}
               </div>
-              <h3 className="text-base md:text-lg font-extrabold mt-0.5">
+              <h3 className="text-sm sm:text-base font-extrabold mt-0.5">
                 {sessionReminderPreview === '1hour'
-                  ? '🔔 "راجع محفوظاتك.. بقي على الحلقة ساعة!"'
-                  : '🚀 "استعد! الحلقة ستبدأ الآن — ادخل على الرابط الدائم على بوابتك"'}
+                  ? 'تذكير ودي: بقي على موعد الحلقة ساعة واحدة — وقت مثالي لمراجعة الورد!'
+                  : 'حان موعد الحلقة الآن! المحفظ بانتظارك في الغرفة الصوتية المباشرة'}
               </h3>
               <p className="text-xs text-white/90 mt-1">
-                الطالب: <strong>{student.name}</strong> • الموعد: الساعة{' '}
-                <span className="font-mono">{student.scheduleTime}</span> • الورد المطلوب: سورة{' '}
+                الطالب: <strong>{student.name}</strong> · الموعد: الساعة{' '}
+                <span className="font-mono tabular-nums">{student.scheduleTime}</span> · الورد المقرر: سورة{' '}
                 {student.currentStop.surahName} (آية {student.currentStop.ayah})
               </p>
             </div>
@@ -2299,15 +2558,15 @@ export const GuardianAndGuestView: React.FC = () => {
               href={permanentMeetingUrl}
               target="_blank"
               rel="noopener noreferrer"
-              className="px-4 py-2.5 rounded-xl bg-white text-[#145a3a] text-xs font-extrabold flex items-center gap-1.5 shadow-sm cursor-pointer"
+              className="px-4 py-2 rounded-xl bg-white text-[#145a3a] text-xs font-extrabold flex items-center gap-1.5 shadow-xs cursor-pointer whitespace-nowrap"
             >
               <ExternalLink className="w-3.5 h-3.5" />
-              <span>دخول الرابط الدائم للحلقة</span>
+              <span>دخول الحلقة المباشرة</span>
             </a>
             <button
               type="button"
               onClick={() => setSessionReminderPreview(null)}
-              className="px-3 py-2.5 rounded-xl bg-black/25 hover:bg-black/40 text-white text-xs font-bold cursor-pointer"
+              className="px-3 py-2 rounded-xl bg-black/25 hover:bg-black/40 text-white text-xs font-bold cursor-pointer"
             >
               إغلاق
             </button>
@@ -2315,115 +2574,792 @@ export const GuardianAndGuestView: React.FC = () => {
         </div>
       )}
 
-      {/* Guardian Student Progress Overview (Only in Guardian Role) */}
+      {/* Guardian & Student Portal Tabbed Workspace */}
       {userRole === 'guardian' && student && (
         <div className="space-y-6">
+          {/* TAB 1: OVERVIEW (Compact Single-Screen Daily Status + Progress Chart) */}
           {guardianScreenTab === 'overview' && (
             <>
-              {/* 1. Automated Smart Session Reminder & Permanent Link Hub */}
-              <div className="rounded-3xl bg-white dark:bg-[#12231a] p-5 border-2 border-[#c59b27]/50 shadow-xs space-y-4">
-                <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-                  <div className="flex items-start gap-3.5">
-                    <div className="w-12 h-12 rounded-2xl bg-[#145a3a] text-[#dfbd69] flex items-center justify-center shrink-0">
-                      <Bell className="w-6 h-6" />
-                    </div>
+              {/* STAFF SUPERVISION DIAGNOSTIC CONSOLE (Only visible in Staff/Owner/Supervisor lens) */}
+              {portalViewPersona === 'staff_supervision' && (
+                <div className="rounded-2xl bg-white dark:bg-[#112119] p-5 border border-[#c59b27]/60 shadow-xs space-y-4">
+                  <div className="flex flex-wrap items-center justify-between gap-2 pb-3 border-b border-neutral-100 dark:border-emerald-950">
                     <div>
-                      <div className="flex flex-wrap items-center gap-2">
-                        <h2 className="text-base font-extrabold text-[#145a3a] dark:text-[#dfbd69]">
-                          المنبه الذكي الآلي والرابط الدائم للحلقة المباشرة
-                        </h2>
-                        <span className="px-2.5 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-300 text-[11px] font-extrabold">
-                          مفعل تلقائياً
-                        </span>
-                      </div>
-                      <p className="text-xs text-neutral-600 dark:text-neutral-300 mt-1">
-                        أيام الحلقة:{' '}
-                        <strong>
-                          {student.scheduleDays.map((d) => DAY_NAMES[d]).join('، ')}
-                        </strong>{' '}
-                        • الساعة:{' '}
-                        <span className="font-mono font-extrabold text-[#145a3a] dark:text-[#dfbd69]">
-                          {student.scheduleTime}
-                        </span>{' '}
-                        ({student.sessionDuration} دقيقة)
+                      <h2 className="text-base font-extrabold text-[#145a3a] dark:text-[#dfbd69] flex items-center gap-2">
+                        <Shield className="w-5 h-5 text-[#c59b27]" />
+                        <span>لوحة التشخيص والإشراف السريع (خاص بالمحفظ والمشرف والمالك)</span>
+                      </h2>
+                      <p className="text-xs text-neutral-500 mt-0.5">
+                        ملخص تشخيصي سريع لأداء الطالب ({student.name}) مع أدوات تحفيز وتوجيه فورية لا تظهر لولي الأمر أو الطالب
                       </p>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          addStudentXp(student.id, 25, 'مكافأة تشجيعية من المشرف/المحفظ');
+                          showToast(`تم منح الطالب (${student.name}) +25 نقطة همة تشجيعية`, 'success');
+                        }}
+                        className="px-3 py-1.5 rounded-xl bg-emerald-700 hover:bg-emerald-600 text-white text-xs font-extrabold cursor-pointer whitespace-nowrap"
+                      >
+                        +25 نقطة همة تشجيعية
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          saveStudent({
+                            ...student,
+                            hasGoldenCrown: !student.hasGoldenCrown,
+                          });
+                          showToast(
+                            student.hasGoldenCrown
+                              ? 'تم إلغاء تاج الإتقان الذهبي من ملف الطالب'
+                              : `تم تقليد الطالب (${student.name}) تاج الإتقان الذهبي`,
+                            'success'
+                          );
+                        }}
+                        className="px-3 py-1.5 rounded-xl bg-[#c59b27] hover:bg-[#b58c1e] text-[#14281d] text-xs font-extrabold cursor-pointer whitespace-nowrap"
+                      >
+                        {student.hasGoldenCrown ? 'إلغاء التاج الذهبي' : 'منح تاج الإتقان الذهبي'}
+                      </button>
                     </div>
                   </div>
 
-                  <div className="flex flex-wrap items-center gap-2">
+                  <div className="grid grid-cols-2 lg:grid-cols-4 gap-3.5">
+                    <div className="p-3.5 rounded-xl bg-[#f8f9f6] dark:bg-[#0b1510] border border-neutral-200/80 dark:border-emerald-900/50">
+                      <div className="text-[11px] font-bold text-neutral-500">معدل انتظام الحضور</div>
+                      <div className="text-xl font-black font-mono tabular-nums text-[#145a3a] dark:text-[#dfbd69] mt-1">
+                        {weeklyProgressStats.attendanceRate}%
+                      </div>
+                      <div className="text-[11px] text-neutral-500 mt-0.5">
+                        إجمالي الحصص المسجلة: {studentSessions.length}
+                      </div>
+                    </div>
+
+                    <div className="p-3.5 rounded-xl bg-[#f8f9f6] dark:bg-[#0b1510] border border-neutral-200/80 dark:border-emerald-900/50">
+                      <div className="text-[11px] font-bold text-neutral-500">التزام الحصون الخمسة اليوم</div>
+                      <div className="text-xl font-black font-mono tabular-nums text-indigo-700 dark:text-indigo-300 mt-1">
+                        {completedFortressCount} / 4
+                      </div>
+                      <div className="text-[11px] text-neutral-500 mt-0.5">
+                        {completedFortressCount === 4 ? 'أتم التحضير الكامل' : 'في انتظار استكمال المهام'}
+                      </div>
+                    </div>
+
+                    <div className="p-3.5 rounded-xl bg-[#f8f9f6] dark:bg-[#0b1510] border border-neutral-200/80 dark:border-emerald-900/50">
+                      <div className="text-[11px] font-bold text-neutral-500">حالة الاشتراك الشهري</div>
+                      <div className="text-xl font-black text-emerald-700 dark:text-emerald-400 mt-1">
+                        {student.fees[0]?.status || 'مدفوع'}
+                      </div>
+                      <div className="text-[11px] font-mono tabular-nums text-neutral-500 mt-0.5">
+                        القيمة الشهرية: {student.monthlyFee || 350} ج.م
+                      </div>
+                    </div>
+
+                    <div className="p-3.5 rounded-xl bg-[#f8f9f6] dark:bg-[#0b1510] border border-neutral-200/80 dark:border-emerald-900/50">
+                      <div className="text-[11px] font-bold text-neutral-500">ولي الأمر ({student.guardianName})</div>
+                      <div className="text-sm font-black font-mono tabular-nums text-[#14281d] dark:text-white mt-1.5">
+                        رمز الدخول: {student.guardianPin || '1234'}
+                      </div>
+                      <div className="text-[11px] text-neutral-500 mt-0.5">
+                        نمط التعلم: {student.pedagogicalProfile?.learningStyle || 'سمعي / بصري'}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* STUDENT VIEW OVERVIEW (Focused on Five Fortresses & Today's 3 Assignments - Fits on 1 Screen) */}
+              {portalViewPersona === 'student' ? (
+                <div className="space-y-6">
+                  {/* Student Hero: Five Fortresses Interactive Mission Deck */}
+                  <div className="rounded-3xl bg-white dark:bg-[#112119] p-5 sm:p-6 border border-neutral-200/90 dark:border-emerald-900/60 shadow-xs space-y-4">
+                    <div className="flex flex-wrap items-center justify-between gap-3 pb-3 border-b border-neutral-100 dark:border-emerald-950">
+                      <div>
+                        <span className="text-[11px] font-extrabold text-[#c59b27] block">
+                          مهام البطل اليومية قبل الحلقة
+                        </span>
+                        <h2 className="text-lg font-extrabold text-[#145a3a] dark:text-[#dfbd69] flex items-center gap-2">
+                          <Sparkles className="w-5 h-5 text-[#c59b27]" />
+                          <span>الحصون الخمسة — اضغط على كل مهمة تنجزها اليوم لتحصد نقاط الهمة</span>
+                        </h2>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <div className="text-left">
+                          <div className="text-[11px] text-neutral-500 font-bold">إنجاز مهام اليوم</div>
+                          <div className="text-sm font-black font-mono tabular-nums text-[#145a3a] dark:text-[#dfbd69]">
+                            {completedFortressCount} من 4 مهام مكتملة
+                          </div>
+                        </div>
+                        <div className="w-12 h-12 rounded-2xl bg-[#145a3a] text-[#dfbd69] flex items-center justify-center font-mono tabular-nums font-black text-base shadow-xs">
+                          {Math.round((completedFortressCount / 4) * 100)}%
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
+                      {FORTRESS_TASKS.map((task, index) => {
+                        const isDone = !!todayFortressState[task.key];
+                        return (
+                          <button
+                            key={task.key}
+                            type="button"
+                            onClick={() => toggleStudentFortressTask(student.id, task.key)}
+                            className={`p-4 rounded-2xl border text-right transition-all cursor-pointer flex flex-col justify-between gap-3 ${
+                              isDone
+                                ? 'bg-gradient-to-br from-[#145a3a] to-[#0d3b26] text-white border-[#c59b27] shadow-sm'
+                                : 'bg-[#f8f9f6] dark:bg-[#0b1510] text-[#14281d] dark:text-white border-neutral-200/90 dark:border-emerald-900/60 hover:border-[#c59b27]'
+                            }`}
+                          >
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="text-xs font-extrabold flex items-center gap-1.5">
+                                <CheckCircle2
+                                  className={`w-4 h-4 shrink-0 ${
+                                    isDone ? 'text-[#dfbd69]' : 'text-neutral-400'
+                                  }`}
+                                />
+                                <span>{index + 1}. {task.label}</span>
+                              </span>
+                              <span
+                                className={`px-2 py-0.5 rounded-md font-mono tabular-nums text-[10px] font-extrabold whitespace-nowrap ${
+                                  isDone
+                                    ? 'bg-[#c59b27] text-[#14281d]'
+                                    : 'bg-emerald-100 dark:bg-emerald-950 text-[#145a3a] dark:text-[#dfbd69]'
+                                }`}
+                              >
+                                +{task.xp} نقطة
+                              </span>
+                            </div>
+                            <p
+                              className={`text-[11px] leading-relaxed ${
+                                isDone ? 'text-emerald-100' : 'text-neutral-500 dark:text-neutral-400'
+                              }`}
+                            >
+                              {task.subtitle}
+                            </p>
+                            <div className="pt-2 border-t border-current/10 flex items-center justify-between text-[11px] font-extrabold">
+                              <span>{isDone ? 'تم الإنجاز بحمد الله ✓' : 'اضغط لتأكيد الإنجاز'}</span>
+                            </div>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {/* Student Row 2: Today's 3 Assignments + Quick Launch to Schedule & Audio Recorder */}
+                  <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+                    <div className="p-5 rounded-2xl bg-white dark:bg-[#112119] border border-neutral-200/90 dark:border-emerald-900/60 border-t-4 border-t-[#145a3a] flex flex-col justify-between gap-3 shadow-xs">
+                      <div>
+                        <span className="text-xs font-extrabold text-[#145a3a] dark:text-[#dfbd69]">
+                          ١. الورد الجديد اليومي
+                        </span>
+                        <div className="text-base font-black text-[#14281d] dark:text-white mt-1">
+                          سورة {studentAssignmentContext.newMem.surahName}
+                        </div>
+                        <div className="text-xs font-mono tabular-nums text-neutral-500 mt-0.5">
+                          الآيات ({studentAssignmentContext.newMem.fromAyah} – {studentAssignmentContext.newMem.toAyah})
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          handleLoadAssignmentTrack('new_mem');
+                          setGuardianScreenTab('tahfeez_studio');
+                          setTahfeezSubTab('player');
+                        }}
+                        className="w-full py-2.5 px-4 rounded-xl bg-[#145a3a] hover:bg-[#0f452c] text-white text-xs font-extrabold cursor-pointer transition"
+                      >
+                        ابدأ الاستماع والتلقين
+                      </button>
+                    </div>
+
+                    <div className="p-5 rounded-2xl bg-white dark:bg-[#112119] border border-neutral-200/90 dark:border-emerald-900/60 border-t-4 border-t-[#c59b27] flex flex-col justify-between gap-3 shadow-xs">
+                      <div>
+                        <span className="text-xs font-extrabold text-amber-700 dark:text-amber-300">
+                          ٢. المراجعة القريبة والبعيدة
+                        </span>
+                        <div className="text-base font-black text-[#14281d] dark:text-white mt-1">
+                          سورة {studentAssignmentContext.nearRev.surahName} · سورة {studentAssignmentContext.farRev.surahName}
+                        </div>
+                        <div className="text-xs text-neutral-500 mt-0.5">
+                          ربط المحفوظ الجديد وتثبيت الأجزاء السابقة
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          handleLoadAssignmentTrack('near_review');
+                          setGuardianScreenTab('tahfeez_studio');
+                          setTahfeezSubTab('player');
+                        }}
+                        className="w-full py-2.5 px-4 rounded-xl bg-[#c59b27] hover:bg-[#b58c1e] text-[#14281d] text-xs font-extrabold cursor-pointer transition"
+                      >
+                        تشغيل أوراد المراجعة
+                      </button>
+                    </div>
+
+                    <div className="p-5 rounded-2xl bg-white dark:bg-[#112119] border border-neutral-200/90 dark:border-emerald-900/60 border-t-4 border-t-indigo-600 flex flex-col justify-between gap-3 shadow-xs">
+                      <div>
+                        <span className="text-xs font-extrabold text-indigo-700 dark:text-indigo-300">
+                          ٣. التسميع الصوتي وموعد الحلقة
+                        </span>
+                        <div className="text-base font-black text-[#14281d] dark:text-white mt-1">
+                          حلقتك الساعة <span className="font-mono tabular-nums">{student.scheduleTime}</span>
+                        </div>
+                        <div className="text-xs text-neutral-500 mt-0.5">
+                          سجّل تلاوتك بصوتك أو انتقل لرحلة اليوم الزمنية
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setGuardianScreenTab('tahfeez_studio');
+                            setTahfeezSubTab('recorder');
+                          }}
+                          className="flex-1 py-2.5 px-3 rounded-xl bg-indigo-700 hover:bg-indigo-600 text-white text-xs font-extrabold cursor-pointer transition whitespace-nowrap"
+                        >
+                          سجّل تلاوتك
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setGuardianScreenTab('schedule_timeline')}
+                          className="py-2.5 px-3 rounded-xl bg-[#f8f9f6] dark:bg-[#0b1510] border border-neutral-200 dark:border-emerald-900 text-xs font-extrabold cursor-pointer whitespace-nowrap"
+                        >
+                          رحلة اليوم ←
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                /* GUARDIAN VIEW OVERVIEW (Compact 2-Row Executive Summary: 4 Status Cards + Progress Chart & Teacher Guidance) */
+                <div className="space-y-6">
+                  {/* Row 1: 4 Colorful Daily Memorization Status Cards */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                    {/* Card 1: Daily New Memorization (Emerald Accent) */}
+                    <div className="rounded-2xl bg-white dark:bg-[#112119] p-5 shadow-xs border border-neutral-200/90 dark:border-emerald-900/60 border-t-4 border-t-[#145a3a] flex flex-col justify-between gap-3.5">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="px-2.5 py-1 rounded-lg bg-emerald-50 dark:bg-emerald-950/80 text-[#145a3a] dark:text-emerald-300 text-xs font-extrabold">
+                          الورد الجديد اليومي
+                        </span>
+                        <span className="px-2 py-0.5 rounded-md bg-emerald-600 text-white text-[11px] font-extrabold">
+                          {studentSessions[0]?.newMemorization?.grade || 'ممتاز'}
+                        </span>
+                      </div>
+                      <div>
+                        <div className="text-lg font-black text-[#14281d] dark:text-white">
+                          سورة {studentAssignmentContext.newMem.surahName}
+                        </div>
+                        <div className="text-xs text-neutral-500 dark:text-neutral-400 font-mono tabular-nums mt-1">
+                          الآيات ({studentAssignmentContext.newMem.fromAyah} – {studentAssignmentContext.newMem.toAyah}) · {Math.max(1, studentAssignmentContext.newMem.toAyah - studentAssignmentContext.newMem.fromAyah + 1)} آيات
+                        </div>
+                      </div>
+                      <div className="flex items-center justify-between pt-3 border-t border-neutral-100 dark:border-emerald-950">
+                        <span className="text-[11px] text-emerald-700 dark:text-emerald-400 font-bold">
+                          {todayFortressState.listened3Times ? 'تم التحضير السمعي ✓' : 'جاهز للتلقين المنزلي'}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            handleLoadAssignmentTrack('new_mem');
+                            setGuardianScreenTab('tahfeez_studio');
+                            setTahfeezSubTab('player');
+                          }}
+                          className="px-3 py-1.5 rounded-xl bg-[#145a3a] hover:bg-[#0f452c] text-white text-[11px] font-extrabold cursor-pointer transition whitespace-nowrap shrink-0"
+                        >
+                          بدء التلقين
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Card 2: Near Review & Link (Warm Gold Accent) */}
+                    <div className="rounded-2xl bg-white dark:bg-[#112119] p-5 shadow-xs border border-neutral-200/90 dark:border-emerald-900/60 border-t-4 border-t-[#c59b27] flex flex-col justify-between gap-3.5">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="px-2.5 py-1 rounded-lg bg-amber-50 dark:bg-amber-950/60 text-amber-900 dark:text-amber-300 text-xs font-extrabold">
+                          المراجعة القريبة والربط
+                        </span>
+                        <span className="px-2 py-0.5 rounded-md bg-amber-500/20 text-amber-900 dark:text-amber-200 text-[11px] font-extrabold">
+                          {todayFortressState.reviewedLink ? 'مكتمل ✓' : 'مقرر اليوم'}
+                        </span>
+                      </div>
+                      <div>
+                        <div className="text-lg font-black text-[#14281d] dark:text-white">
+                          سورة {studentAssignmentContext.nearRev.surahName}
+                        </div>
+                        <div className="text-xs text-neutral-500 dark:text-neutral-400 font-mono tabular-nums mt-1">
+                          الآيات ({studentAssignmentContext.nearRev.fromAyah} – {studentAssignmentContext.nearRev.toAyah})
+                        </div>
+                      </div>
+                      <div className="flex items-center justify-between pt-3 border-t border-neutral-100 dark:border-emerald-950">
+                        <span className="text-[11px] text-amber-800 dark:text-amber-300 font-bold">
+                          ربط الجديد بالمحفوظ القريب
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            handleLoadAssignmentTrack('near_review');
+                            setGuardianScreenTab('tahfeez_studio');
+                            setTahfeezSubTab('player');
+                          }}
+                          className="px-3 py-1.5 rounded-xl bg-[#c59b27] hover:bg-[#b58c1e] text-[#14281d] text-[11px] font-extrabold cursor-pointer transition whitespace-nowrap shrink-0"
+                        >
+                          تشغيل المراجعة
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Card 3: Far Review & Consolidation (Teal Accent) */}
+                    <div className="rounded-2xl bg-white dark:bg-[#112119] p-5 shadow-xs border border-neutral-200/90 dark:border-emerald-900/60 border-t-4 border-t-teal-600 flex flex-col justify-between gap-3.5">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="px-2.5 py-1 rounded-lg bg-teal-50 dark:bg-teal-950/60 text-teal-800 dark:text-teal-300 text-xs font-extrabold">
+                          المراجعة البعيدة والتثبيت
+                        </span>
+                        <span className="text-xs font-mono tabular-nums font-extrabold text-teal-700 dark:text-teal-300">
+                          {student.memorizedJuz.length} / 30 جزءاً
+                        </span>
+                      </div>
+                      <div>
+                        <div className="text-lg font-black text-[#14281d] dark:text-white">
+                          سورة {studentAssignmentContext.farRev.surahName}
+                        </div>
+                        <div className="text-xs text-neutral-500 dark:text-neutral-400 font-mono tabular-nums mt-1">
+                          الآيات ({studentAssignmentContext.farRev.fromAyah} – {studentAssignmentContext.farRev.toAyah}) · {student.memorizedSurahs.length} سورة
+                        </div>
+                      </div>
+                      <div className="flex items-center justify-between pt-3 border-t border-neutral-100 dark:border-emerald-950">
+                        <span className="text-[11px] text-teal-700 dark:text-teal-400 font-bold">
+                          {todayFortressState.reviewedFar ? 'تمت المراجعة ✓' : 'تثبيت الأجزاء السابقة'}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            handleLoadAssignmentTrack('far_review');
+                            setGuardianScreenTab('tahfeez_studio');
+                            setTahfeezSubTab('player');
+                          }}
+                          className="px-3 py-1.5 rounded-xl bg-teal-700 hover:bg-teal-600 text-white text-[11px] font-extrabold cursor-pointer transition whitespace-nowrap shrink-0"
+                        >
+                          مراجعة وتثبيت
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Card 4: Five Fortresses & Attendance Status (Indigo Accent) */}
+                    <div className="rounded-2xl bg-white dark:bg-[#112119] p-5 shadow-xs border border-neutral-200/90 dark:border-emerald-900/60 border-t-4 border-t-indigo-600 flex flex-col justify-between gap-3.5">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="px-2.5 py-1 rounded-lg bg-indigo-50 dark:bg-indigo-950/60 text-indigo-800 dark:text-indigo-300 text-xs font-extrabold">
+                          إنجاز الحصون والالتزام
+                        </span>
+                        <span className="text-xs font-mono tabular-nums font-extrabold text-indigo-700 dark:text-indigo-300">
+                          حضور {weeklyProgressStats.attendanceRate}%
+                        </span>
+                      </div>
+                      <div>
+                        <div className="flex items-baseline justify-between">
+                          <span className="text-xl font-black font-mono tabular-nums text-[#14281d] dark:text-white">
+                            {completedFortressCount} / 4 <span className="text-xs font-sans font-bold text-neutral-500">مهام اليوم</span>
+                          </span>
+                          <span className="text-xs font-mono tabular-nums font-bold text-[#c59b27]">
+                            {Math.round((completedFortressCount / 4) * 100)}%
+                          </span>
+                        </div>
+                        <div className="w-full h-2 rounded-full bg-neutral-100 dark:bg-emerald-950 overflow-hidden mt-2">
+                          <div
+                            className="h-full rounded-full bg-gradient-to-l from-indigo-600 to-[#145a3a] transition-all duration-300"
+                            style={{ width: `${Math.max(12, (completedFortressCount / 4) * 100)}%` }}
+                          />
+                        </div>
+                      </div>
+                      <div className="flex items-center justify-between pt-3 border-t border-neutral-100 dark:border-emerald-950">
+                        <span className="text-[11px] text-neutral-500 font-bold">
+                          موعد الحلقة: {student.scheduleTime}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => setGuardianScreenTab('schedule_timeline')}
+                          className="px-3 py-1.5 rounded-xl bg-indigo-700 hover:bg-indigo-600 text-white text-[11px] font-extrabold cursor-pointer transition whitespace-nowrap shrink-0"
+                        >
+                          الجدول الزمني ←
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Row 2: Simplified Quran Progress Chart (5 cols) + Family Pedagogical Guidance & Quick Actions (7 cols) */}
+                  <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-stretch">
+                    {/* Col 1: Simplified Visual Chart of Quran Memorization Progress (5 cols) */}
+                    <div className="lg:col-span-5 rounded-3xl bg-white dark:bg-[#112119] p-5 sm:p-6 border border-neutral-200/90 dark:border-emerald-900/60 shadow-xs flex flex-col justify-between space-y-4">
+                      <div className="flex items-center justify-between gap-2">
+                        <div>
+                          <h3 className="text-base font-extrabold text-[#145a3a] dark:text-[#dfbd69] flex items-center gap-2">
+                            <TrendingUp className="w-5 h-5 text-[#c59b27]" />
+                            <span>مؤشر تقدم الطالب في حفظ القرآن</span>
+                          </h3>
+                          <p className="text-xs text-neutral-500 mt-0.5">
+                            مقارنة الآيات المنجزة أسبوعياً مع نسبة إتمام الأجزاء والسور
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setGuardianScreenTab('followup_log')}
+                          className="px-3 py-1.5 rounded-xl bg-[#f8f9f6] dark:bg-[#0b1510] border border-neutral-200 dark:border-emerald-900 text-[#145a3a] dark:text-[#dfbd69] text-[11px] font-extrabold cursor-pointer whitespace-nowrap shrink-0"
+                        >
+                          السجل الكامل ←
+                        </button>
+                      </div>
+
+                      <div className="space-y-3 bg-[#f8f9f6] dark:bg-[#0b1510] p-4 rounded-2xl border border-neutral-200/70 dark:border-emerald-900/50">
+                        <div>
+                          <div className="flex items-center justify-between text-xs font-extrabold mb-1.5">
+                            <span className="text-[#14281d] dark:text-white">الأجزاء المكتملة من المصحف</span>
+                            <span className="font-mono tabular-nums text-[#145a3a] dark:text-[#dfbd69]">
+                              {student.memorizedJuz.length} / 30 جزء ({Math.round((student.memorizedJuz.length / 30) * 100)}%)
+                            </span>
+                          </div>
+                          <div className="w-full h-2 rounded-full bg-neutral-200 dark:bg-emerald-950 overflow-hidden">
+                            <div
+                              className="h-full rounded-full bg-gradient-to-l from-emerald-600 to-[#c59b27]"
+                              style={{ width: `${Math.max(8, Math.round((student.memorizedJuz.length / 30) * 100))}%` }}
+                            />
+                          </div>
+                        </div>
+
+                        <div>
+                          <div className="flex items-center justify-between text-xs font-extrabold mb-1.5">
+                            <span className="text-[#14281d] dark:text-white">السور المحفوظة</span>
+                            <span className="font-mono tabular-nums text-emerald-700 dark:text-emerald-400">
+                              {student.memorizedSurahs.length} / 114 سورة ({Math.round((student.memorizedSurahs.length / 114) * 100)}%)
+                            </span>
+                          </div>
+                          <div className="w-full h-2 rounded-full bg-neutral-200 dark:bg-emerald-950 overflow-hidden">
+                            <div
+                              className="h-full rounded-full bg-gradient-to-l from-[#145a3a] to-teal-500"
+                              style={{ width: `${Math.max(8, Math.round((student.memorizedSurahs.length / 114) * 100))}%` }}
+                            />
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="h-44 w-full pt-1" dir="ltr">
+                        <ResponsiveContainer width="100%" height="100%">
+                          <BarChart
+                            data={weeklyProgressStats.weeks.map((wk) => ({
+                              name: wk.label,
+                              آيات_محفوظة: wk.ayatCount,
+                              المستهدف: 20,
+                            }))}
+                            margin={{ top: 8, right: 8, left: -18, bottom: 0 }}
+                          >
+                            <CartesianGrid strokeDasharray="3 3" opacity={0.2} />
+                            <XAxis dataKey="name" tick={{ fontSize: 11, fontWeight: 700 }} />
+                            <YAxis tick={{ fontSize: 11 }} />
+                            <Tooltip
+                              contentStyle={{
+                                borderRadius: '12px',
+                                border: '1px solid #c59b27',
+                                fontSize: '12px',
+                                fontWeight: 700,
+                                textAlign: 'right',
+                              }}
+                            />
+                            <Bar dataKey="آيات_محفوظة" name="الآيات المحفوظة" fill="#145a3a" radius={[6, 6, 0, 0]} />
+                            <Bar dataKey="المستهدف" name="المستهدف الأسبوعي" fill="#c59b27" radius={[6, 6, 0, 0]} />
+                          </BarChart>
+                        </ResponsiveContainer>
+                      </div>
+                    </div>
+
+                    {/* Col 2: Latest Session Summary, Pedagogical Guidance & Direct Navigation Shortcuts (7 cols) */}
+                    <div className="lg:col-span-7 rounded-3xl bg-white dark:bg-[#112119] p-5 sm:p-6 border border-neutral-200/90 dark:border-emerald-900/60 shadow-xs flex flex-col justify-between space-y-4">
+                      <div className="flex flex-wrap items-center justify-between gap-2 pb-3 border-b border-neutral-100 dark:border-emerald-950">
+                        <div>
+                          <h3 className="text-base font-extrabold text-[#145a3a] dark:text-[#dfbd69]">
+                            تقرير آخر حصة وتوجيهات الشيخ لولي الأمر
+                          </h3>
+                          <p className="text-xs text-neutral-500 mt-0.5">
+                            ملخص سريع لما تم إنجازه في الحلقة وخطة الدعم المنزلي المقترحة
+                          </p>
+                        </div>
+                        <span className="px-3 py-1 rounded-xl bg-amber-50 dark:bg-amber-950/60 text-amber-900 dark:text-amber-300 text-xs font-extrabold">
+                          نمط التعلم: {student.pedagogicalProfile?.learningStyle || 'سمعي / بصري'}
+                        </span>
+                      </div>
+
+                      <div className="p-4 rounded-2xl bg-[#f8f9f6] dark:bg-[#0b1510] border border-neutral-200/80 dark:border-emerald-900/50 space-y-2">
+                        <div className="flex items-center justify-between text-xs font-extrabold text-[#145a3a] dark:text-[#dfbd69]">
+                          <span>ملاحظة المحفظ في آخر تسميع:</span>
+                          <span className="font-mono tabular-nums text-neutral-400">
+                            {studentSessions[0]?.date || todayStr}
+                          </span>
+                        </div>
+                        <p className="text-xs sm:text-sm font-bold text-[#14281d] dark:text-white leading-relaxed">
+                          «{studentSessions[0]?.parentNotes || 'تلاوة متقنة ومتميزة اليوم، نرجو الاستمرار على الاستماع للمصحف المعلم قبل النوم.'}»
+                        </p>
+                      </div>
+
+                      {student.publishedFamilyGuidance && student.publishedFamilyGuidance.length > 0 ? (
+                        <div className="p-4 rounded-2xl bg-emerald-50/60 dark:bg-emerald-950/30 border border-emerald-500/30 space-y-1">
+                          <div className="text-xs font-extrabold text-[#145a3a] dark:text-[#dfbd69]">
+                            {student.publishedFamilyGuidance[0].title}
+                          </div>
+                          <p className="text-xs text-neutral-700 dark:text-neutral-200 leading-relaxed">
+                            {student.publishedFamilyGuidance[0].bodyText}
+                          </p>
+                        </div>
+                      ) : (
+                        <div className="p-4 rounded-2xl bg-emerald-50/60 dark:bg-emerald-950/30 border border-emerald-500/30 text-xs text-neutral-700 dark:text-neutral-200 leading-relaxed">
+                          <strong className="text-[#145a3a] dark:text-[#dfbd69] block mb-1">
+                            خطة دعم الطالب في المنزل:
+                          </strong>
+                          لتثبيت حفظ الطالب ({student.name}) بيسر ودون إجهاد، ننصح بتشغيل تلاوة «المصحف المعلم للشيخ الحصري أو المنشاوي» لمقرره الحالي بهدوء لمدة ١٠ دقائق، ومراجعة الجدول الزمني للمهام قبل الحلقة.
+                        </div>
+                      )}
+
+                      {studentSessions[0]?.memorizationAudioDataUrl && (
+                        <div className="p-3 rounded-2xl bg-[#f8f9f6] dark:bg-[#0b1510] border border-[#c59b27]/50 space-y-1.5">
+                          <div className="text-xs font-extrabold text-[#145a3a] dark:text-[#dfbd69]">
+                            تسجيل صوتي مرفق من الشيخ لتلقين الورد الجديد:
+                          </div>
+                          <audio
+                            id="teacher-session-audio-player"
+                            controls
+                            src={studentSessions[0].memorizationAudioDataUrl}
+                            className="w-full h-8"
+                          />
+                        </div>
+                      )}
+
+                      {/* Quick Navigation Cards to Other Tabs */}
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 pt-2">
+                        <button
+                          type="button"
+                          onClick={() => setGuardianScreenTab('schedule_timeline')}
+                          className="p-3 rounded-xl bg-[#f8f9f6] dark:bg-[#0b1510] hover:border-[#c59b27] border border-neutral-200 dark:border-emerald-900 text-right transition cursor-pointer"
+                        >
+                          <div className="text-xs font-extrabold text-[#145a3a] dark:text-[#dfbd69]">الجدول والمنبه</div>
+                          <div className="text-[11px] text-neutral-500 mt-0.5">مهام اليوم وفرق التوقيت</div>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setGuardianScreenTab('tahfeez_studio')}
+                          className="p-3 rounded-xl bg-[#f8f9f6] dark:bg-[#0b1510] hover:border-[#c59b27] border border-neutral-200 dark:border-emerald-900 text-right transition cursor-pointer"
+                        >
+                          <div className="text-xs font-extrabold text-[#145a3a] dark:text-[#dfbd69]">المصحف والتسميع</div>
+                          <div className="text-[11px] text-neutral-500 mt-0.5">التلقين ومسجل الصوت</div>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setGuardianScreenTab('family_oasis')}
+                          className="p-3 rounded-xl bg-[#f8f9f6] dark:bg-[#0b1510] hover:border-[#c59b27] border border-neutral-200 dark:border-emerald-900 text-right transition cursor-pointer"
+                        >
+                          <div className="text-xs font-extrabold text-[#145a3a] dark:text-[#dfbd69]">تقييم المحفظ</div>
+                          <div className="text-[11px] text-neutral-500 mt-0.5">تاج الوقار وشهادة الأسرة</div>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setGuardianScreenTab('documents_billing')}
+                          className="p-3 rounded-xl bg-[#f8f9f6] dark:bg-[#0b1510] hover:border-[#c59b27] border border-neutral-200 dark:border-emerald-900 text-right transition cursor-pointer"
+                        >
+                          <div className="text-xs font-extrabold text-[#145a3a] dark:text-[#dfbd69]">الإيصالات والبطاقة</div>
+                          <div className="text-[11px] text-neutral-500 mt-0.5">إيصالات السداد المعتمدة</div>
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </>
+          )}
+
+          {/* TAB 2: SCHEDULE TIMELINE & SMART REMINDER (الجدول الزمني التفاعلي للمهام القادمة والمنبه الذكي) */}
+          {guardianScreenTab === 'schedule_timeline' && (
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-stretch">
+              {/* Right Col: Interactive Visual Timeline for Upcoming Tasks (7 cols) */}
+              <div className="lg:col-span-7 rounded-3xl bg-white dark:bg-[#112119] p-5 sm:p-6 border border-neutral-200/90 dark:border-emerald-900/60 shadow-xs flex flex-col justify-between space-y-4">
+                <div className="flex flex-wrap items-center justify-between gap-2 pb-3 border-b border-neutral-100 dark:border-emerald-950">
+                  <div>
+                    <h3 className="text-base font-extrabold text-[#145a3a] dark:text-[#dfbd69] flex items-center gap-2">
+                      <Calendar className="w-5 h-5 text-[#c59b27]" />
+                      <span>الجدول الزمني التفاعلي للمهام القادمة وخطة اليوم</span>
+                    </h3>
+                    <p className="text-xs text-neutral-500 mt-0.5">
+                      خطوات مرتبة زمنياً لتحضير الطالب قبل الحلقة، حضور الدرس المباشر، والتثبيت المنزلي
+                    </p>
+                  </div>
+                  <span className="px-3 py-1 rounded-xl bg-emerald-50 dark:bg-emerald-950 text-[#145a3a] dark:text-emerald-300 text-xs font-mono tabular-nums font-extrabold">
+                    موعد الحلقة: {student.scheduleTime} ({timezoneSyncInfo.studentTimeFormatted} بتوقيتك)
+                  </span>
+                </div>
+
+                {/* Vertical Connected Timeline Stations */}
+                <div className="relative pr-6 space-y-3.5 before:content-[''] before:absolute before:right-2.5 before:top-3 before:bottom-3 before:w-0.5 before:bg-gradient-to-b before:from-[#145a3a] before:via-[#c59b27] before:to-emerald-600">
+                  {/* Station 1 */}
+                  <div className="relative p-3.5 rounded-2xl bg-[#f8f9f6] dark:bg-[#0b1510] border border-neutral-200/80 dark:border-emerald-900/60 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                    <span
+                      className={`absolute -right-[22px] top-5 w-4 h-4 rounded-full border-2 border-white dark:border-[#112119] ${
+                        todayFortressState.listened3Times && todayFortressState.readPreparation
+                          ? 'bg-emerald-600'
+                          : 'bg-[#c59b27]'
+                      }`}
+                    />
+                    <div className="space-y-0.5">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="px-2 py-0.5 rounded-md bg-[#145a3a]/10 text-[#145a3a] dark:text-[#dfbd69] text-[10px] font-extrabold">
+                          المهمة ١ · قبل الحلقة بـ ٣٠ دقيقة
+                        </span>
+                        <span className="text-xs font-black text-[#14281d] dark:text-white">
+                          التحضير السمعي والبصري للورد الجديد (سورة {studentAssignmentContext.newMem.surahName})
+                        </span>
+                      </div>
+                      <p className="text-xs text-neutral-500 dark:text-neutral-400">
+                        الاستماع لتلاوة الشيخ ٣ مرات للآيات ({studentAssignmentContext.newMem.fromAyah} – {studentAssignmentContext.newMem.toAyah}) مع القراءة الحاضرة من المصحف.
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        handleLoadAssignmentTrack('new_mem');
+                        setGuardianScreenTab('tahfeez_studio');
+                        setTahfeezSubTab('player');
+                      }}
+                      className="px-3.5 py-2 rounded-xl bg-[#145a3a] hover:bg-[#0f452c] text-white text-xs font-extrabold shrink-0 cursor-pointer whitespace-nowrap"
+                    >
+                      فتح المصحف المعلم
+                    </button>
+                  </div>
+
+                  {/* Station 2 */}
+                  <div className="relative p-3.5 rounded-2xl bg-[#f8f9f6] dark:bg-[#0b1510] border border-neutral-200/80 dark:border-emerald-900/60 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                    <span
+                      className={`absolute -right-[22px] top-5 w-4 h-4 rounded-full border-2 border-white dark:border-[#112119] ${
+                        todayFortressState.reviewedLink && todayFortressState.reviewedFar
+                          ? 'bg-emerald-600'
+                          : 'bg-amber-500'
+                      }`}
+                    />
+                    <div className="space-y-0.5">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="px-2 py-0.5 rounded-md bg-amber-500/15 text-amber-800 dark:text-amber-300 text-[10px] font-extrabold">
+                          المهمة ٢ · قبل بدء الحلقة
+                        </span>
+                        <span className="text-xs font-black text-[#14281d] dark:text-white">
+                          مراجعة الربط القريب (سورة {studentAssignmentContext.nearRev.surahName}) والبعيد (سورة {studentAssignmentContext.farRev.surahName})
+                        </span>
+                      </div>
+                      <p className="text-xs text-neutral-500 dark:text-neutral-400">
+                        تثبيت المحفوظ السابق وربطه بالدرس الجديد لضمان جودة التسميع.
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        handleLoadAssignmentTrack('near_review');
+                        setGuardianScreenTab('tahfeez_studio');
+                        setTahfeezSubTab('player');
+                      }}
+                      className="px-3.5 py-2 rounded-xl bg-[#c59b27] hover:bg-[#b58c1e] text-[#14281d] text-xs font-extrabold shrink-0 cursor-pointer whitespace-nowrap"
+                    >
+                      بدء المراجعة
+                    </button>
+                  </div>
+
+                  {/* Station 3 */}
+                  <div className="relative p-3.5 rounded-2xl bg-emerald-50/70 dark:bg-emerald-950/30 border border-emerald-500/40 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                    <span className="absolute -right-[22px] top-5 w-4 h-4 rounded-full bg-emerald-600 border-2 border-white dark:border-[#112119]" />
+                    <div className="space-y-0.5">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="px-2 py-0.5 rounded-md bg-emerald-700 text-white text-[10px] font-mono tabular-nums font-extrabold">
+                          المهمة ٣ · الساعة {student.scheduleTime} ({student.sessionDuration} دقيقة)
+                        </span>
+                        <span className="text-xs font-black text-[#145a3a] dark:text-[#dfbd69]">
+                          حضور الحلقة المباشرة ({student.scheduleDays.map((d) => DAY_NAMES[d]).join('، ')})
+                        </span>
+                      </div>
+                      <p className="text-xs text-neutral-600 dark:text-neutral-300">
+                        الدخول على الرابط الدائم للحلقة للتسميع المباشر وتلقي تصويبات التجويد.
+                      </p>
+                    </div>
                     <a
                       href={permanentMeetingUrl}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="px-4 py-2.5 rounded-xl bg-[#145a3a] hover:bg-[#0f452c] text-white text-xs font-extrabold flex items-center gap-1.5 shadow-xs cursor-pointer"
+                      className="px-3.5 py-2 rounded-xl bg-emerald-700 hover:bg-emerald-600 text-white text-xs font-extrabold shrink-0 flex items-center gap-1.5 cursor-pointer whitespace-nowrap"
                     >
-                      <ExternalLink className="w-4 h-4 text-[#dfbd69]" />
-                      <span>🚀 الدخول للرابط الدائم للحلقة</span>
+                      <ExternalLink className="w-3.5 h-3.5 text-[#dfbd69]" />
+                      <span>دخول الحلقة</span>
                     </a>
+                  </div>
 
+                  {/* Station 4 */}
+                  <div className="relative p-3.5 rounded-2xl bg-[#f8f9f6] dark:bg-[#0b1510] border border-neutral-200/80 dark:border-emerald-900/60 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                    <span className="absolute -right-[22px] top-5 w-4 h-4 rounded-full bg-indigo-600 border-2 border-white dark:border-[#112119]" />
+                    <div className="space-y-0.5">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="px-2 py-0.5 rounded-md bg-indigo-500/15 text-indigo-800 dark:text-indigo-300 text-[10px] font-extrabold">
+                          المهمة ٤ · التثبيت المسائي
+                        </span>
+                        <span className="text-xs font-black text-[#14281d] dark:text-white">
+                          تسجيل التسميع الصوتي المنزلي ومراجعة توجيه الشيخ
+                        </span>
+                      </div>
+                      <p className="text-xs text-neutral-500 dark:text-neutral-400">
+                        إرسال تسجيل صوتي لتلاوة الطالب ليراجعه الشيخ المحفظ ويضع نقاط التشجيع.
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setGuardianScreenTab('tahfeez_studio');
+                        setTahfeezSubTab('recorder');
+                      }}
+                      className="px-3.5 py-2 rounded-xl bg-indigo-700 hover:bg-indigo-600 text-white text-xs font-extrabold shrink-0 cursor-pointer whitespace-nowrap"
+                    >
+                      تسجيل التلاوة
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {/* Left Col: Automated Smart Session Reminder, Timezone Sync & Five Fortresses Quick Checklist (5 cols) */}
+              <div className="lg:col-span-5 flex flex-col justify-between gap-6">
+                {/* Automated Smart Session Reminder */}
+                <div className="rounded-3xl bg-white dark:bg-[#112119] p-5 sm:p-6 border border-neutral-200/90 dark:border-emerald-900/60 shadow-xs space-y-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="flex items-start gap-3">
+                      <div className="w-10 h-10 rounded-xl bg-[#145a3a] text-[#dfbd69] flex items-center justify-center shrink-0">
+                        <Bell className="w-5 h-5" />
+                      </div>
+                      <div>
+                        <h3 className="text-sm sm:text-base font-extrabold text-[#145a3a] dark:text-[#dfbd69]">
+                          المنبه الذكي الآلي وفرق التوقيت
+                        </h3>
+                        <p className="text-xs text-neutral-500 mt-0.5">
+                          أيام الحلقة: <strong>{student.scheduleDays.map((d) => DAY_NAMES[d]).join('، ')}</strong>
+                        </p>
+                      </div>
+                    </div>
                     <button
                       type="button"
                       onClick={handleDownloadIcsCalendar}
-                      className="px-3.5 py-2.5 rounded-xl bg-[#fcfaf2] dark:bg-[#0b1711] border border-[#c59b27] text-[#14281d] dark:text-[#dfbd69] text-xs font-extrabold flex items-center gap-1.5 cursor-pointer"
+                      className="px-3 py-1.5 rounded-xl bg-[#f8f9f6] dark:bg-[#0b1510] border border-neutral-200 dark:border-emerald-900 text-xs font-extrabold flex items-center gap-1.5 cursor-pointer shrink-0 whitespace-nowrap"
                     >
                       <Download className="w-3.5 h-3.5 text-[#c59b27]" />
-                      <span>تصدير للتقويم والمنبه (.ics)</span>
+                      <span>إضافة لتقويم الهاتف</span>
                     </button>
                   </div>
-                </div>
 
-                {/* Interactive Preview Buttons for 1-Hour & Start-Now Smart Alerts */}
-                <div className="pt-3 border-t border-neutral-100 dark:border-emerald-950 flex flex-wrap items-center justify-between gap-2 text-xs">
-                  <span className="font-bold text-neutral-500">
-                    🔔 معاينة واختبار تنبيهات الساعة وموعد الحلقة:
-                  </span>
-                  <div className="flex flex-wrap items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={() => triggerReminderNotificationChime('1hour')}
-                      className="px-3 py-1.5 rounded-xl bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/40 text-amber-900 dark:text-amber-300 font-extrabold cursor-pointer"
-                    >
-                      🔔 اختبار تنبيه: بقي على الحلقة ساعة!
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => triggerReminderNotificationChime('now')}
-                      className="px-3 py-1.5 rounded-xl bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-500/40 text-emerald-900 dark:text-emerald-300 font-extrabold cursor-pointer"
-                    >
-                      🚀 اختبار تنبيه: الحلقة ستبدأ الآن!
-                    </button>
-                  </div>
-                </div>
-
-                {/* 2. محول التوقيت الدولي التلقائي (Timezone Sync) */}
-                <div className="pt-3 border-t border-neutral-100 dark:border-emerald-950 flex flex-col md:flex-row md:items-center justify-between gap-3 bg-[#fcfaf2] dark:bg-[#0b1711] p-3.5 rounded-2xl">
-                  <div className="space-y-1">
-                    <div className="text-xs font-extrabold text-[#145a3a] dark:text-[#dfbd69] flex items-center gap-1.5">
-                      <span>🌍 محول التوقيت الدولي التلقائي (Timezone Sync):</span>
-                      <span className="px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 text-[10px]">
-                        تزامن دولي ذكي للمغتربين
+                  <div className="p-3.5 rounded-2xl bg-[#f8f9f6] dark:bg-[#0b1510] border border-neutral-200/70 dark:border-emerald-900/50 space-y-2 text-xs">
+                    <div className="flex items-center justify-between">
+                      <span className="font-extrabold text-[#145a3a] dark:text-[#dfbd69]">توقيت بلد الإقامة:</span>
+                      <span className="font-mono tabular-nums font-bold">
+                        القاهرة ({student.scheduleTime}) ← ({timezoneSyncInfo.studentTimeFormatted})
                       </span>
                     </div>
-                    <p className="text-xs text-neutral-600 dark:text-neutral-300">
-                      توقيت الأكاديمية المرجعي (القاهرة):{' '}
-                      <strong className="font-mono text-[#145a3a] dark:text-[#dfbd69]">
-                        {student?.scheduleTime || '17:00'}
-                      </strong>{' '}
-                      ← موعد الحلقة بتوقيت جهازك المحلي:{' '}
-                      <strong className="font-mono text-amber-700 dark:text-amber-300">
-                        {timezoneSyncInfo.studentTimeFormatted}
-                      </strong>{' '}
-                      ({timezoneSyncInfo.dayShiftLabel})
-                    </p>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <span className="text-[11px] font-bold text-neutral-500">
-                      منطقتك الزمنية:
-                    </span>
                     <select
                       value={selectedTimezone}
                       onChange={(e) => setSelectedTimezone(e.target.value)}
-                      className="px-2.5 py-1.5 rounded-xl border border-neutral-300 dark:border-emerald-900 bg-white dark:bg-[#12231a] text-xs font-bold"
+                      className="w-full px-3 py-2 rounded-xl border border-neutral-300 dark:border-emerald-900 bg-white dark:bg-[#112119] text-xs font-bold"
                     >
                       {GLOBAL_TIMEZONES_LIST.map((tz) => (
                         <option key={tz.id} value={tz.id}>
@@ -2432,124 +3368,123 @@ export const GuardianAndGuestView: React.FC = () => {
                       ))}
                     </select>
                   </div>
-                </div>
-              </div>
 
-              {/* 2.1. بطاقة «📅 متى أختم؟» (Khatmah Predictor Card) */}
-              {khatmahPrediction && (
-                <div className="rounded-3xl bg-gradient-to-l from-[#145a3a]/10 via-[#fcfaf2] to-amber-50/60 dark:from-[#145a3a]/30 dark:via-[#12231a] dark:to-[#0b1711] p-5 border-2 border-[#c59b27]/60 shadow-xs space-y-3">
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <div>
-                      <h3 className="text-base font-extrabold text-[#145a3a] dark:text-[#dfbd69] flex items-center gap-2">
-                        <span>📅 متى أختم؟ — حاسبة تاريخ الختمة الذكية</span>
-                        <span className="px-2.5 py-0.5 rounded-full bg-[#c59b27] text-[#14281d] text-[11px] font-extrabold">
-                          همة منتظمة
-                        </span>
-                      </h3>
-                      <p className="text-xs text-neutral-600 dark:text-neutral-300 mt-0.5">
-                        تُحسب تلقائياً بناءً على متوسط إنجاز الطالب الفعلي ({khatmahPrediction.avgAyatPerSession} آية/حصة) وأيام حضوره الأسبوعية ({student.scheduleDays.length} أيام/أسبوع)
-                      </p>
-                    </div>
-                    <span className="px-3 py-1.5 rounded-xl bg-[#145a3a] text-[#dfbd69] text-xs font-extrabold font-mono">
-                      الجزء الحالي: الجزء ({student.currentStop.juzNumber || 1})
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => triggerReminderNotificationChime('1hour')}
+                      className="flex-1 py-2 px-3 rounded-xl bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/30 text-amber-900 dark:text-amber-300 text-xs font-extrabold cursor-pointer whitespace-nowrap"
+                    >
+                      تجربة منبه قبل ساعة
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => triggerReminderNotificationChime('now')}
+                      className="flex-1 py-2 px-3 rounded-xl bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-500/30 text-emerald-900 dark:text-emerald-300 text-xs font-extrabold cursor-pointer whitespace-nowrap"
+                    >
+                      تجربة منبه بدء الحلقة
+                    </button>
+                  </div>
+                </div>
+
+                {/* Compact Five Fortresses Checklist inside Schedule Tab */}
+                <div className="rounded-3xl bg-white dark:bg-[#112119] p-5 sm:p-6 border border-neutral-200/90 dark:border-emerald-900/60 shadow-xs space-y-3">
+                  <div className="flex items-center justify-between">
+                    <h3 className="text-sm font-extrabold text-[#145a3a] dark:text-[#dfbd69]">
+                      قائمة التحضير اليومي (الحصون الخمسة)
+                    </h3>
+                    <span className="text-xs font-mono tabular-nums font-extrabold text-[#c59b27]">
+                      {completedFortressCount} / 4 مكتمل
                     </span>
                   </div>
-
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                    <div className="p-3.5 rounded-2xl bg-white dark:bg-[#0b1711] border border-neutral-200 dark:border-emerald-900/50">
-                      <div className="text-[11px] text-neutral-500 font-bold">
-                        موعد ختم الجزء الحالي ({student.currentStop.juzNumber || 1})
-                      </div>
-                      <div className="text-sm font-extrabold text-[#145a3a] dark:text-[#dfbd69] mt-1">
-                        🎯 {khatmahPrediction.expectedCurrentJuzDate}
-                      </div>
-                      <div className="text-[11px] text-neutral-500 mt-0.5">
-                        خلال {khatmahPrediction.daysToFinishCurrentJuz} يوماً تقريباً
-                      </div>
-                    </div>
-
-                    <div className="p-3.5 rounded-2xl bg-white dark:bg-[#0b1711] border border-neutral-200 dark:border-emerald-900/50">
-                      <div className="text-[11px] text-neutral-500 font-bold">
-                        التاريخ المتوقع لختم القرآن الكريم كاملاً
-                      </div>
-                      <div className="text-sm font-extrabold text-amber-700 dark:text-amber-300 mt-1">
-                        👑 {khatmahPrediction.expectedFullKhatmahDate}
-                      </div>
-                      <div className="text-[11px] text-neutral-500 mt-0.5">
-                        الأجزاء المتبقية: {khatmahPrediction.remainingJuzCount} جزءاً
-                      </div>
-                    </div>
-
-                    <div className="p-3.5 rounded-2xl bg-white dark:bg-[#0b1711] border border-neutral-200 dark:border-emerald-900/50">
-                      <div className="text-[11px] text-neutral-500 font-bold">
-                        نصيحة تسريع الختمة
-                      </div>
-                      <div className="text-xs font-bold text-emerald-700 dark:text-emerald-400 mt-1">
-                        💡 المواظبة على الحصون الخمسة والتسميع الصوتي المنزلي يختصر مدة الختمة بنسبة 25%!
-                      </div>
-                    </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                    {FORTRESS_TASKS.map((task) => {
+                      const isDone = !!todayFortressState[task.key];
+                      return (
+                        <button
+                          key={task.key}
+                          type="button"
+                          onClick={() => toggleStudentFortressTask(student.id, task.key)}
+                          className={`p-3 rounded-xl border text-right transition cursor-pointer flex items-center justify-between gap-2 ${
+                            isDone
+                              ? 'bg-[#145a3a] text-white border-[#c59b27]'
+                              : 'bg-[#f8f9f6] dark:bg-[#0b1510] border-neutral-200 dark:border-emerald-900/60'
+                          }`}
+                        >
+                          <span className="text-xs font-extrabold flex items-center gap-1.5">
+                            <CheckCircle2 className={`w-4 h-4 shrink-0 ${isDone ? 'text-[#dfbd69]' : 'text-neutral-400'}`} />
+                            <span>{task.label}</span>
+                          </span>
+                          <span className="text-[10px] font-mono tabular-nums font-bold opacity-80">+{task.xp}</span>
+                        </button>
+                      );
+                    })}
                   </div>
-                </div>
-              )}
-
-              {/* 2. KPI Cards */}
-              <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-                <div className="rounded-2xl bg-white dark:bg-[#12231a] p-5 border border-neutral-200 dark:border-emerald-900/50">
-                  <div className="text-xs text-neutral-500">السور المحفوظة</div>
-                  <div className="text-2xl font-extrabold text-[#145a3a] dark:text-[#dfbd69] tabular-nums mt-1">
-                    {student.memorizedSurahs.length} / 114
-                  </div>
-                </div>
-
-                <div className="rounded-2xl bg-white dark:bg-[#12231a] p-5 border border-neutral-200 dark:border-emerald-900/50">
-                  <div className="text-xs text-neutral-500">الأجزاء المكتملة</div>
-                  <div className="text-2xl font-extrabold text-[#145a3a] dark:text-[#dfbd69] tabular-nums mt-1">
-                    {student.memorizedJuz.length} / 30
-                  </div>
-                </div>
-
-                <div className="rounded-2xl bg-white dark:bg-[#12231a] p-5 border border-neutral-200 dark:border-emerald-900/50">
-                  <div className="text-xs text-neutral-500">آخر موضع حفظ</div>
-                  <div className="text-base font-extrabold text-emerald-700 dark:text-emerald-400 mt-1">
-                    سورة {student.currentStop.surahName} ({student.currentStop.ayah})
-                  </div>
-                </div>
-
-                <div className="rounded-2xl bg-white dark:bg-[#12231a] p-5 border border-neutral-200 dark:border-emerald-900/50 flex items-center justify-between">
-                  <div>
-                    <div className="text-xs text-neutral-500">حالة الاشتراك الشهري</div>
-                    <div className="text-base font-extrabold text-[#c59b27] mt-1 flex items-center gap-1.5">
-                      <Wallet className="w-4 h-4" />
-                      <span>{student.fees[0]?.status || 'مدفوع'}</span>
-                    </div>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const latestFee = student.fees[0] || {
-                        month: todayStr.slice(0, 7),
-                        amount: student.monthlyFee || 350,
-                        status: 'مدفوع' as const,
-                        paidAt: todayStr,
-                        method: 'إنستا باي (InstaPay)',
-                        receiptNumber: `REC-${todayStr
-                          .slice(0, 7)
-                          .replace('-', '')}-${
-                          student.id.replace(/\D/g, '') || '101'
-                        }`,
-                      };
-                      setGuardianActiveReceipt(latestFee);
-                    }}
-                    className="px-2.5 py-1.5 rounded-xl bg-[#145a3a] text-[#dfbd69] text-[11px] font-extrabold cursor-pointer"
-                  >
-                    عرض الإيصال
-                  </button>
                 </div>
               </div>
-            </>
+            </div>
           )}
 
           {/* 2.2. شاشة سجل المتابعة وتطور الحفظ الأسبوعي (Follow-up Log & Weekly Memorization Progress Screen) */}
+          {guardianScreenTab === 'followup_log' && (
+          <div className="space-y-6">
+            {/* Khatmah Predictor Card inside Follow-up & Progress Tab */}
+            {khatmahPrediction && (
+              <div className="rounded-3xl bg-gradient-to-l from-[#145a3a]/10 via-[#fcfaf2] to-amber-50/60 dark:from-[#145a3a]/30 dark:via-[#12231a] dark:to-[#0b1711] p-5 border-2 border-[#c59b27]/60 shadow-xs space-y-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div>
+                    <h3 className="text-base font-extrabold text-[#145a3a] dark:text-[#dfbd69] flex items-center gap-2">
+                      <span>📅 متى أختم؟ — حاسبة تاريخ الختمة الذكية</span>
+                      <span className="px-2.5 py-0.5 rounded-full bg-[#c59b27] text-[#14281d] text-[11px] font-extrabold">
+                        همة منتظمة
+                      </span>
+                    </h3>
+                    <p className="text-xs text-neutral-600 dark:text-neutral-300 mt-0.5">
+                      تُحسب تلقائياً بناءً على متوسط إنجاز الطالب الفعلي ({khatmahPrediction.avgAyatPerSession} آية/حصة) وأيام حضوره الأسبوعية ({student.scheduleDays.length} أيام/أسبوع)
+                    </p>
+                  </div>
+                  <span className="px-3 py-1.5 rounded-xl bg-[#145a3a] text-[#dfbd69] text-xs font-extrabold">
+                    الجزء الحالي: الجزء ({student.currentStop.juzNumber || 1})
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                  <div className="p-3.5 rounded-2xl bg-white dark:bg-[#0b1711] border border-neutral-200 dark:border-emerald-900/50">
+                    <div className="text-[11px] text-neutral-500 font-bold">
+                      موعد ختم الجزء الحالي ({student.currentStop.juzNumber || 1})
+                    </div>
+                    <div className="text-sm font-extrabold text-[#145a3a] dark:text-[#dfbd69] mt-1">
+                      🎯 {khatmahPrediction.expectedCurrentJuzDate}
+                    </div>
+                    <div className="text-[11px] text-neutral-500 mt-0.5">
+                      خلال {khatmahPrediction.daysToFinishCurrentJuz} يوماً تقريباً
+                    </div>
+                  </div>
+
+                  <div className="p-3.5 rounded-2xl bg-white dark:bg-[#0b1711] border border-neutral-200 dark:border-emerald-900/50">
+                    <div className="text-[11px] text-neutral-500 font-bold">
+                      التاريخ المتوقع لختم القرآن الكريم كاملاً
+                    </div>
+                    <div className="text-sm font-extrabold text-amber-700 dark:text-amber-300 mt-1">
+                      👑 {khatmahPrediction.expectedFullKhatmahDate}
+                    </div>
+                    <div className="text-[11px] text-neutral-500 mt-0.5">
+                      الأجزاء المتبقية: {khatmahPrediction.remainingJuzCount} جزءاً
+                    </div>
+                  </div>
+
+                  <div className="p-3.5 rounded-2xl bg-white dark:bg-[#0b1711] border border-neutral-200 dark:border-emerald-900/50">
+                    <div className="text-[11px] text-neutral-500 font-bold">
+                      نصيحة تسريع الختمة
+                    </div>
+                    <div className="text-xs font-bold text-emerald-700 dark:text-emerald-400 mt-1">
+                      💡 المواظبة على الحصون الخمسة والتسميع الصوتي المنزلي يختصر مدة الختمة بنسبة 25%!
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
           <div className="rounded-3xl bg-white dark:bg-[#12231a] p-6 border-2 border-[#145a3a]/40 dark:border-emerald-800/60 shadow-xs space-y-6">
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 pb-4 border-b border-neutral-100 dark:border-emerald-950">
               <div>
@@ -2579,20 +3514,48 @@ export const GuardianAndGuestView: React.FC = () => {
               </div>
             </div>
 
-            {/* A. Simple Weekly Memorization Progress Chart (مخطط تطور الحفظ الأسبوعي) */}
+            {/* A. Interactive Recharts Chart + Weekly Memorization Progress Cards */}
             <div className="p-5 rounded-2xl bg-[#fcfaf2] dark:bg-[#0b1711] border border-neutral-200/80 dark:border-emerald-900/50 space-y-4">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div>
                   <h4 className="text-sm font-extrabold text-[#14281d] dark:text-white">
-                    مخطط تطور الحفظ الأسبوعي (عدد الآيات المنجزة ومستوى الإتقان)
+                    الرسم البياني لتطور الحفظ الأسبوعي (عدد الآيات المنجزة ومستوى الإتقان)
                   </h4>
                   <p className="text-[11px] text-neutral-500 mt-0.5">
-                    مؤشر بصري واضح لتدرج حفظ الطالب خلال الأسابيع الأربعة الأخيرة
+                    مؤشر بصري واضح لتدرج حفظ الطالب خلال الأسابيع الأربعة الأخيرة مقارنة بالمستهدف الأسبوعي
                   </p>
                 </div>
                 <span className="text-xs font-bold text-[#145a3a] dark:text-[#dfbd69]">
                   المستهدف الأسبوعي: 20 آية
                 </span>
+              </div>
+
+              <div className="h-56 w-full bg-white dark:bg-[#12231a] p-3 rounded-2xl border border-neutral-200/60 dark:border-emerald-900/40" dir="ltr">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart
+                    data={weeklyProgressStats.weeks.map((wk) => ({
+                      name: wk.label,
+                      آيات_محفوظة: wk.ayatCount,
+                      المستهدف: 20,
+                    }))}
+                    margin={{ top: 10, right: 16, left: -10, bottom: 0 }}
+                  >
+                    <CartesianGrid strokeDasharray="3 3" opacity={0.25} />
+                    <XAxis dataKey="name" tick={{ fontSize: 12, fontWeight: 700 }} />
+                    <YAxis tick={{ fontSize: 11 }} />
+                    <Tooltip
+                      contentStyle={{
+                        borderRadius: '12px',
+                        border: '1px solid #c59b27',
+                        fontSize: '12px',
+                        fontWeight: 700,
+                        textAlign: 'right',
+                      }}
+                    />
+                    <Bar dataKey="آيات_محفوظة" name="الآيات المحفوظة" fill="#145a3a" radius={[8, 8, 0, 0]} />
+                    <Bar dataKey="المستهدف" name="المستهدف الأسبوعي" fill="#c59b27" radius={[8, 8, 0, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
@@ -2775,8 +3738,11 @@ export const GuardianAndGuestView: React.FC = () => {
               )}
             </div>
           </div>
+          </div>
+          )}
 
           {/* 2.5. Official Student Smart ID Card & Monthly Payment Receipts Hub */}
+          {guardianScreenTab === 'documents_billing' && (
           <div className="rounded-3xl bg-white dark:bg-[#12231a] p-6 border-2 border-[#c59b27]/50 shadow-xs space-y-4">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div className="flex items-center gap-2.5">
@@ -2785,10 +3751,14 @@ export const GuardianAndGuestView: React.FC = () => {
                 </div>
                 <div>
                   <h3 className="text-base font-extrabold text-[#145a3a] dark:text-[#dfbd69]">
-                    بطاقة الطالب الذكية وإيصالات السداد المعتمدة
+                    {portalViewPersona === 'student'
+                      ? 'بطاقة الهوية القرآنية الذكية للطالب'
+                      : 'بطاقة الطالب الذكية وإيصالات السداد المعتمدة'}
                   </h3>
                   <p className="text-xs text-neutral-500">
-                    يمكن لولي الأمر والطالب معاينة وتحميل بطاقة الهوية القرآنية (PNG / PDF) وإيصالات السداد الشهرية المختومة
+                    {portalViewPersona === 'student'
+                      ? 'يمكنك معاينة وتحميل بطاقة الهوية القرآنية الخاصة بك'
+                      : 'يمكن لولي الأمر معاينة وتحميل بطاقة الهوية القرآنية وإيصالات السداد الشهرية المختومة'}
                   </p>
                 </div>
               </div>
@@ -2808,360 +3778,124 @@ export const GuardianAndGuestView: React.FC = () => {
                   onClick={() => {
                     downloadStudentIdCardPng(student, settings);
                     showToast(
-                      'تم تحميل بطاقة الطالب الذكية كصورة PNG عالية الدقة',
+                      'تم تحميل بطاقة الطالب الذكية كصورة عالية الدقة',
                       'success'
                     );
                   }}
                   className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-[#c59b27] hover:bg-[#b58c1e] text-[#14281d] text-xs font-extrabold cursor-pointer"
                 >
                   <Download className="w-4 h-4" />
-                  <span>تحميل البطاقة (PNG)</span>
+                  <span>حفظ صورة البطاقة</span>
                 </button>
               </div>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-              {(student.fees.length > 0
-                ? student.fees
-                : [
-                    {
-                      month: todayStr.slice(0, 7),
-                      amount: student.monthlyFee || 350,
-                      status: 'مدفوع' as const,
-                      paidAt: todayStr,
-                      method: 'إنستا باي (InstaPay)',
-                      receiptNumber: `REC-${todayStr
-                        .slice(0, 7)
-                        .replace('-', '')}-${
-                        student.id.replace(/\D/g, '') || '101'
-                      }`,
-                    },
-                  ]
-              ).map((feeItem) => {
-                const recNo =
-                  feeItem.receiptNumber ||
-                  `REC-${feeItem.month.replace('-', '')}-${
-                    student.id.replace(/\D/g, '') || '101'
-                  }`;
-                return (
-                  <div
-                    key={feeItem.month}
-                    className="p-4 rounded-2xl bg-[#fcfaf2] dark:bg-[#0b1711] border border-neutral-200 dark:border-emerald-900/50 flex flex-col justify-between gap-3"
-                  >
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <span className="text-xs font-extrabold font-mono text-[#145a3a] dark:text-[#dfbd69]">
-                          إيصال شهر {feeItem.month}
-                        </span>
-                        <div className="text-[11px] font-mono text-neutral-500">
-                          {recNo}
-                        </div>
-                      </div>
-                      <span className="text-sm font-extrabold font-mono">
-                        {feeItem.amount} ج.م
-                      </span>
-                    </div>
-
-                    <div className="flex items-center gap-1.5">
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setGuardianActiveReceipt({
-                            ...feeItem,
-                            receiptNumber: recNo,
-                          })
-                        }
-                        className="flex-1 py-1.5 px-2.5 rounded-xl bg-[#145a3a] text-white text-[11px] font-extrabold flex items-center justify-center gap-1 cursor-pointer"
-                      >
-                        <Printer className="w-3.5 h-3.5 text-[#dfbd69]" />
-                        <span>عرض وطباعة الإيصال</span>
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() => {
-                          downloadPaymentReceiptPng(
-                            student,
-                            { ...feeItem, receiptNumber: recNo },
-                            settings
-                          );
-                          showToast(
-                            'تم تحميل إيصال السداد كصورة PNG',
-                            'success'
-                          );
-                        }}
-                        className="py-1.5 px-2.5 rounded-xl bg-[#c59b27] text-[#14281d] text-[11px] font-extrabold flex items-center justify-center gap-1 cursor-pointer"
-                      >
-                        <Download className="w-3.5 h-3.5" />
-                        <span>PNG</span>
-                      </button>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-
-          {/* 3. Five Fortresses Daily Student Preparation Checklist (متتبع الحصون الخمسة اليومي في بوابة الطالب) */}
-          <div className="rounded-3xl bg-white dark:bg-[#12231a] p-6 border-2 border-[#145a3a]/30 dark:border-emerald-800/50 shadow-xs space-y-4">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div>
-                <h3 className="text-base font-extrabold text-[#145a3a] dark:text-[#dfbd69] flex items-center gap-2">
-                  <Sparkles className="w-5 h-5 text-[#c59b27]" />
-                  <span>متتبع الحصون الخمسة اليومي (مهام الطالب قبل دخول الحلقة)</span>
-                </h3>
-                <p className="text-xs text-neutral-500 mt-0.5">
-                  أكمل مهام التحضير والمراجعة اليومية لتحصل على نقاط همة إضافية (XP) وتدخل الحلقة بإتقان تام
-                </p>
-              </div>
-              <div className="flex items-center gap-2">
-                <span className="px-3 py-1.5 rounded-xl bg-[#145a3a] text-[#dfbd69] text-xs font-extrabold font-mono">
-                  إنجاز اليوم: {completedFortressCount} / 4 مهام
-                </span>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-              {FORTRESS_TASKS.map((task) => {
-                const isDone = !!todayFortressState[task.key];
-                return (
-                  <button
-                    key={task.key}
-                    type="button"
-                    onClick={() =>
-                      toggleStudentFortressTask(student.id, task.key)
-                    }
-                    className={`p-4 rounded-2xl border-2 text-right transition-all cursor-pointer flex flex-col justify-between gap-2 ${
-                      isDone
-                        ? 'bg-[#145a3a] text-white border-[#c59b27] shadow-md'
-                        : 'bg-[#fcfaf2] dark:bg-[#0b1711] text-[#14281d] dark:text-white border-neutral-200 dark:border-emerald-900/60 hover:border-[#c59b27]'
-                    }`}
-                  >
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="text-xs font-extrabold flex items-center gap-1.5">
-                        <CheckCircle2
-                          className={`w-4 h-4 shrink-0 ${
-                            isDone ? 'text-[#dfbd69]' : 'text-neutral-400'
-                          }`}
-                        />
-                        <span>{task.label}</span>
-                      </span>
-                      <span
-                        className={`px-2 py-0.5 rounded-full text-[10px] font-mono font-extrabold ${
-                          isDone
-                            ? 'bg-[#c59b27] text-[#14281d]'
-                            : 'bg-emerald-100 dark:bg-emerald-950 text-[#145a3a] dark:text-[#dfbd69]'
-                        }`}
-                      >
-                        +{task.xp} XP
-                      </span>
-                    </div>
-                    <p
-                      className={`text-[11px] leading-relaxed ${
-                        isDone
-                          ? 'text-emerald-100'
-                          : 'text-neutral-500 dark:text-neutral-400'
-                      }`}
+            {portalViewPersona !== 'student' && (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                {(student.fees.length > 0
+                  ? student.fees
+                  : [
+                      {
+                        month: todayStr.slice(0, 7),
+                        amount: student.monthlyFee || 350,
+                        status: 'مدفوع' as const,
+                        paidAt: todayStr,
+                        method: 'إنستا باي',
+                        receiptNumber: `REC-${todayStr
+                          .slice(0, 7)
+                          .replace('-', '')}-${
+                          student.id.replace(/\D/g, '') || '101'
+                        }`,
+                      },
+                    ]
+                ).map((feeItem) => {
+                  const recNo =
+                    feeItem.receiptNumber ||
+                    `REC-${feeItem.month.replace('-', '')}-${
+                      student.id.replace(/\D/g, '') || '101'
+                    }`;
+                  return (
+                    <div
+                      key={feeItem.month}
+                      className="p-4 rounded-2xl bg-[#fcfaf2] dark:bg-[#0b1711] border border-neutral-200 dark:border-emerald-900/50 flex flex-col justify-between gap-3"
                     >
-                      {task.subtitle}
-                    </p>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-
-          {/* 4. Latest Session & Next Assignment */}
-          {studentSessions[0] && (
-            <div className="rounded-3xl bg-white dark:bg-[#12231a] p-6 border border-neutral-200 dark:border-emerald-900/50 space-y-3">
-              <div className="flex items-center justify-between">
-                <h3 className="text-base font-extrabold flex items-center gap-2">
-                  <MapPin className="w-4 h-4 text-[#c59b27]" />
-                  <span>تكليف الحصة القادمة وتوجيهات المعلم</span>
-                </h3>
-                <span className="text-xs font-mono tabular-nums text-neutral-400">
-                  آخر تحديث:{' '}
-                  {formatGregorianAndHijri(
-                    studentSessions[0].date,
-                    settings.showHijriDates ?? true
-                  )}
-                </span>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
-                {studentSessions[0].newMemorization?.enabled && (
-                  <div className="p-3.5 rounded-2xl bg-[#f6f7f2] dark:bg-[#0b1711]">
-                    <div className="flex flex-wrap items-center justify-between gap-2 mb-1">
-                      <strong className="text-[#145a3a] dark:text-[#dfbd69]">
-                        📖 الحفظ الجديد المطلوب:
-                      </strong>
-                      <button
-                        type="button"
-                        onClick={() => handleLoadCurrentAssignment('الحفظ الجديد', true)}
-                        className="px-2.5 py-1 rounded-lg bg-[#145a3a] text-[#dfbd69] text-[10px] font-extrabold cursor-pointer hover:bg-[#0f452c]"
-                      >
-                        🎙️ تلقين وترديد هذا المقرر
-                      </button>
-                    </div>
-                    سورة {studentSessions[0].newMemorization.surahName} من آية (
-                    {studentSessions[0].newMemorization.fromAyah}) إلى (
-                    {studentSessions[0].newMemorization.toAyah})
-                  </div>
-                )}
-                {studentSessions[0].nearReview?.enabled && (
-                  <div className="p-3.5 rounded-2xl bg-[#f6f7f2] dark:bg-[#0b1711]">
-                    <div className="flex flex-wrap items-center justify-between gap-2 mb-1">
-                      <strong className="text-[#145a3a] dark:text-[#dfbd69]">
-                        🔄 المراجعة القريبة:
-                      </strong>
-                      <button
-                        type="button"
-                        onClick={() => handleLoadCurrentAssignment('المراجعة القريبة', true)}
-                        className="px-2.5 py-1 rounded-lg bg-amber-500/20 text-[#145a3a] dark:text-[#dfbd69] border border-[#c59b27]/50 text-[10px] font-extrabold cursor-pointer"
-                      >
-                        ▶️ تشغيل في مشغل التحفيظ
-                      </button>
-                    </div>
-                    سورة {studentSessions[0].nearReview.surahName}
-                  </div>
-                )}
-              </div>
-
-              {studentSessions[0].tarbiyahCardTitle && (
-                <div className="p-3.5 rounded-2xl bg-amber-50/80 dark:bg-amber-950/30 border border-[#c59b27]/50 text-xs space-y-1">
-                  <strong className="text-[#145a3a] dark:text-[#dfbd69] block">
-                    🌿 التربية والآداب المكتسبة اليوم: {studentSessions[0].tarbiyahCardTitle}
-                  </strong>
-                  <p className="text-neutral-600 dark:text-neutral-300">
-                    {studentSessions[0].tarbiyahCardSummary}
-                  </p>
-                </div>
-              )}
-
-              {studentSessions[0].parentNotes && (
-                <div className="p-3.5 rounded-2xl bg-emerald-50/70 dark:bg-emerald-950/30 text-xs font-semibold">
-                  💬 ملاحظة المعلم: "{studentSessions[0].parentNotes}"
-                </div>
-              )}
-
-              {/* بطاقة «👨‍👩‍👧 توجيه تربوي للأسرة» المستقلة داخل بوابة ولي الأمر */}
-              <div className="p-4 rounded-2xl bg-gradient-to-l from-amber-50/90 via-[#fcfaf2] to-emerald-50/60 dark:from-[#12231a] dark:via-[#0b1711] dark:to-[#12231a] border-2 border-[#c59b27]/60 space-y-2.5">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <strong className="text-xs sm:text-sm font-extrabold text-[#145a3a] dark:text-[#dfbd69]">
-                    👨‍👩‍👧 توجيه تربوي للأسرة وخطة دعم البطل في المنزل
-                  </strong>
-                  <span className="text-[11px] font-bold text-[#c59b27]">
-                    نمط التعلم: {student.pedagogicalProfile?.learningStyle || 'سمعي / بصري'} · المسار:{' '}
-                    {student.pedagogicalProfile?.suggestedTrack || 'تلقين سمعي وتثبيت'}
-                  </span>
-                </div>
-                {student.publishedFamilyGuidance &&
-                student.publishedFamilyGuidance.length > 0 ? (
-                  <div className="space-y-2">
-                    {student.publishedFamilyGuidance.slice(0, 2).map((note) => (
-                      <div
-                        key={note.id}
-                        className="p-3 rounded-xl bg-white dark:bg-[#12231a] border border-neutral-200 dark:border-emerald-900/50 text-xs leading-relaxed whitespace-pre-line"
-                      >
-                        <div className="flex items-center justify-between text-[11px] font-extrabold text-[#145a3a] dark:text-[#dfbd69] mb-1">
-                          <span>{note.title}</span>
-                          <span className="font-mono text-neutral-400">{note.createdAt}</span>
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <span className="text-xs font-extrabold font-mono text-[#145a3a] dark:text-[#dfbd69]">
+                            إيصال شهر {feeItem.month}
+                          </span>
+                          <div className="text-[11px] font-mono text-neutral-500">
+                            رقم الإيصال: {recNo}
+                          </div>
                         </div>
-                        <p className="text-neutral-700 dark:text-neutral-200">{note.bodyText}</p>
+                        <span className="text-sm font-extrabold font-mono">
+                          {feeItem.amount} ج.م
+                        </span>
                       </div>
-                    ))}
-                  </div>
-                ) : (
-                  <p className="text-xs text-neutral-700 dark:text-neutral-200 leading-relaxed">
-                    لتثبيت حفظ البطل ({student.name}) بيسر ودون إجهاد، ننصح بتشغيل تلاوة «المصحف المعلم للشيخ الحصري أو المنشاوي» لمقرره الحالي بهدوء لمدة ١٠ دقائق قبل النوم، ومنحه مهلة هادئة مع التشجيع عند التسميع المنزلي.
-                  </p>
-                )}
-              </div>
 
-              {studentSessions[0].memorizationAudioDataUrl && (
-                <div className="p-3.5 rounded-2xl bg-[#fcfaf2] dark:bg-[#0b1711] border border-[#c59b27] space-y-2">
-                  <div className="flex flex-wrap items-center justify-between gap-2 text-xs font-extrabold text-[#145a3a] dark:text-[#dfbd69]">
-                    <span>🎙️ تسجيل صوتي مرفق من الشيخ المحفظ لتلقين الورد الجديد:</span>
-                    <span className="text-[11px] text-neutral-500">
-                      {studentSessions[0].memorizationAudioName || 'تلاوة الشيخ'}
-                    </span>
-                  </div>
-                  <audio
-                    id="teacher-session-audio-player"
-                    controls
-                    src={studentSessions[0].memorizationAudioDataUrl}
-                    className="w-full h-9"
-                  />
-                  <div className="flex flex-wrap items-center justify-between gap-2 pt-1 text-[11px]">
-                    <div className="flex items-center gap-1.5">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          const el = document.getElementById(
-                            'teacher-session-audio-player'
-                          ) as HTMLAudioElement | null;
-                          if (el) el.currentTime = Math.max(0, el.currentTime - 10);
-                        }}
-                        className="px-2.5 py-1 rounded-lg bg-emerald-900/10 dark:bg-emerald-900/40 text-[#145a3a] dark:text-[#dfbd69] font-extrabold cursor-pointer"
-                      >
-                        ⏪ تأخير -10ث
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          const el = document.getElementById(
-                            'teacher-session-audio-player'
-                          ) as HTMLAudioElement | null;
-                          if (el) el.currentTime = Math.min(el.duration || 999, el.currentTime + 10);
-                        }}
-                        className="px-2.5 py-1 rounded-lg bg-emerald-900/10 dark:bg-emerald-900/40 text-[#145a3a] dark:text-[#dfbd69] font-extrabold cursor-pointer"
-                      >
-                        تقديم +10ث ⏩
-                      </button>
-                    </div>
-                    <div className="flex items-center gap-1">
-                      <span className="text-neutral-500 font-bold">سرعة التلاوة:</span>
-                      {[0.75, 1, 1.25, 1.5].map((sp) => (
+                      <div className="flex items-center gap-1.5">
                         <button
-                          key={sp}
+                          type="button"
+                          onClick={() =>
+                            setGuardianActiveReceipt({
+                              ...feeItem,
+                              receiptNumber: recNo,
+                            })
+                          }
+                          className="flex-1 py-1.5 px-2.5 rounded-xl bg-[#145a3a] text-white text-[11px] font-extrabold flex items-center justify-center gap-1 cursor-pointer"
+                        >
+                          <Printer className="w-3.5 h-3.5 text-[#dfbd69]" />
+                          <span>عرض وطباعة الإيصال</span>
+                        </button>
+
+                        <button
                           type="button"
                           onClick={() => {
-                            const el = document.getElementById(
-                              'teacher-session-audio-player'
-                            ) as HTMLAudioElement | null;
-                            if (el) el.playbackRate = sp;
+                            downloadPaymentReceiptPng(
+                              student,
+                              { ...feeItem, receiptNumber: recNo },
+                              settings
+                            );
+                            showToast(
+                              'تم تحميل صورة إيصال السداد بنجاح',
+                              'success'
+                            );
                           }}
-                          className="px-2 py-0.5 rounded bg-amber-500/20 text-[#145a3a] dark:text-[#dfbd69] font-mono font-extrabold cursor-pointer"
+                          className="py-1.5 px-2.5 rounded-xl bg-[#c59b27] text-[#14281d] text-[11px] font-extrabold flex items-center justify-center gap-1 cursor-pointer"
                         >
-                          {sp}x
+                          <Download className="w-3.5 h-3.5" />
+                          <span>حفظ الإيصال</span>
                         </button>
-                      ))}
+                      </div>
                     </div>
-                  </div>
-                </div>
-              )}
-            </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
           )}
 
-          {/* 🌟 ركن البهجة الإيمانية وبِرّ الوالدين والأسرة القرآنية (7 Spiritual & Loyalty Features) */}
-          <div className="rounded-3xl bg-gradient-to-br from-[#145a3a]/10 via-[#fcfaf2] to-amber-50/70 dark:from-[#12231a] dark:via-[#0b1711] dark:to-[#182e23] p-6 border-2 border-[#c59b27]/70 shadow-md space-y-5">
-            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#c59b27]/30 pb-3">
+          {/* 🌟 ركن البهجة الإيمانية وبِرّ الوالدين والأسرة القرآنية (Dedicated to Student & Guardian's own family) */}
+          {guardianScreenTab === 'family_oasis' && (
+          <div className="space-y-6">
+            <div className="rounded-3xl bg-white dark:bg-[#112119] p-6 border border-neutral-200/90 dark:border-emerald-900/60 shadow-xs space-y-5">
+            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-neutral-100 dark:border-emerald-950 pb-3">
               <div>
                 <span className="text-[11px] font-extrabold text-[#c59b27] block">
-                  ✨ واحة البهجة الإيمانية وبِرّ الوالدين والأسرة القرآنية
+                  واحة البهجة الإيمانية وبِرّ الوالدين والأسرة القرآنية
                 </span>
                 <h2 className="text-lg font-extrabold text-[#145a3a] dark:text-[#dfbd69] flex items-center gap-2">
                   <Crown className="w-5 h-5 text-[#c59b27]" />
-                  <span>تاج الوقار • شجرة النور • ثمرة السلوك • أوسمة الأسرة</span>
+                  <span>تاج الوقار · شجرة النور · ثمرة السلوك · أوسمة الأسرة</span>
                 </h2>
               </div>
               <button
                 type="button"
                 onClick={() => setFamilyCertificateModalOpen(true)}
-                className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-gradient-to-r from-[#c59b27] to-[#dfbd69] text-[#14281d] text-xs font-black shadow-sm cursor-pointer hover:brightness-105 transition"
+                className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-[#c59b27] hover:bg-[#b58c1e] text-[#14281d] text-xs font-black shadow-xs cursor-pointer transition whitespace-nowrap shrink-0"
               >
                 <Award className="w-4 h-4" />
-                <span>📜 شهادة التقدير العائلية وتاج الوقار</span>
+                <span>شهادة التقدير العائلية وتاج الوقار</span>
               </button>
             </div>
 
@@ -3580,20 +4314,23 @@ export const GuardianAndGuestView: React.FC = () => {
                 </div>
               );
             })()}
+            </div>
           </div>
+          )}
         </div>
       )}
 
-      {/* Module 2: Pro Home Tahfeez Player (مشغل التحفيظ المنزلي الاحترافي) + Home Audio Recitation Submission */}
+      {/* Module 2: مشغل التحفيظ المنزلي والتسميع الصوتي (With Interactive Sub-Tabs) */}
+      {(userRole !== 'guardian' || guardianScreenTab === 'tahfeez_studio') && (
       <div className="rounded-3xl bg-white dark:bg-[#12231a] p-6 border-2 border-[#c59b27]/60 shadow-md space-y-5">
         <div className="flex flex-wrap items-center justify-between gap-3 pb-4 border-b border-neutral-100 dark:border-emerald-950">
           <div>
             <h2 className="text-base sm:text-lg font-extrabold text-[#145a3a] dark:text-[#dfbd69] flex items-center gap-2">
               <BookOpen className="w-5 h-5 text-[#c59b27]" />
-              <span>مشغل التحفيظ المنزلي الاحترافي (Pro Home Tahfeez Player)</span>
+              <span>مشغل التحفيظ المنزلي والتسميع الصوتي</span>
             </h2>
             <p className="text-xs text-neutral-500">
-              6 قراء متقنين • وضع التلقين والترديد خلف الشيخ مع صمت التسميع الغيبي • تكرار الآية والنطاق • تحكم احترافي كامل
+              6 قراء متقنين • وضع التلقين والترديد خلف الشيخ مع مهلة التسميع الغيبي • تكرار الآية والنطاق
             </p>
           </div>
 
@@ -3621,8 +4358,43 @@ export const GuardianAndGuestView: React.FC = () => {
           </div>
         </div>
 
-        {/* StudentAudioRecorder Component Linked to studentId + Timeline Correction Board */}
+        {/* Sub-Tabs inside Tahfeez Studio so it is organized into buttons instead of a long scroll */}
         {student && (
+          <div className="flex flex-wrap items-center gap-2 p-2 rounded-2xl bg-[#fcfaf2] dark:bg-[#0b1711] border border-[#c59b27]/40">
+            {(
+              [
+                {
+                  id: 'player' as const,
+                  label: '📖 المصحف المعلم والتلقين السمعي',
+                },
+                {
+                  id: 'recorder' as const,
+                  label: '🎙️ تسجيل التسميع المنزلي وملاحظات الشيخ',
+                },
+                {
+                  id: 'mutashabihat' as const,
+                  label: `✨ بطاقات متشابهاتي الخاصة (${(student.customMutashabihat || []).length})`,
+                },
+              ]
+            ).map((stTab) => (
+              <button
+                key={stTab.id}
+                type="button"
+                onClick={() => setTahfeezSubTab(stTab.id)}
+                className={`px-4 py-2 rounded-xl text-xs font-extrabold transition cursor-pointer ${
+                  tahfeezSubTab === stTab.id
+                    ? 'bg-[#145a3a] text-white shadow-xs'
+                    : 'bg-white dark:bg-[#12231a] text-[#14281d] dark:text-white border border-neutral-200 dark:border-emerald-900/50 hover:border-[#c59b27]'
+                }`}
+              >
+                {stTab.label}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {/* Sub-Tab 2: StudentAudioRecorder Component */}
+        {student && tahfeezSubTab === 'recorder' && (
           <StudentAudioRecorder
             studentId={student.id}
             studentName={student.name}
@@ -3635,7 +4407,9 @@ export const GuardianAndGuestView: React.FC = () => {
           />
         )}
 
-        {/* Student Current Assignment Context Hub (ربط المشغل بسياق التكليف الحالي للطالب) */}
+        {/* Sub-Tab 1: Player & Assignment Context Hub */}
+        {(!student || tahfeezSubTab === 'player') && (
+          <>
         {student && (
           <div className="p-4 rounded-2xl bg-gradient-to-l from-[#145a3a]/10 via-[#fcfaf2] to-amber-50/70 dark:from-[#145a3a]/30 dark:via-[#0b1711] dark:to-[#12231a] border-2 border-[#c59b27]/60 space-y-3">
             <div className="flex flex-wrap items-center justify-between gap-2">
@@ -3918,7 +4692,7 @@ export const GuardianAndGuestView: React.FC = () => {
             {[
               {
                 id: 'talqeen',
-                label: '١. وضع التلقين والترديد خلف الشيخ (Shadowing Mode)',
+                label: '١. وضع التلقين والترديد خلف الشيخ',
                 repeat: 3,
                 hide: false,
               },
@@ -3964,7 +4738,7 @@ export const GuardianAndGuestView: React.FC = () => {
                   setRevealedSelfTestAyahs({});
                   setAudioSelfTestAyah(null);
                 }}
-                className={`px-3.5 py-2 rounded-xl text-xs font-extrabold border transition-all cursor-pointer ${
+                className={`px-3.5 py-2 rounded-xl text-xs font-extrabold border transition-all cursor-pointer whitespace-nowrap shrink-0 ${
                   homeTahfeezMode === m.id
                     ? 'bg-[#145a3a] text-[#dfbd69] border-[#c59b27] shadow-xs'
                     : 'bg-[#f6f7f2] dark:bg-[#0b1711] border-neutral-200 dark:border-emerald-900 text-neutral-700 dark:text-neutral-300'
@@ -3976,10 +4750,10 @@ export const GuardianAndGuestView: React.FC = () => {
           </div>
 
           {homeTahfeezMode === 'talqeen' && (
-            <div className="p-3.5 rounded-2xl bg-amber-50/90 dark:bg-amber-950/30 border-2 border-[#c59b27]/70 flex flex-col lg:flex-row lg:items-center justify-between gap-3 text-xs">
+            <div className="p-3.5 rounded-2xl bg-amber-50/90 dark:bg-amber-950/30 border border-[#c59b27]/70 flex flex-col lg:flex-row lg:items-center justify-between gap-3 text-xs">
               <div className="space-y-1">
                 <div className="font-extrabold text-[#145a3a] dark:text-[#dfbd69] flex items-center gap-2">
-                  <span>🎙️ استوديو التلقين والترديد خلف الشيخ (Shadowing / Talaqqin Studio):</span>
+                  <span>استوديو التلقين والترديد الصوتي خلف الشيخ:</span>
                   <span
                     className={`px-2.5 py-0.5 rounded-full text-[10px] font-black ${
                       shadowingPhase === 'student_repeating'
@@ -4462,7 +5236,7 @@ export const GuardianAndGuestView: React.FC = () => {
                   </div>
                 ) : (
                   <div
-                    className={`font-quran text-2xl leading-loose flex flex-wrap gap-x-2 gap-y-1 transition-all ${
+                    className={`font-quran text-2xl sm:text-3xl leading-[2.7] py-3 px-2 flex flex-wrap items-center gap-x-2.5 gap-y-3 transition-all ${
                       selfTestHide
                         ? 'blur-md hover:blur-none select-none cursor-pointer'
                         : ''
@@ -4480,7 +5254,7 @@ export const GuardianAndGuestView: React.FC = () => {
                         onClick={() =>
                           setClickedHomeWord({ word: w, ayahEntry: v })
                         }
-                        className={`px-1 rounded-lg transition-colors cursor-pointer ${
+                        className={`px-1.5 py-1 rounded-lg leading-normal transition-colors cursor-pointer ${
                           clickedHomeWord?.word === w &&
                           clickedHomeWord?.ayahEntry.ayah === v.ayah
                             ? 'bg-[#c59b27] text-[#14281d] font-bold'
@@ -4500,10 +5274,15 @@ export const GuardianAndGuestView: React.FC = () => {
             );
           })}
         </div>
+          </>
+        )}
       </div>
+      )}
 
       {/* 2. بطاقات «متشابهاتي الخاصة» للطالب (Personal Student Mutashabihat Cards) */}
-      {student && (
+      {student &&
+        guardianScreenTab === 'tahfeez_studio' &&
+        tahfeezSubTab === 'mutashabihat' && (
         <div className="rounded-3xl bg-white dark:bg-[#12231a] p-6 border border-purple-400/40 shadow-xs space-y-4">
           <div className="flex flex-wrap items-center justify-between gap-2 pb-3 border-b border-neutral-100 dark:border-emerald-950">
             <div>
@@ -4558,8 +5337,11 @@ export const GuardianAndGuestView: React.FC = () => {
         </div>
       )}
 
-      {/* 5. Sheikh Evaluation & Appreciation System (تقييم وتشجيع الشيخ المحفظ من الطالب وولي الأمر) */}
-      {userRole === 'guardian' && student && (
+      {/* 5. Sheikh Evaluation & Appreciation System (تقييم وتشجيع الشيخ المحفظ من ولي الأمر) */}
+      {userRole === 'guardian' &&
+        student &&
+        portalViewPersona !== 'student' &&
+        guardianScreenTab === 'family_oasis' && (
         <div className="rounded-3xl bg-white dark:bg-[#12231a] p-6 border-2 border-[#c59b27]/50 shadow-xs space-y-5">
           <div className="flex flex-wrap items-center justify-between gap-3 pb-3 border-b border-neutral-100 dark:border-emerald-950">
             <div>

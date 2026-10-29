@@ -34,21 +34,61 @@
           host === '127.0.0.1' ||
           host.endsWith('.run.app');
 
+        // Clean up any stale cached Firebase Auth tokens in IndexedDB/localStorage
+        // that could trigger securetoken.googleapis.com errors on boot
+        try {
+          for (var i = localStorage.length - 1; i >= 0; i--) {
+            var k = localStorage.key(i);
+            if (k && k.indexOf('firebase:') === 0) {
+              localStorage.removeItem(k);
+            }
+          }
+          for (var j = sessionStorage.length - 1; j >= 0; j--) {
+            var sk = sessionStorage.key(j);
+            if (sk && sk.indexOf('firebase:') === 0) {
+              sessionStorage.removeItem(sk);
+            }
+          }
+          if (window.indexedDB && typeof window.indexedDB.deleteDatabase === 'function') {
+            window.indexedDB.deleteDatabase('firebaseLocalStorageDb');
+          }
+        } catch (e) {
+          // ignore storage access errors
+        }
+
+        // Always unregister any stale root service worker and clear caches
+        // so cached assets/app.js never shadow live source files or updated builds
+        if ('serviceWorker' in navigator) {
+          navigator.serviceWorker.getRegistrations().then(function (regs) {
+            regs.forEach(function (reg) {
+              reg.unregister();
+            });
+          }).catch(function () {});
+        }
+        if (window.caches && typeof window.caches.keys === 'function') {
+          window.caches.keys().then(function (names) {
+            names.forEach(function (name) {
+              window.caches.delete(name);
+            });
+          }).catch(function () {});
+        }
+
         window.__LOAD_STATIC_FALLBACK__ = function () {
-          if (window.__AL_IMAM_APP_MOUNTED__ || window.__AL_IMAM_FALLBACK_LOADING__) return;
+          if (isViteDevHost || window.__AL_IMAM_APP_MOUNTED__ || window.__AL_IMAM_FALLBACK_LOADING__) return;
           window.__AL_IMAM_FALLBACK_LOADING__ = true;
 
+          var cacheBuster = '?v=12.5.0';
           var candidates = [
-            { css: './assets/app.css', js: './assets/app.js' },
-            { css: './static-build/app.css', js: './static-build/app.js' },
-            { css: './public/static-build/app.css', js: './public/static-build/app.js' },
-            { css: './dist/assets/app.css', js: './dist/assets/app.js' }
+            { css: './assets/app.css' + cacheBuster, js: './assets/app.js' + cacheBuster },
+            { css: './static-build/app.css' + cacheBuster, js: './static-build/app.js' + cacheBuster },
+            { css: './public/static-build/app.css' + cacheBuster, js: './public/static-build/app.js' + cacheBuster },
+            { css: './dist/assets/app.css' + cacheBuster, js: './dist/assets/app.js' + cacheBuster }
           ];
 
           function tryCandidate(index) {
             if (index >= candidates.length || window.__AL_IMAM_APP_MOUNTED__) return;
             var c = candidates[index];
-            fetch(c.js, { method: 'HEAD' })
+            fetch(c.js, { method: 'HEAD', cache: 'no-store' })
               .then(function (res) {
                 if (res.ok) {
                   var link = document.createElement('link');
@@ -72,16 +112,9 @@
           tryCandidate(0);
         };
 
-        // If running on GitHub Pages or custom domain (e.g., welivequranacademy.online)
-        // where raw repository root was uploaded without running `vite build`, load compiled bundle immediately:
+        // Only load static fallback immediately on non-Vite static hosts (e.g. raw GitHub Pages)
         if (!isViteDevHost) {
           window.__LOAD_STATIC_FALLBACK__();
-        } else {
-          setTimeout(function () {
-            if (!window.__AL_IMAM_APP_MOUNTED__) {
-              window.__LOAD_STATIC_FALLBACK__();
-            }
-          }, 800);
         }
       })();
     </script>

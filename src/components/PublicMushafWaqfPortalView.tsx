@@ -60,25 +60,25 @@ export interface WaqfDedicationProps {
 export const WAQF_MEMORIAL_NAMES_LIST = [
   {
     id: 'mother',
-    relation: 'والدتي رحمها الله',
+    relation: 'المغفور لها بإذن الله',
     fullName: 'حورية أحمد الطنطاوي',
     shortName: 'حورية الطنطاوي',
   },
   {
     id: 'grandfather',
-    relation: 'وجدي رحمه الله',
+    relation: 'المغفور له بإذن الله',
     fullName: 'محمد محمد الكومي',
     shortName: 'محمد الكومي',
   },
   {
     id: 'grandmother',
-    relation: 'وجدتي رحمها الله',
+    relation: 'المغفور لها بإذن الله',
     fullName: 'خيرية الطنطاوي',
     shortName: 'خيرية الطنطاوي',
   },
   {
     id: 'uncle',
-    relation: 'وعمي رحمه الله',
+    relation: 'المغفور له بإذن الله',
     fullName: 'أحمد الكومي',
     shortName: 'أحمد الكومي',
   },
@@ -104,77 +104,86 @@ export const WaqfDedication: React.FC<WaqfDedicationProps> = ({
     setTimeout(() => setJustPrayed(false), 3500);
   };
 
-  return (
-    <div className="relative overflow-hidden rounded-3xl border-2 border-amber-400/90 dark:border-amber-500/80 bg-gradient-to-br from-[#fffdf4] via-[#fef8e0] to-[#faecc0] dark:from-slate-900 dark:via-emerald-950/85 dark:to-amber-950/70 p-4 sm:p-6 shadow-lg">
-      {/* Subtle golden corner ornament */}
-      <div className="pointer-events-none absolute -top-10 -left-10 w-32 h-32 rounded-full bg-amber-400/15 blur-2xl" />
-      <div className="pointer-events-none absolute -bottom-10 -right-10 w-32 h-32 rounded-full bg-emerald-500/10 blur-2xl" />
+  if (compact) {
+    return (
+      <div className="rounded-xl border border-amber-300/70 dark:border-amber-700/40 bg-[#fcf9ef] dark:bg-[#112119] px-3.5 py-2.5 flex flex-wrap items-center justify-between gap-2 text-xs shadow-2xs">
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-neutral-700 dark:text-emerald-100">
+          <span className="font-extrabold text-[#145a3a] dark:text-[#dfbd69]">
+            🌿 وقف قرآني وصدقة جارية (من مؤسس الأكاديمية):
+          </span>
+          <span>
+            اللهم اجعل ثواب التلاوة نوراً ورحمةً لـ:{' '}
+            <strong className="text-[#14281d] dark:text-amber-200">
+              حورية أحمد الطنطاوي • محمد محمد الكومي • خيرية الطنطاوي • أحمد الكومي
+            </strong>{' '}
+            ولموتانا وموتى المسلمين.
+          </span>
+          <span className="text-[11px] font-mono tabular-nums text-amber-800 dark:text-amber-300 font-bold">
+            (الدعوات والختمات: {totalDedicatedKhatmahsAndPrayers.toLocaleString('ar-EG')})
+          </span>
+        </div>
 
-      <div className="relative z-10 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-        <div className="space-y-2.5 flex-1">
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-extrabold bg-gradient-to-r from-amber-600 to-amber-500 text-white shadow-sm">
+        <div className="flex items-center gap-2 shrink-0">
+          <button
+            type="button"
+            onClick={handleAmeenClick}
+            className="px-3 py-1 rounded-lg bg-[#145a3a] hover:bg-[#0f452c] text-white font-extrabold text-[11px] transition cursor-pointer whitespace-nowrap"
+          >
+            🤲 آمين (+1)
+          </button>
+          {justPrayed && (
+            <span className="text-[11px] font-bold text-emerald-700 dark:text-emerald-300">
+              تقبل الله دعاءكم
+            </span>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="relative overflow-hidden rounded-2xl border border-amber-400/70 dark:border-amber-500/50 bg-gradient-to-l from-[#fffdf6] via-[#fcf6e3] to-[#f8ecc9] dark:from-slate-900 dark:via-emerald-950/85 dark:to-amber-950/60 p-3.5 sm:p-4 shadow-xs">
+      <div className="relative z-10 flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+        <div className="space-y-1.5 flex-1">
+          <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1 text-xs">
+            <span className="font-extrabold text-amber-800 dark:text-amber-300">
               {WAQF_DEDICATION_TEXT.header}
             </span>
-            <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-extrabold bg-emerald-900/10 dark:bg-emerald-400/15 text-emerald-950 dark:text-emerald-200 border border-amber-500/50">
-              <span>🏅 عدّاد الختمات المهداة:</span>
+            <span aria-hidden="true" className="text-amber-600/50">·</span>
+            <span className="font-bold text-emerald-950 dark:text-emerald-200">
+              عدّاد الختمات المهداة:{' '}
               <strong className="font-mono text-amber-800 dark:text-amber-300">
                 {totalDedicatedKhatmahs.toLocaleString('ar-EG')}
               </strong>
             </span>
-            <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-amber-500/15 text-amber-900 dark:text-amber-300 border border-amber-400/40">
-              🤲 إجمالي الدعوات والختمات المهداة: {totalDedicatedKhatmahsAndPrayers.toLocaleString('ar-EG')}
+            <span aria-hidden="true" className="text-amber-600/50">·</span>
+            <span className="font-bold text-amber-900 dark:text-amber-300/90">
+              إجمالي الدعوات والختمات: {totalDedicatedKhatmahsAndPrayers.toLocaleString('ar-EG')}
             </span>
           </div>
 
-          <p className="text-sm sm:text-base font-extrabold text-slate-900 dark:text-amber-100 leading-relaxed">
-            {WAQF_DEDICATION_TEXT.intro}
+          <p className="text-xs font-bold text-slate-800 dark:text-amber-100 leading-relaxed">
+            {WAQF_DEDICATION_TEXT.intro}{' '}
+            <strong className="text-[#145a3a] dark:text-amber-200">
+              {WAQF_MEMORIAL_NAMES_LIST.map((item) => item.fullName).join(' • ')}
+            </strong>{' '}
+            • ولجميع موتانا وموتى المسلمين أجمعين.
           </p>
-
-          <ul
-            className={`grid ${
-              compact ? 'grid-cols-1 sm:grid-cols-2' : 'grid-cols-1 md:grid-cols-2'
-            } gap-1.5 text-xs sm:text-sm font-bold text-emerald-950 dark:text-emerald-200`}
-          >
-            {WAQF_MEMORIAL_NAMES_LIST.map((item) => (
-              <li
-                key={item.id}
-                className="flex items-center justify-between gap-2 bg-white/85 dark:bg-slate-900/80 px-3 py-2 rounded-xl border border-amber-300/90 dark:border-amber-700/60 shadow-2xs"
-              >
-                <div className="flex items-center gap-2">
-                  <span className="text-amber-600 dark:text-amber-400 font-black">•</span>
-                  <span>
-                    {item.relation} / <strong>{item.fullName}</strong>
-                  </span>
-                </div>
-                <span className="text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-900 dark:text-amber-300">
-                  {item.shortName}
-                </span>
-              </li>
-            ))}
-            <li className="md:col-span-2 flex items-center gap-2 bg-white/75 dark:bg-slate-900/70 px-3 py-1.5 rounded-xl border border-amber-300/70 dark:border-amber-700/50">
-              <span className="text-amber-600 dark:text-amber-400 font-black">•</span>
-              <span>ولجميع أمواتنا وأموات المسلمين أجمعين.</span>
-            </li>
-          </ul>
         </div>
 
-        <div className="flex flex-col sm:flex-row lg:flex-col items-stretch sm:items-center justify-center gap-2.5 shrink-0">
+        <div className="flex flex-wrap items-center gap-2 shrink-0">
           <button
             type="button"
             onClick={handleAmeenClick}
-            className="px-5 py-3.5 rounded-2xl bg-gradient-to-r from-emerald-700 via-emerald-600 to-teal-700 hover:from-emerald-800 hover:to-teal-800 text-white font-extrabold text-sm shadow-md hover:shadow-xl transition-all flex items-center justify-center gap-2 cursor-pointer active:scale-95 border-2 border-amber-300/70"
+            className="px-4 py-2 rounded-xl bg-[#145a3a] hover:bg-[#0f452c] text-white font-extrabold text-xs shadow-xs transition-all flex items-center justify-center gap-1.5 cursor-pointer border border-amber-300/60 whitespace-nowrap"
           >
-            <span className="text-base">🤲 آمين</span>
-            <span className="text-xs font-bold text-amber-200">
-              — إهداء ثواب التلاوة والختمة (+1)
-            </span>
+            <span>🤲 آمين — إهداء ثواب التلاوة (+1)</span>
           </button>
 
           {variant === 'khatmah_screen' && (
             <div className="text-[11px] font-extrabold text-amber-900 dark:text-amber-300 text-center">
-              ✨ كل نقرة على «🤲 آمين» تزيد عدّاد الختمات والدعوات المهداة في النظام
-              {localSessionAmeens > 0 ? ` (+${localSessionAmeens} في جلستك)` : ''}
+              ✨ كل نقرة تزيد عدّاد الختمات والدعوات
+              {localSessionAmeens > 0 ? ` (+${localSessionAmeens})` : ''}
             </div>
           )}
 
@@ -182,14 +191,14 @@ export const WaqfDedication: React.FC<WaqfDedicationProps> = ({
             <button
               type="button"
               onClick={onOpenFullModal}
-              className="px-4 py-2 rounded-xl bg-amber-100 hover:bg-amber-200 dark:bg-amber-900/40 dark:hover:bg-amber-900/70 text-amber-900 dark:text-amber-200 font-bold text-xs transition cursor-pointer text-center border border-amber-400/50"
+              className="px-3 py-2 rounded-xl bg-amber-100 hover:bg-amber-200 dark:bg-amber-900/40 text-amber-900 dark:text-amber-200 font-bold text-xs transition cursor-pointer text-center border border-amber-400/50 whitespace-nowrap"
             >
-              📜 عرض وثيقة الوقف ودعاء الختمة
+              وثيقة الوقف ودعاء الختمة
             </button>
           )}
 
           {justPrayed && (
-            <div className="text-center text-xs font-extrabold text-emerald-800 dark:text-emerald-300 bg-emerald-100/95 dark:bg-emerald-900/60 px-3 py-1.5 rounded-xl border border-emerald-400/60 animate-pulse">
+            <div className="text-center text-xs font-extrabold text-emerald-800 dark:text-emerald-300 bg-emerald-100/95 dark:bg-emerald-900/60 px-3 py-1.5 rounded-xl border border-emerald-400/60">
               {WAQF_DEDICATION_TEXT.ameenToastMessage}
             </div>
           )}

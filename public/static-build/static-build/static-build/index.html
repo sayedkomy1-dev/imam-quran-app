@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <title>أكاديمية الإمام لتحفيظ القرآن الكريم — بالقرآن نحيا</title>
+    <meta name="description" content="نظام ويب تقدمي متكامل (Offline-First PWA) لإدارة حلقات تحفيظ القرآن الكريم، محرك التسميع الخماسي، السبورة الذكية، الاختبارات والإجازات، والمالية وبوابة ولي الأمر." />
+    <meta property="og:title" content="أكاديمية الإمام لتحفيظ القرآن الكريم — بالقرآن نحيا" />
+    <meta property="og:description" content="نظام ويب تقدمي متكامل (Offline-First PWA) لإدارة حلقات تحفيظ القرآن الكريم، محرك التسميع الخماسي، السبورة الذكية، الاختبارات والإجازات، والمالية وبوابة ولي الأمر." />
+    <meta property="og:type" content="website" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="theme-color" content="#145a3a" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="أكاديمية الإمام" />
+    <link rel="icon" type="image/png" href="./assets/favicon_3bce66e2.png" />
+    <link rel="apple-touch-icon" href="./assets/icon-192_29a1c2ce.png" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Amiri:ital,wght@0,400;0,700;1,400&family=Cairo:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet" />
+    <script type="module" crossorigin src="./assets/app.js"></script>
+    <link rel="stylesheet" crossorigin href="./assets/app.css">
+  <link rel="manifest" href="./manifest.webmanifest"><script id="vite-plugin-pwa:register-sw" src="./registerSW.js"></script></head>
+  <body class="bg-[#f6f7f2] text-[#14281d] antialiased selection:bg-[#145a3a] selection:text-white">
+    <div id="root"></div>
+    <div class="sr-only" aria-hidden="true" style="display:none">
+      <span id="appVersionText">12.0.0</span>
+      <span id="schemaVersionText">v12</span>
+    </div>
+    <script>
+      (function () {
+        var host = window.location.hostname || '';
+        var isViteDevHost =
+          host === 'localhost' ||
+          host === '127.0.0.1' ||
+          host.endsWith('.run.app');
+
+        // Clean up any stale cached Firebase Auth tokens in IndexedDB/localStorage
+        // that could trigger securetoken.googleapis.com errors on boot
+        try {
+          for (var i = localStorage.length - 1; i >= 0; i--) {
+            var k = localStorage.key(i);
+            if (k && k.indexOf('firebase:') === 0) {
+              localStorage.removeItem(k);
+            }
+          }
+          for (var j = sessionStorage.length - 1; j >= 0; j--) {
+            var sk = sessionStorage.key(j);
+            if (sk && sk.indexOf('firebase:') === 0) {
+              sessionStorage.removeItem(sk);
+            }
+          }
+          if (window.indexedDB && typeof window.indexedDB.deleteDatabase === 'function') {
+            window.indexedDB.deleteDatabase('firebaseLocalStorageDb');
+          }
+        } catch (e) {
+          // ignore storage access errors
+        }
+
+        // On Vite dev/preview hosts (.run.app / localhost), unregister any stale root service worker
+        // so cached assets/app.js never shadow live source files
+        if (isViteDevHost && 'serviceWorker' in navigator) {
+          navigator.serviceWorker.getRegistrations().then(function (regs) {
+            regs.forEach(function (reg) {
+              reg.unregister();
+            });
+          }).catch(function () {});
+          if (window.caches && typeof window.caches.keys === 'function') {
+            window.caches.keys().then(function (names) {
+              names.forEach(function (name) {
+                if (name.indexOf('workbox-precache') === 0) {
+                  window.caches.delete(name);
+                }
+              });
+            }).catch(function () {});
+          }
+        }
+
+        window.__LOAD_STATIC_FALLBACK__ = function () {
+          if (isViteDevHost || window.__AL_IMAM_APP_MOUNTED__ || window.__AL_IMAM_FALLBACK_LOADING__) return;
+          window.__AL_IMAM_FALLBACK_LOADING__ = true;
+
+          var candidates = [
+            { css: './assets/app.css', js: './assets/app.js' },
+            { css: './static-build/app.css', js: './static-build/app.js' },
+            { css: './public/static-build/app.css', js: './public/static-build/app.js' },
+            { css: './dist/assets/app.css', js: './dist/assets/app.js' }
+          ];
+
+          function tryCandidate(index) {
+            if (index >= candidates.length || window.__AL_IMAM_APP_MOUNTED__) return;
+            var c = candidates[index];
+            fetch(c.js, { method: 'HEAD' })
+              .then(function (res) {
+                if (res.ok) {
+                  var link = document.createElement('link');
+                  link.rel = 'stylesheet';
+                  link.href = c.css;
+                  document.head.appendChild(link);
+
+                  var script = document.createElement('script');
+                  script.type = 'module';
+                  script.src = c.js;
+                  document.body.appendChild(script);
+                } else {
+                  tryCandidate(index + 1);
+                }
+              })
+              .catch(function () {
+                tryCandidate(index + 1);
+              });
+          }
+
+          tryCandidate(0);
+        };
+
+        // Only load static fallback immediately on non-Vite static hosts (e.g. raw GitHub Pages)
+        if (!isViteDevHost) {
+          window.__LOAD_STATIC_FALLBACK__();
+        }
+      })();
+    </script>
+  </body>
+</html>

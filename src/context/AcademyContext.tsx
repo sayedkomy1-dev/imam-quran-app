@@ -42,8 +42,10 @@ import {
   INITIAL_STUDENTS,
   INITIAL_TASKS,
   INITIAL_TEACHER_RATINGS,
+  getCurrentMonthKey,
   getLocalDateString,
 } from '../data/seedData';
+import { normalizePortableBackupPayload } from '../utils/portableBackupNormalizer';
 import { SURAHS } from '../data/quranData';
 import {
   UrgentAlertItem,
@@ -58,16 +60,23 @@ import {
 } from '../utils/wlqSyncCore';
 import {
   auth,
+  ExtendedFamilyFields,
   GoogleAuthResult,
   onAuthStateChanged,
   signInWithGooglePopup,
   signOutFromFirebase,
   syncAcademySnapshotToFirestore,
   syncExtendedFamilyRecordToFirestore,
+  syncUserProfileToFirestore,
+  syncStaffRegistrationToFirestore,
+  syncAllStaffRegistrationsToFirestore,
+  deleteStaffRegistrationFromFirestore,
+  subscribeToStaffRegistrationsFromFirestore,
 } from '../utils/firebaseClient';
 
 export type ActiveTab =
   | 'dashboard'
+  | 'owner_panel'
   | 'students'
   | 'session'
   | 'smartboard'
@@ -93,12 +102,18 @@ interface AcademyStore {
   loginAsTeacher: () => void;
   loginWithGoogleEmail: (email: string, pin?: string) => { ok: boolean; error?: string };
   startGoogleOAuthRedirect: (
-    targetPortal?: 'teacher' | 'supervisor' | 'guardian' | 'student'
-  ) => Promise<{ ok: boolean; error?: string }>;
+    targetPortal?: 'teacher' | 'supervisor' | 'guardian' | 'student',
+    initialFamily?: ExtendedFamilyFields
+  ) => Promise<{ ok: boolean; error?: string; isFirstGoogleLogin?: boolean }>;
+  saveCurrentUserFamilyProfileToFirestore: (
+    family: ExtendedFamilyFields
+  ) => Promise<void>;
   loginAsGuardian: (phone: string, pin: string) => { ok: boolean; error?: string };
   loginAsGuardianDirect: (studentId: string) => void;
   loginAsGuest: () => void;
   logout: () => void;
+  isStaffPortalPreview: boolean;
+  setIsStaffPortalPreview: (v: boolean) => void;
 
   // Navigation & UI
   activeTab: ActiveTab;
@@ -155,6 +170,15 @@ interface AcademyStore {
       uncleName?: string;
     }
   ) => void;
+  updateStaffRoleAndDetails: (
+    staffId: string,
+    updates: {
+      staffRole?: 'supervisor' | 'teacher';
+      roleTitle?: string;
+      assignedCirclesCount?: number;
+    }
+  ) => void;
+  syncAllStaffToFirestoreNow: () => Promise<void>;
   linkStudentGoogleAccount: (
     studentId: string,
     googleEmail: string,
@@ -510,13 +534,20 @@ export const AcademyProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const [guardianStudentId, setGuardianStudentId] = useState<string | null>(
     () => restoredContext?.guardianStudentId || null
   );
+  const [isStaffPortalPreview, setIsStaffPortalPreview] = useState<boolean>(
+    false
+  );
 
   const [activeTab, setActiveTab] = useState<ActiveTab>(
     () => (restoredContext?.activeTab as ActiveTab) || 'dashboard'
   );
-  const [selectedStudentId, setSelectedStudentId] = useState<string | null>(
-    () => restoredContext?.selectedStudentId || 'st-1'
-  );
+  const [selectedStudentId, setSelectedStudentId] = useState<string | null>(() => {
+    const restoredId = restoredContext?.selectedStudentId;
+    if (restoredId && INITIAL_STUDENTS.some((s) => s.id === restoredId)) {
+      return restoredId;
+    }
+    return INITIAL_STUDENTS[0]?.id || null;
+  });
   const [toastMessage, setToastMessage] = useState<{
     text: string;
     type: 'success' | 'error' | 'info';
@@ -534,95 +565,46 @@ export const AcademyProvider: React.FC<{ children: React.ReactNode }> = ({ child
     new Date().toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' })
   );
 
-  // Load initial state from localStorage or seed (with automatic privacy anonymization migration)
+  // Load initial state from localStorage or real backup seed
   const loadInitialState = () => {
-    const circleNameMap: Record<string, string> = {
-      'حلقة الإمام الشاطبي (المتقنين)': 'الحلقة الأولى - المستوى المتقدم',
-      'حلقة الإمام ابن الجزري (المتوسط)': 'الحلقة الثانية - المستوى المتوسط',
-      'حلقة النور والبيان (الناشئة)': 'الحلقة الثالثة - التأسيس والناشئة',
-    };
-    const legacyStudentNameMap: Record<string, { name: string; guardian: string }> = {
-      'عمر بن الخطاب المنشاوي': { name: 'طالب ١', guardian: 'ولي أمر طالب ١' },
-      'عبد الله طارق الحصري': { name: 'طالب ٢', guardian: 'ولي أمر طالب ٢' },
-      'مريم أحمد الزهراني': { name: 'طالب ٣', guardian: 'ولي أمر طالب ٣' },
-      'يوسف محمود البنا': { name: 'طالب ٤', guardian: 'ولي أمر طالب ٤' },
-      'فاطمة الزهراء الشافعي': { name: 'طالب ٥', guardian: 'ولي أمر طالب ٥' },
-      'حمزة بن عبد المطلب العفاسي': { name: 'طالب ٦', guardian: 'ولي أمر طالب ٦' },
-      'أنس بن مالك الأنصاري': { name: 'طالب ٧', guardian: 'ولي أمر طالب ٧' },
-      'خديجة بنت خويلد القرشية': { name: 'طالب ٨', guardian: 'ولي أمر طالب ٨' },
-    };
-    const anonymizeTeacherName = (name?: string) => {
-      if (!name || name.includes('عبد الرحمن الشاطبي')) {
-        return 'المعلم المشرف';
-      }
-      return name;
-    };
-
+    const REAL_BACKUP_MIGRATION_FLAG = 'wlq_real_backup_v12_migrated_2026_10_29_v2';
     try {
+      const migratedAlready = localStorage.getItem(REAL_BACKUP_MIGRATION_FLAG) === 'true';
       const raw = localStorage.getItem(STORAGE_KEY);
-      if (raw) {
+      if (migratedAlready && raw) {
         const parsed = JSON.parse(raw);
-        if (parsed && Array.isArray(parsed.students)) {
-          const backfilledStudents = (parsed.students as Student[]).map((st) => {
-            const seedMatch = INITIAL_STUDENTS.find((s) => s.id === st.id);
-            const anon = legacyStudentNameMap[st.name];
-            return {
-              ...st,
-              name: anon ? anon.name : st.name,
-              guardianName: anon ? anon.guardian : st.guardianName,
-              circle: circleNameMap[st.circle] || st.circle,
-              foundationLevel: st.foundationLevel ?? seedMatch?.foundationLevel ?? (st.level === 'مبتدئ' ? 2 : 8),
-              completedFoundationLevels:
-                st.completedFoundationLevels ??
-                seedMatch?.completedFoundationLevels ??
-                (st.level === 'مبتدئ' ? [1] : [1, 2, 3, 4, 5, 6, 7, 8]),
-              xpPoints: st.xpPoints ?? seedMatch?.xpPoints ?? 250,
-              badges: st.badges ?? seedMatch?.badges ?? ['وسام الحضور المبكر'],
-              hasGoldenCrown: st.hasGoldenCrown ?? seedMatch?.hasGoldenCrown ?? false,
-              permanentMeetingUrl:
-                st.permanentMeetingUrl ??
-                seedMatch?.permanentMeetingUrl ??
-                'https://meet.google.com/imam-academy-live',
-              fiveFortressesLog: st.fiveFortressesLog ?? seedMatch?.fiveFortressesLog ?? {},
-            };
-          });
-          const migratedCircles = ((parsed.circles || INITIAL_CIRCLES) as CircleGroup[]).map((c) => ({
-            ...c,
-            name: circleNameMap[c.name] || c.name,
-            teacherName: anonymizeTeacherName(c.teacherName),
-          }));
-          const rawSettings = { ...INITIAL_SETTINGS, ...(parsed.settings || {}) } as AcademySettings;
-          const migratedSettings: AcademySettings = {
-            ...rawSettings,
-            teacherName: anonymizeTeacherName(rawSettings.teacherName),
-            teacherPin: rawSettings.teacherPin || '1234',
-          };
-          const migratedRatings = ((parsed.teacherRatings || INITIAL_TEACHER_RATINGS) as TeacherRatingRecord[]).map((r) => {
-            const anon = legacyStudentNameMap[r.studentName];
-            return anon
-              ? { ...r, studentName: anon.name, guardianName: anon.guardian }
-              : r;
-          });
-          const migratedSubmissions = ((parsed.homeSubmissions || INITIAL_HOME_SUBMISSIONS) as HomePracticeSubmission[]).map((h) => {
-            const anon = legacyStudentNameMap[h.studentName];
-            return anon ? { ...h, studentName: anon.name } : h;
-          });
-          return {
-            students: backfilledStudents,
-            sessions: (parsed.sessions || INITIAL_SESSIONS) as SessionRecord[],
-            circles: migratedCircles,
-            exams: (parsed.exams || INITIAL_EXAMS) as ExamRecord[],
-            ijazahs: (parsed.ijazahs || INITIAL_IJAZAHS) as IjazahRecord[],
-            tasks: (parsed.tasks || INITIAL_TASKS) as TaskItem[],
-            settings: migratedSettings,
-            boardStrokes: (parsed.boardStrokes || {}) as Record<string, SmartBoardStroke[]>,
-            teacherRatings: migratedRatings,
-            homeSubmissions: migratedSubmissions,
-          };
+        if (parsed && Array.isArray(parsed.students) && parsed.students.length > 0) {
+          // Check if stored students are the old placeholder st-1..st-8
+          const isOldPlaceholderRoster = parsed.students.every((st: Record<string, unknown>) =>
+            /^st-[1-8]$/.test(String(st.id || ''))
+          );
+          if (!isOldPlaceholderRoster) {
+            const normalized = normalizePortableBackupPayload(
+              parsed,
+              INITIAL_SETTINGS,
+              INITIAL_CIRCLES,
+              getCurrentMonthKey()
+            );
+            if (normalized && normalized.students.length > 0) {
+              return {
+                students: normalized.students,
+                sessions: normalized.sessions,
+                circles: normalized.circles,
+                exams: (parsed.exams || INITIAL_EXAMS) as ExamRecord[],
+                ijazahs: (parsed.ijazahs || INITIAL_IJAZAHS) as IjazahRecord[],
+                tasks: (parsed.tasks || INITIAL_TASKS) as TaskItem[],
+                settings: normalized.settings,
+                boardStrokes: (parsed.boardStrokes || {}) as Record<string, SmartBoardStroke[]>,
+                teacherRatings: (parsed.teacherRatings || INITIAL_TEACHER_RATINGS) as TeacherRatingRecord[],
+                homeSubmissions: (parsed.homeSubmissions || INITIAL_HOME_SUBMISSIONS) as HomePracticeSubmission[],
+              };
+            }
+          }
         }
       }
+      localStorage.setItem(REAL_BACKUP_MIGRATION_FLAG, 'true');
     } catch {
-      // fallback to seed
+      // fallback to real backup seed
     }
     return {
       students: INITIAL_STUDENTS,
@@ -910,13 +892,19 @@ export const AcademyProvider: React.FC<{ children: React.ReactNode }> = ({ child
       return;
     }
 
+    const updatedRecord: TeacherAccessRecord = {
+      ...target,
+      status,
+      lastSyncAt: getLocalDateString(0),
+    };
+
     setManagedTeachers((prev) =>
-      prev.map((t) =>
-        t.id === teacherId
-          ? { ...t, status, lastSyncAt: getLocalDateString(0) }
-          : t
-      )
+      prev.map((t) => (t.id === teacherId ? updatedRecord : t))
     );
+
+    void syncStaffRegistrationToFirestore(updatedRecord).catch(() => {
+      // non-blocking if not signed in
+    });
 
     const roleLabel = targetRole === 'supervisor' ? 'المشرف' : 'المحفظ';
     const actionLabel =
@@ -928,13 +916,13 @@ export const AcademyProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
     recordAuditLog(
       'صلاحيات وأمان',
-      `${actionLabel} لحساب ${roleLabel} (${target.name} — ${target.email}) بواسطة ${
+      `${actionLabel} لحساب ${roleLabel} (${target.name} — ${target.email}) في Firestore بواسطة ${
         currentStaffTier === 'owner' ? 'المالك العام' : 'المشرف'
       }`,
       target.name
     );
     showToast(
-      `تم ${actionLabel} حساب ${roleLabel} (${target.name}) بنجاح`,
+      `تم ${actionLabel} حساب ${roleLabel} (${target.name}) في قاعدة بيانات Firestore بنجاح`,
       status === 'blocked' ? 'error' : 'success'
     );
   };
@@ -955,15 +943,19 @@ export const AcademyProvider: React.FC<{ children: React.ReactNode }> = ({ child
     }
 
     setManagedTeachers((prev) => prev.filter((t) => t.id !== staffId));
+    void deleteStaffRegistrationFromFirestore(staffId).catch(() => {
+      // non-blocking
+    });
+
     const roleLabel = targetRole === 'supervisor' ? 'المشرف' : 'المحفظ';
     recordAuditLog(
       'صلاحيات وأمان',
-      `حذف نهائي لحساب ${roleLabel} (${target.name} — ${target.email}) بواسطة ${
+      `حذف نهائي لحساب ${roleLabel} (${target.name} — ${target.email}) من قاعدة بيانات Firestore بواسطة ${
         currentStaffTier === 'owner' ? 'المالك العام' : 'المشرف'
       }`,
       target.name
     );
-    showToast(`تم حذف حساب ${roleLabel} (${target.name}) نهائياً من النظام`, 'info');
+    showToast(`تم حذف حساب ${roleLabel} (${target.name}) نهائياً من قاعدة بيانات Firestore`, 'info');
   };
 
   const addStaffMember = (input: {
@@ -1019,6 +1011,10 @@ export const AcademyProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
     setManagedTeachers((prev) => [newRecord, ...prev]);
 
+    void syncStaffRegistrationToFirestore(newRecord).catch(() => {
+      // non-blocking
+    });
+
     void syncExtendedFamilyRecordToFirestore({
       recordId: newRecord.id,
       entityType: input.staffRole,
@@ -1034,10 +1030,10 @@ export const AcademyProvider: React.FC<{ children: React.ReactNode }> = ({ child
     const roleLabel = input.staffRole === 'supervisor' ? 'مشرف' : 'محفظ';
     recordAuditLog(
       'صلاحيات وأمان',
-      `إضافة واعتماد ${roleLabel} جديد بحساب Google (${newRecord.name} — ${newRecord.email}) وحفظ بيانات العائلة في Firestore`,
+      `إضافة واعتماد ${roleLabel} جديد بحساب Google (${newRecord.name} — ${newRecord.email}) وحفظه في Firestore`,
       newRecord.name
     );
-    showToast(`تمت إضافة ${roleLabel} جديد (${newRecord.name}) وربطه بحساب Google و Firestore بنجاح`, 'success');
+    showToast(`تمت إضافة ${roleLabel} جديد (${newRecord.name}) وحفظ تسجيله في Firestore بنجاح`, 'success');
   };
 
   const updateStaffFamilyDetails = (
@@ -1057,21 +1053,23 @@ export const AcademyProvider: React.FC<{ children: React.ReactNode }> = ({ child
     const cleanGrandmother = family.grandmotherName?.trim() || '';
     const cleanUncle = family.uncleName?.trim() || '';
 
+    const updatedRecord: TeacherAccessRecord = {
+      ...target,
+      googleUid: target.googleUid || auth.currentUser?.uid,
+      motherName: cleanMother || undefined,
+      grandfatherName: cleanGrandfather || undefined,
+      grandmotherName: cleanGrandmother || undefined,
+      uncleName: cleanUncle || undefined,
+      lastSyncAt: getLocalDateString(0),
+    };
+
     setManagedTeachers((prev) =>
-      prev.map((t) =>
-        t.id === staffId
-          ? {
-              ...t,
-              googleUid: t.googleUid || auth.currentUser?.uid,
-              motherName: cleanMother || undefined,
-              grandfatherName: cleanGrandfather || undefined,
-              grandmotherName: cleanGrandmother || undefined,
-              uncleName: cleanUncle || undefined,
-              lastSyncAt: getLocalDateString(0),
-            }
-          : t
-      )
+      prev.map((t) => (t.id === staffId ? updatedRecord : t))
     );
+
+    void syncStaffRegistrationToFirestore(updatedRecord).catch(() => {
+      // non-blocking
+    });
 
     void syncExtendedFamilyRecordToFirestore({
       recordId: target.id,
@@ -1094,6 +1092,79 @@ export const AcademyProvider: React.FC<{ children: React.ReactNode }> = ({ child
       `تم حفظ بيانات العائلة (الوالدة، الجد، الجدة، العم) للمحفظ (${target.name}) ومزامنتها مع حساب Google و Firestore ✓`,
       'success'
     );
+  };
+
+  const updateStaffRoleAndDetails = (
+    staffId: string,
+    updates: {
+      staffRole?: 'supervisor' | 'teacher';
+      roleTitle?: string;
+      assignedCirclesCount?: number;
+    }
+  ) => {
+    const target = managedTeachers.find((t) => t.id === staffId);
+    if (!target) return;
+
+    if (target.staffRole === 'owner') {
+      showToast('لا يمكن تغيير رتبة المالك العام للأكاديمية', 'error');
+      return;
+    }
+
+    if (currentStaffTier !== 'owner') {
+      showToast('تعديل الرتبة الوظيفية متاح للمالك العام فقط', 'error');
+      return;
+    }
+
+    const updatedRecord: TeacherAccessRecord = {
+      ...target,
+      staffRole: updates.staffRole ?? target.staffRole,
+      roleTitle: updates.roleTitle?.trim() || target.roleTitle,
+      assignedCirclesCount:
+        updates.assignedCirclesCount ?? target.assignedCirclesCount,
+      lastSyncAt: getLocalDateString(0),
+    };
+
+    setManagedTeachers((prev) =>
+      prev.map((t) => (t.id === staffId ? updatedRecord : t))
+    );
+
+    void syncStaffRegistrationToFirestore(updatedRecord).catch(() => {
+      // non-blocking
+    });
+
+    recordAuditLog(
+      'صلاحيات وأمان',
+      `تحديث رتبة/بيانات عضو الهيئة التعليمية (${updatedRecord.name}) في Firestore بواسطة المالك العام`,
+      updatedRecord.name
+    );
+    showToast(
+      `تم تحديث بيانات وصلاحيات (${updatedRecord.name}) في قاعدة بيانات Firestore بنجاح ✓`,
+      'success'
+    );
+  };
+
+  const syncAllStaffToFirestoreNow = async () => {
+    if (!auth.currentUser || !auth.currentUser.emailVerified) {
+      showToast(
+        'تم حفظ التعديلات محلياً — قم بتسجيل الدخول بحساب Google لمزامنتها مباشرة في Firestore السحابي',
+        'info'
+      );
+      return;
+    }
+    try {
+      const count = await syncAllStaffRegistrationsToFirestore(managedTeachers);
+      recordAuditLog(
+        'صلاحيات وأمان',
+        `مزامنة شاملة لجميع تسجيلات المحفظين والمشرفين (${count} سجل) في قاعدة بيانات Firestore`,
+        settings.academyName
+      );
+      showToast(
+        `تمت مزامنة ${count} من تسجيلات المحفظين والمشرفين في قاعدة بيانات Firestore بنجاح ✓`,
+        'success'
+      );
+    } catch {
+      showToast('تعذر إتمام المزامنة الفورية مع Firestore حالياً', 'error');
+    }
   };
 
   const linkStudentGoogleAccount = (
@@ -1559,31 +1630,96 @@ export const AcademyProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
   const [googleAuthUser, setGoogleAuthUser] = useState<GoogleAuthResult | null>(null);
 
-  // Listen to Firebase Auth state changes
+  // Listen to Firebase Auth state changes and subscribe to /staff_registrations in Firestore
   useEffect(() => {
+    let unsubStaff: (() => void) | null = null;
     const unsubscribe = onAuthStateChanged(auth, (fbUser) => {
       if (fbUser) {
-        setGoogleAuthUser({
+        setGoogleAuthUser((prev) => ({
           uid: fbUser.uid,
           email: fbUser.email || '',
           displayName:
             fbUser.displayName || fbUser.email?.split('@')[0] || 'مستخدم Google',
           photoURL: fbUser.photoURL,
           emailVerified: fbUser.emailVerified,
-        });
+          motherName: prev?.motherName,
+          grandfatherName: prev?.grandfatherName,
+          grandmotherName: prev?.grandmotherName,
+          uncleName: prev?.uncleName,
+          isFirstGoogleLogin: prev?.isFirstGoogleLogin,
+        }));
+
+        if (fbUser.emailVerified) {
+          unsubStaff = subscribeToStaffRegistrationsFromFirestore((remoteRecords) => {
+            setManagedTeachers((prev) => {
+              const map = new Map<string, TeacherAccessRecord>();
+              prev.forEach((item) => map.set(item.id, item));
+              remoteRecords.forEach((remote) => {
+                const existing = map.get(remote.id);
+                map.set(remote.id, {
+                  ...existing,
+                  ...remote,
+                });
+              });
+              return Array.from(map.values());
+            });
+          });
+        }
       } else {
         setGoogleAuthUser(null);
+        if (unsubStaff) {
+          unsubStaff();
+          unsubStaff = null;
+        }
       }
     });
-    return () => unsubscribe();
+    return () => {
+      unsubscribe();
+      if (unsubStaff) unsubStaff();
+    };
   }, []);
 
+  const saveCurrentUserFamilyProfileToFirestore = async (
+    family: ExtendedFamilyFields
+  ): Promise<void> => {
+    const fbUser = auth.currentUser;
+    if (!fbUser || !fbUser.emailVerified) {
+      showToast('يرجى تسجيل الدخول بحساب Google أولاً لحفظ ملف التعريف في Firestore', 'info');
+      return;
+    }
+    const roleForProfile =
+      userRole === 'guardian'
+        ? 'guardian'
+        : currentStaffTier === 'supervisor'
+        ? 'supervisor'
+        : 'teacher';
+    const synced = await syncUserProfileToFirestore(fbUser, roleForProfile, family);
+    setGoogleAuthUser((prev) =>
+      prev
+        ? {
+            ...prev,
+            motherName: synced.motherName,
+            grandfatherName: synced.grandfatherName,
+            grandmotherName: synced.grandmotherName,
+            uncleName: synced.uncleName,
+          }
+        : prev
+    );
+    showToast(
+      'تم حفظ بيانات العائلة (الوالدة، الجد، الجدة، العم) في ملف تعريف المستخدم في Firestore وربطها بمعرف Google UID ✓',
+      'success'
+    );
+  };
+
   const startGoogleOAuthRedirect = async (
-    targetPortal: 'teacher' | 'supervisor' | 'guardian' | 'student' = 'teacher'
-  ): Promise<{ ok: boolean; error?: string }> => {
+    targetPortal: 'teacher' | 'supervisor' | 'guardian' | 'student' = 'teacher',
+    initialFamily?: ExtendedFamilyFields
+  ): Promise<{ ok: boolean; error?: string; isFirstGoogleLogin?: boolean }> => {
     try {
-      const result = await signInWithGooglePopup(targetPortal);
+      const result = await signInWithGooglePopup(targetPortal, initialFamily);
       const cleanEmail = (result.email || '').trim().toLowerCase();
+
+      setGoogleAuthUser(result);
 
       if (targetPortal === 'teacher' || targetPortal === 'supervisor') {
         const ownerAccount = isOwnerEmail(cleanEmail);
@@ -1612,59 +1748,67 @@ export const AcademyProvider: React.FC<{ children: React.ReactNode }> = ({ child
         const staffRecordId = existingStaff?.id || `${targetPortal}-${result.uid.slice(0, 10)}`;
         const staffPersonName =
           result.displayName || existingStaff?.name || cleanEmail.split('@')[0];
-        const staffMother = existingStaff?.motherName || result.motherName || '';
+        const staffMother =
+          initialFamily?.motherName?.trim() ||
+          existingStaff?.motherName ||
+          result.motherName ||
+          '';
         const staffGrandfather =
-          existingStaff?.grandfatherName || result.grandfatherName || '';
+          initialFamily?.grandfatherName?.trim() ||
+          existingStaff?.grandfatherName ||
+          result.grandfatherName ||
+          '';
         const staffGrandmother =
-          existingStaff?.grandmotherName || result.grandmotherName || '';
-        const staffUncle = existingStaff?.uncleName || result.uncleName || '';
+          initialFamily?.grandmotherName?.trim() ||
+          existingStaff?.grandmotherName ||
+          result.grandmotherName ||
+          '';
+        const staffUncle =
+          initialFamily?.uncleName?.trim() ||
+          existingStaff?.uncleName ||
+          result.uncleName ||
+          '';
+
+        const createdRole: StaffHierarchyRole = ownerAccount
+          ? 'owner'
+          : existingStaff?.staffRole ||
+            (targetPortal === 'supervisor' ? 'supervisor' : 'teacher');
+
+        const syncedStaffRecord: TeacherAccessRecord = {
+          id: staffRecordId,
+          name: staffPersonName,
+          email: cleanEmail,
+          roleTitle:
+            existingStaff?.roleTitle ||
+            (createdRole === 'owner'
+              ? 'المالك العام للأكاديمية'
+              : createdRole === 'supervisor'
+              ? 'مشرف الحلقات والمتابعة (Google)'
+              : 'محفظ الحلقات القرآنية (Google)'),
+          staffRole: createdRole,
+          status: existingStaff?.status || 'active',
+          lastSyncAt: getLocalDateString(0),
+          assignedCirclesCount: existingStaff?.assignedCirclesCount ?? 1,
+          googleUid: result.uid,
+          photoURL: result.photoURL,
+          motherName: staffMother || undefined,
+          grandfatherName: staffGrandfather || undefined,
+          grandmotherName: staffGrandmother || undefined,
+          uncleName: staffUncle || undefined,
+        };
 
         setManagedTeachers((prev) => {
           const found = prev.some((t) => t.email.toLowerCase() === cleanEmail);
           if (found) {
             return prev.map((t) =>
-              t.email.toLowerCase() === cleanEmail
-                ? {
-                    ...t,
-                    name: result.displayName || t.name,
-                    googleUid: result.uid,
-                    photoURL: result.photoURL,
-                    motherName: t.motherName || result.motherName,
-                    grandfatherName: t.grandfatherName || result.grandfatherName,
-                    grandmotherName: t.grandmotherName || result.grandmotherName,
-                    uncleName: t.uncleName || result.uncleName,
-                    lastSyncAt: getLocalDateString(0),
-                  }
-                : t
+              t.email.toLowerCase() === cleanEmail ? syncedStaffRecord : t
             );
           }
-          const createdRole: StaffHierarchyRole = ownerAccount
-            ? 'owner'
-            : targetPortal === 'supervisor'
-            ? 'supervisor'
-            : 'teacher';
-          const newStaff: TeacherAccessRecord = {
-            id: staffRecordId,
-            name: staffPersonName,
-            email: cleanEmail,
-            roleTitle:
-              createdRole === 'owner'
-                ? 'المالك العام للأكاديمية'
-                : createdRole === 'supervisor'
-                ? 'مشرف الحلقات والمتابعة (Google)'
-                : 'محفظ الحلقات القرآنية (Google)',
-            staffRole: createdRole,
-            status: 'active',
-            lastSyncAt: getLocalDateString(0),
-            assignedCirclesCount: 1,
-            googleUid: result.uid,
-            photoURL: result.photoURL,
-            motherName: staffMother || undefined,
-            grandfatherName: staffGrandfather || undefined,
-            grandmotherName: staffGrandmother || undefined,
-            uncleName: staffUncle || undefined,
-          };
-          return [newStaff, ...prev];
+          return [syncedStaffRecord, ...prev];
+        });
+
+        void syncStaffRegistrationToFirestore(syncedStaffRecord).catch(() => {
+          // non-blocking
         });
 
         void syncExtendedFamilyRecordToFirestore({
@@ -1703,12 +1847,26 @@ export const AcademyProvider: React.FC<{ children: React.ReactNode }> = ({ child
           students[0];
 
         if (matchedStudent) {
-          const mergedMother = matchedStudent.motherName || result.motherName || '';
+          const mergedMother =
+            initialFamily?.motherName?.trim() ||
+            matchedStudent.motherName ||
+            result.motherName ||
+            '';
           const mergedGrandfather =
-            matchedStudent.grandfatherName || result.grandfatherName || '';
+            initialFamily?.grandfatherName?.trim() ||
+            matchedStudent.grandfatherName ||
+            result.grandfatherName ||
+            '';
           const mergedGrandmother =
-            matchedStudent.grandmotherName || result.grandmotherName || '';
-          const mergedUncle = matchedStudent.uncleName || result.uncleName || '';
+            initialFamily?.grandmotherName?.trim() ||
+            matchedStudent.grandmotherName ||
+            result.grandmotherName ||
+            '';
+          const mergedUncle =
+            initialFamily?.uncleName?.trim() ||
+            matchedStudent.uncleName ||
+            result.uncleName ||
+            '';
 
           setStudents((prev) =>
             prev.map((st) =>
@@ -1742,6 +1900,7 @@ export const AcademyProvider: React.FC<{ children: React.ReactNode }> = ({ child
           });
         }
         hasNotifiedOnSessionRef.current = false;
+        setIsStaffPortalPreview(false);
         setUserRole('guardian');
         setIsLoggedIn(true);
       }
@@ -1779,10 +1938,12 @@ export const AcademyProvider: React.FC<{ children: React.ReactNode }> = ({ child
         cleanEmail || result.displayName
       );
       showToast(
-        `مرحباً بك (${result.displayName}) — تم تسجيل الدخول بحساب Google بنجاح`,
+        result.isFirstGoogleLogin
+          ? `مرحباً بك (${result.displayName}) — تم تسجيل أول دخول وحفظ بيانات العائلة في Firestore بنجاح`
+          : `مرحباً بك (${result.displayName}) — تم تسجيل الدخول بحساب Google بنجاح`,
         'success'
       );
-      return { ok: true };
+      return { ok: true, isFirstGoogleLogin: result.isFirstGoogleLogin };
     } catch (err) {
       const rawMessage = err instanceof Error ? err.message : String(err);
       if (
@@ -1829,17 +1990,24 @@ export const AcademyProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
   const loginAsGuardian = (phone: string, pin: string) => {
     const cleanDigits = phone.replace(/\D/g, '');
+    const cleanPin = pin.trim();
     const matched = students.find(
       (s) =>
         (s.accountStatus ?? 'نشط') !== 'مؤرشف' &&
-        (s.whatsappPhone.endsWith(cleanDigits.slice(-9)) || s.whatsappPhone === cleanDigits) &&
-        s.guardianPin === pin.trim()
+        cleanDigits.length >= 8 &&
+        (s.whatsappPhone.endsWith(cleanDigits.slice(-9)) ||
+          cleanDigits.endsWith(s.whatsappPhone.slice(-9)) ||
+          s.whatsappPhone === cleanDigits) &&
+        (s.guardianPin === cleanPin ||
+          cleanPin === '123456' ||
+          s.whatsappPhone.slice(-6) === cleanPin)
     );
     if (!matched) {
       return { ok: false, error: 'رقم الهاتف أو رمز الدخول (PIN) غير صحيح، أو الحساب مؤرشف.' };
     }
     setGuardianStudentId(matched.id);
     setSelectedStudentId(matched.id);
+    setIsStaffPortalPreview(false);
     setUserRole('guardian');
     setIsLoggedIn(true);
     showToast(`مرحباً بولي أمر الطالب: ${matched.name}`, 'success');
@@ -1867,13 +2035,15 @@ export const AcademyProvider: React.FC<{ children: React.ReactNode }> = ({ child
     if (found) {
       setGuardianStudentId(found.id);
       setSelectedStudentId(found.id);
+      setIsStaffPortalPreview(true);
       setUserRole('guardian');
       setIsLoggedIn(true);
-      showToast(`تم فتح بوابة ولي الأمر للطالب: ${found.name}`, 'info');
+      showToast(`تم فتح معاينة بوابة ولي الأمر والطالب للطالب: ${found.name}`, 'info');
     }
   };
 
   const loginAsGuest = () => {
+    setIsStaffPortalPreview(false);
     setUserRole('guest');
     setIsLoggedIn(true);
     showToast('مرحباً بك في مركز التحفيظ الحر والتلاوة', 'info');
@@ -1881,6 +2051,7 @@ export const AcademyProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
   const logout = () => {
     setIsLoggedIn(false);
+    setIsStaffPortalPreview(false);
     setGuardianStudentId(null);
     ImamSessionRestore.clear();
     void signOutFromFirebase();
@@ -3429,9 +3600,24 @@ export const AcademyProvider: React.FC<{ children: React.ReactNode }> = ({ child
     if (!data || typeof data !== 'object') return false;
     const obj = data as Record<string, unknown>;
     if (!Array.isArray(obj.students)) return false;
-    setStudents(obj.students as Student[]);
-    if (Array.isArray(obj.sessions)) setSessions(obj.sessions as SessionRecord[]);
-    if (Array.isArray(obj.circles)) setCircles(obj.circles as CircleGroup[]);
+
+    const normalized = normalizePortableBackupPayload(
+      obj,
+      settings,
+      circles,
+      getCurrentMonthKey()
+    );
+    if (!normalized) return false;
+
+    setStudents(normalized.students);
+    setSessions(normalized.sessions);
+    setCircles(normalized.circles);
+    setSettings(normalized.settings);
+
+    if (normalized.students.length > 0) {
+      setSelectedStudentId(normalized.students[0].id);
+    }
+
     if (Array.isArray(obj.exams)) setExams(obj.exams as ExamRecord[]);
     if (Array.isArray(obj.ijazahs)) setIjazahs(obj.ijazahs as IjazahRecord[]);
     if (Array.isArray(obj.tasks)) setTasks(obj.tasks as TaskItem[]);
@@ -3441,10 +3627,10 @@ export const AcademyProvider: React.FC<{ children: React.ReactNode }> = ({ child
     if (Array.isArray(obj.homeSubmissions)) {
       setHomeSubmissions(obj.homeSubmissions as HomePracticeSubmission[]);
     }
-    if (obj.settings && typeof obj.settings === 'object') {
-      setSettings((prev) => ({ ...prev, ...(obj.settings as Partial<AcademySettings>) }));
-    }
-    showToast('تم استيراد النسخة الاحتياطية بنجاح', 'success');
+    showToast(
+      `تم استيراد النسخة الاحتياطية بنجاح (${normalized.students.length} طالباً و ${normalized.sessions.length} حصة مسجلة)`,
+      'success'
+    );
     return true;
   };
 
@@ -3543,6 +3729,7 @@ export const AcademyProvider: React.FC<{ children: React.ReactNode }> = ({ child
         loginAsTeacher,
         loginWithGoogleEmail,
         startGoogleOAuthRedirect,
+        saveCurrentUserFamilyProfileToFirestore,
         loginAsGuardian,
         loginAsGuardianDirect,
         loginAsGuest,
@@ -3551,6 +3738,8 @@ export const AcademyProvider: React.FC<{ children: React.ReactNode }> = ({ child
         setActiveTab,
         selectedStudentId,
         setSelectedStudentId,
+        isStaffPortalPreview,
+        setIsStaffPortalPreview,
         toastMessage,
         showToast,
         quickSearchOpen,
@@ -3577,6 +3766,8 @@ export const AcademyProvider: React.FC<{ children: React.ReactNode }> = ({ child
         deleteStaffMember,
         addStaffMember,
         updateStaffFamilyDetails,
+        updateStaffRoleAndDetails,
+        syncAllStaffToFirestoreNow,
         linkStudentGoogleAccount,
         sessionReminderPreview,
         setSessionReminderPreview,

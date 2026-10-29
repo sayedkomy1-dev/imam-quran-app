@@ -30,12 +30,14 @@ type WelcomePortalRole = 'teacher' | 'supervisor' | 'guardian' | 'student' | 'ad
 export const AuthGateModal: React.FC = () => {
   const {
     settings,
+    students,
     setActiveTab: setAppActiveTab,
     googleAuthUser,
     loginAsTeacher,
     loginWithGoogleEmail,
     startGoogleOAuthRedirect,
     loginAsGuardian,
+    loginAsGuardianDirect,
     loginAsGuest,
     submitAdmissionRequest,
     setPublicMushafPortalOpen,
@@ -73,6 +75,13 @@ export const AuthGateModal: React.FC = () => {
   // Sadaqah Jariyah Popup Modal State
   const [sadaqahModalOpen, setSadaqahModalOpen] = useState(false);
 
+  // Family fields saved to Firestore user_profiles/{uid} on first Google login
+  const [loginMotherName, setLoginMotherName] = useState('');
+  const [loginGrandfatherName, setLoginGrandfatherName] = useState('');
+  const [loginGrandmotherName, setLoginGrandmotherName] = useState('');
+  const [loginUncleName, setLoginUncleName] = useState('');
+  const [showFirstLoginFamilyFields, setShowFirstLoginFamilyFields] = useState(true);
+
   const expectedTeacherPin = (settings.teacherPin || '1234').trim();
 
   const handleGoogleSignInClick = async (
@@ -82,7 +91,12 @@ export const AuthGateModal: React.FC = () => {
     setGuardianError('');
     setGoogleLoading(true);
     try {
-      const res = await startGoogleOAuthRedirect(role);
+      const res = await startGoogleOAuthRedirect(role, {
+        motherName: loginMotherName.trim(),
+        grandfatherName: loginGrandfatherName.trim(),
+        grandmotherName: loginGrandmotherName.trim(),
+        uncleName: loginUncleName.trim(),
+      });
       if (!res.ok && res.error) {
         if (role === 'guardian' || role === 'student') {
           setGuardianError(res.error);
@@ -377,6 +391,60 @@ export const AuthGateModal: React.FC = () => {
             {/* PORTAL 1 & 2: TEACHER OR SUPERVISOR LOGIN (Google Account + PIN) */}
             {(selectedPortal === 'teacher' || selectedPortal === 'supervisor') && (
               <div className="space-y-4">
+                {/* Academy Owner Credentials & 1-Click Direct Access Banner */}
+                <div className="p-4 rounded-2xl bg-gradient-to-l from-emerald-950 via-[#145a3a] to-[#0f452c] text-white border-2 border-[#c59b27] shadow-md space-y-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="flex items-center gap-2">
+                      <ShieldCheck className="w-5 h-5 text-[#dfbd69] shrink-0" />
+                      <span className="text-xs sm:text-sm font-black text-[#dfbd69]">
+                        👑 بيانات دخول المالك العام للأكاديمية (صلاحيات كاملة + لوحة تحكم Firestore)
+                      </span>
+                    </div>
+                    <span className="text-[11px] font-mono text-emerald-200">
+                      PIN: <strong className="text-[#dfbd69]">1234</strong>
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs bg-black/25 p-2.5 rounded-xl border border-white/10">
+                    <div>
+                      <span className="text-emerald-200/80 block text-[10px]">البريد الرسمي للمالك (1):</span>
+                      <strong className="font-mono text-white select-all">sayedkomy2@gmail.com</strong>
+                    </div>
+                    <div>
+                      <span className="text-emerald-200/80 block text-[10px]">البريد الرسمي للمالك (2):</span>
+                      <strong className="font-mono text-white select-all">info.welivequran@gmail.com</strong>
+                    </div>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2 pt-1">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        loginWithGoogleEmail(
+                          SUPABASE_OFFICIAL_CONFIG.ownerEmail,
+                          expectedTeacherPin
+                        );
+                        setAppActiveTab('owner_panel');
+                      }}
+                      className="flex-1 py-2 px-3 rounded-xl bg-[#c59b27] hover:bg-[#b58c1e] text-[#14281d] text-xs font-black flex items-center justify-center gap-1.5 shadow-sm transition cursor-pointer"
+                    >
+                      <ShieldCheck className="w-4 h-4" />
+                      <span>دخول فوري للوحة تحكم المالك (إدارة المحفظين والمشرفين)</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        loginWithGoogleEmail(
+                          SUPABASE_OFFICIAL_CONFIG.ownerEmail,
+                          expectedTeacherPin
+                        );
+                        setAppActiveTab('dashboard');
+                      }}
+                      className="py-2 px-3 rounded-xl bg-white/15 hover:bg-white/25 text-white border border-white/20 text-xs font-extrabold flex items-center justify-center gap-1.5 transition cursor-pointer"
+                    >
+                      <span>دخول المالك للرئيسية</span>
+                    </button>
+                  </div>
+                </div>
+
                 <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 space-y-3.5">
                   {googleAuthUser && (
                     <div className="p-2.5 rounded-xl bg-emerald-50 dark:bg-emerald-950/50 border border-emerald-200 dark:border-emerald-800 flex items-center justify-between gap-2 text-xs">
@@ -415,10 +483,10 @@ export const AuthGateModal: React.FC = () => {
                     </svg>
                     <span>
                       {googleLoading
-                        ? 'جارٍ فتح نافذة تسجيل الدخول بحساب Google...'
+                        ? 'جارٍ فتح نافذة تسجيل الدخول بحساب Google وحفظ الملف في Firestore...'
                         : selectedPortal === 'supervisor'
-                        ? 'تسجيل الدخول المباشر للمشرف بحساب Google'
-                        : 'تسجيل الدخول المباشر للمحفظ بحساب Google'}
+                        ? 'تسجيل الدخول المباشر للمشرف بحساب Google (وحفظ الملف في Firestore)'
+                        : 'تسجيل الدخول المباشر للمحفظ بحساب Google (وحفظ الملف في Firestore)'}
                     </span>
                   </button>
 
@@ -522,6 +590,55 @@ export const AuthGateModal: React.FC = () => {
             {/* PORTAL 3 & 4: GUARDIAN OR STUDENT LOGIN (Google Sign-In or Phone + PIN) */}
             {(selectedPortal === 'guardian' || selectedPortal === 'student') && (
               <div className="space-y-4">
+                <div className="p-3.5 rounded-xl bg-emerald-50/70 dark:bg-slate-800/80 border border-emerald-200 dark:border-emerald-800/50 space-y-2">
+                  <label className="block text-xs font-extrabold text-emerald-900 dark:text-emerald-200">
+                    🎓 اختيار سريع من قائمة طلاب الأكاديمية ({students.length} طالباً):
+                  </label>
+                  <div className="flex flex-col sm:flex-row gap-2">
+                    <select
+                      aria-label="اختيار الطالب"
+                      onChange={(e) => {
+                        const st = students.find((s) => s.id === e.target.value);
+                        if (st) {
+                          setPhone(st.whatsappPhone);
+                          setPin(st.guardianPin || '123456');
+                          setGuardianError('');
+                        }
+                      }}
+                      defaultValue=""
+                      className="flex-1 px-3 py-2 rounded-xl border border-emerald-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs font-bold text-slate-900 dark:text-slate-100"
+                    >
+                      <option value="" disabled>
+                        — اختر اسم الطالب لتعبئة رقم الهاتف والكود تلقائياً —
+                      </option>
+                      {students.map((st) => (
+                        <option key={st.id} value={st.id}>
+                          {st.name} (ولي الأمر: {st.guardianName} — {st.level})
+                        </option>
+                      ))}
+                    </select>
+                    {phone && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const matched = students.find(
+                            (s) => s.whatsappPhone === phone
+                          );
+                          if (matched) {
+                            loginAsGuardianDirect(matched.id);
+                          }
+                        }}
+                        className="px-4 py-2 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-extrabold cursor-pointer shrink-0"
+                      >
+                        دخول فوري لبوابة الطالب ←
+                      </button>
+                    )}
+                  </div>
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                    💡 الكود الافتراضي لولي الأمر هو آخر 6 أرقام من رقم الهاتف المسجل (أو الكود الموحد <span className="font-mono font-bold">123456</span>).
+                  </p>
+                </div>
+
                 <button
                   type="button"
                   disabled={googleLoading}
@@ -548,10 +665,10 @@ export const AuthGateModal: React.FC = () => {
                   </svg>
                   <span>
                     {googleLoading
-                      ? 'جارٍ فتح نافذة تسجيل الدخول بحساب Google...'
+                      ? 'جارٍ فتح نافذة تسجيل الدخول بحساب Google وحفظ الملف في Firestore...'
                       : selectedPortal === 'guardian'
-                      ? 'تسجيل الدخول السريع لولي الأمر بحساب Google'
-                      : 'تسجيل الدخول السريع للطالب بحساب Google'}
+                      ? 'تسجيل الدخول السريع لولي الأمر بحساب Google (وحفظ الملف في Firestore)'
+                      : 'تسجيل الدخول السريع للطالب بحساب Google (وحفظ الملف في Firestore)'}
                   </span>
                 </button>
 

@@ -175,6 +175,101 @@
         "createdAt",
         "updatedAt"
       ]
+    },
+    "StaffRegistrationRecord": {
+      "title": "StaffRegistrationRecord",
+      "description": "Teacher or Supervisor registration record managed by the Academy Owner in Firestore.",
+      "type": "object",
+      "properties": {
+        "staffId": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "Unique identifier of the staff member."
+        },
+        "googleUid": {
+          "type": "string",
+          "maxLength": 128,
+          "description": "Linked Google Auth UID."
+        },
+        "name": {
+          "type": "string",
+          "maxLength": 120,
+          "description": "Full name of the teacher or supervisor."
+        },
+        "email": {
+          "type": "string",
+          "maxLength": 160,
+          "description": "Google email address of the teacher or supervisor."
+        },
+        "roleTitle": {
+          "type": "string",
+          "maxLength": 160,
+          "description": "Job title in the academy."
+        },
+        "staffRole": {
+          "type": "string",
+          "enum": ["owner", "supervisor", "teacher"],
+          "maxLength": 32,
+          "description": "Staff hierarchy role."
+        },
+        "status": {
+          "type": "string",
+          "enum": ["active", "blocked", "pending"],
+          "maxLength": 32,
+          "description": "Approval status controlled by Owner or Supervisor."
+        },
+        "assignedCirclesCount": {
+          "type": "number",
+          "description": "Number of assigned Quran circles."
+        },
+        "motherName": {
+          "type": "string",
+          "maxLength": 120,
+          "description": "Mother's name (اسم الوالدة)."
+        },
+        "grandfatherName": {
+          "type": "string",
+          "maxLength": 120,
+          "description": "Grandfather's name (اسم الجد)."
+        },
+        "grandmotherName": {
+          "type": "string",
+          "maxLength": 120,
+          "description": "Grandmother's name (اسم الجدة)."
+        },
+        "uncleName": {
+          "type": "string",
+          "maxLength": 120,
+          "description": "Uncle's name (اسم العم)."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server creation timestamp."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server update timestamp."
+        }
+      },
+      "required": [
+        "staffId",
+        "googleUid",
+        "name",
+        "email",
+        "roleTitle",
+        "staffRole",
+        "status",
+        "assignedCirclesCount",
+        "motherName",
+        "grandfatherName",
+        "grandmotherName",
+        "uncleName",
+        "createdAt",
+        "updatedAt"
+      ]
     }
   },
   "firestore": {
@@ -189,6 +284,10 @@
     "/academy_snapshots/{snapshotId}": {
       "schema": "AcademyCloudSnapshot",
       "description": "Stores academy cloud sync metadata owned by the authenticated user."
+    },
+    "/staff_registrations/{staffId}": {
+      "schema": "StaffRegistrationRecord",
+      "description": "Stores teacher and supervisor registrations managed by the Owner (approve, suspend, delete)."
     }
   }
 }
