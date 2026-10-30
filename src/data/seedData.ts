@@ -9,8 +9,6 @@ import {
   TaskItem,
   TeacherRatingRecord,
 } from '../types';
-import realBackupJson from './realAcademyBackupV12.json';
-import { normalizePortableBackupPayload } from '../utils/portableBackupNormalizer';
 
 export function getLocalDateString(offsetDays = 0): string {
   const d = new Date();
@@ -26,11 +24,30 @@ export function getCurrentMonthKey(): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
 }
 
+export const DEFAULT_SUPERVISOR_PERMISSIONS = {
+  canViewAllTeachersStudents: true,
+  canAccessAndExportBackups: false,
+  canManageTeachers: true,
+  canManageStudentsAndAdmissions: true,
+  canViewFinancialRecords: false,
+  canViewSensitiveStudentContact: false,
+};
+
+export const DEFAULT_TEACHER_PERMISSIONS = {
+  canAddAndEditStudents: true,
+  canExportTeacherJsonBackup: true,
+  canImportTeacherJsonBackup: true,
+  canCreateAndEditCircles: true,
+  canIssueExamsAndCertificates: true,
+  canManageStudentFees: false,
+  canApproveAdmissionRequests: false,
+};
+
 const BASE_SETTINGS: AcademySettings = {
-  teacherName: 'الشيخ السيد الكومي',
+  teacherName: 'المعلم المشرف',
   academyName: 'أكاديمية الإمام لتحفيظ القرآن الكريم',
   tagline: 'بالقرآن نحيا',
-  officialWhatsappPhone: '201095782616',
+  officialWhatsappPhone: '01000000000',
   teacherPin: '1234',
   theme: 'light',
   fontSize: 'md',
@@ -42,19 +59,27 @@ const BASE_SETTINGS: AcademySettings = {
     attendanceTarget: 92,
   },
   whatsappHeader: 'السلام عليكم ورحمة الله وبركاته 🌿\nتحية طيبة من *أكاديمية الإمام لتحفيظ القرآن الكريم — بالقرآن نحيا*',
-  whatsappFooter: 'بارك الله فيكم وجعل أبناءنا وأبناءكم من أهل القرآن وخاصته 🤲\nللتواصل والدعم الفني مع الأكاديمية: https://wa.me/201095782616',
+  whatsappFooter: 'بارك الله فيكم وجعل أبناءنا وأبناءكم من أهل القرآن وخاصته 🤲',
   notificationsEnabled: true,
   notifyOverdueTasks: true,
   notifyUrgentStudents: true,
   reminderIntervalMinutes: 30,
   showHijriDates: true,
+  hidePersonalDataFromPublic: true,
+  limitedSharingMode: false,
+  maskStudentPhoneAndPin: true,
+  hideFinancialDetailsInStudentPortal: false,
+  hideFamilyLineageInPublicViews: true,
+  supervisorPermissions: DEFAULT_SUPERVISOR_PERMISSIONS,
+  teacherPermissions: DEFAULT_TEACHER_PERMISSIONS,
+  autoCloudBackupEnabled: true,
 };
 
 const BASE_CIRCLES: CircleGroup[] = [
   {
     id: 'circle-shatibi',
-    name: 'الحلقة الأولى - المستوى المتقدم',
-    teacherName: 'الشيخ السيد الكومي',
+    name: 'حلقة المستوى المتقدم',
+    teacherName: 'المعلم المشرف',
     level: 'متقدم',
     scheduleDays: [0, 1, 2, 3, 4, 5, 6],
     scheduleTime: '16:30',
@@ -64,8 +89,8 @@ const BASE_CIRCLES: CircleGroup[] = [
   },
   {
     id: 'circle-jazari',
-    name: 'الحلقة الثانية - المستوى المتوسط',
-    teacherName: 'الشيخ السيد الكومي',
+    name: 'حلقة المستوى المتوسط',
+    teacherName: 'المعلم المشرف',
     level: 'متوسط',
     scheduleDays: [0, 1, 2, 3, 4, 5, 6],
     scheduleTime: '18:00',
@@ -75,8 +100,8 @@ const BASE_CIRCLES: CircleGroup[] = [
   },
   {
     id: 'circle-noor',
-    name: 'الحلقة الثالثة - التأسيس والناشئة',
-    teacherName: 'الشيخ السيد الكومي',
+    name: 'حلقة التأسيس والناشئة',
+    teacherName: 'المعلم المشرف',
     level: 'مبتدئ',
     scheduleDays: [0, 1, 2, 3, 4, 5, 6],
     scheduleTime: '19:30',
@@ -88,31 +113,19 @@ const BASE_CIRCLES: CircleGroup[] = [
 
 const currentMonth = getCurrentMonthKey();
 
-const NORMALIZED_REAL_BACKUP = normalizePortableBackupPayload(
-  realBackupJson,
-  BASE_SETTINGS,
-  BASE_CIRCLES,
-  currentMonth
-);
+export const INITIAL_SETTINGS: AcademySettings = BASE_SETTINGS;
 
-export const INITIAL_SETTINGS: AcademySettings =
-  NORMALIZED_REAL_BACKUP?.settings || BASE_SETTINGS;
+export const INITIAL_CIRCLES: CircleGroup[] = BASE_CIRCLES;
 
-export const INITIAL_CIRCLES: CircleGroup[] =
-  NORMALIZED_REAL_BACKUP?.circles || BASE_CIRCLES;
-
-export const INITIAL_STUDENTS: Student[] =
-  NORMALIZED_REAL_BACKUP && NORMALIZED_REAL_BACKUP.students.length > 0
-    ? NORMALIZED_REAL_BACKUP.students
-    : [
+export const INITIAL_STUDENTS: Student[] = [
   {
     id: 'st-1',
     name: 'طالب ١',
     guardianName: 'ولي أمر طالب ١',
-    whatsappPhone: '201012345601',
+    whatsappPhone: '01000000001',
     guardianPin: '123456',
     level: 'متقدم',
-    circle: 'الحلقة الأولى - المستوى المتقدم',
+    circle: 'حلقة المستوى المتقدم',
     plan: 'مكثفة',
     linkLogic: 'الآية التالية',
     scheduleDays: [0, 1, 2, 3, 4, 5, 6],
@@ -165,10 +178,10 @@ export const INITIAL_STUDENTS: Student[] =
     id: 'st-2',
     name: 'طالب ٢',
     guardianName: 'ولي أمر طالب ٢',
-    whatsappPhone: '201012345602',
+    whatsappPhone: '01000000002',
     guardianPin: '234567',
     level: 'متقدم',
-    circle: 'الحلقة الأولى - المستوى المتقدم',
+    circle: 'حلقة المستوى المتقدم',
     plan: 'تثبيت',
     linkLogic: 'آخر آية',
     scheduleDays: [0, 1, 2, 3, 4, 5, 6],
@@ -212,10 +225,10 @@ export const INITIAL_STUDENTS: Student[] =
     id: 'st-3',
     name: 'طالب ٣',
     guardianName: 'ولي أمر طالب ٣',
-    whatsappPhone: '966501234503',
+    whatsappPhone: '01000000003',
     guardianPin: '345678',
     level: 'متوسط',
-    circle: 'الحلقة الثانية - المستوى المتوسط',
+    circle: 'حلقة المستوى المتوسط',
     plan: 'متوازنة',
     linkLogic: 'الآية التالية',
     scheduleDays: [0, 1, 2, 3, 4, 5, 6],
@@ -259,10 +272,10 @@ export const INITIAL_STUDENTS: Student[] =
     id: 'st-4',
     name: 'طالب ٤',
     guardianName: 'ولي أمر طالب ٤',
-    whatsappPhone: '201112345604',
+    whatsappPhone: '01000000004',
     guardianPin: '456789',
     level: 'متوسط',
-    circle: 'الحلقة الثانية - المستوى المتوسط',
+    circle: 'حلقة المستوى المتوسط',
     plan: 'متوازنة',
     linkLogic: 'آخر آية',
     scheduleDays: [0, 1, 2, 3, 4, 5, 6],
@@ -310,10 +323,10 @@ export const INITIAL_STUDENTS: Student[] =
     id: 'st-5',
     name: 'طالب ٥',
     guardianName: 'ولي أمر طالب ٥',
-    whatsappPhone: '201212345605',
+    whatsappPhone: '01000000005',
     guardianPin: '567890',
     level: 'متوسط',
-    circle: 'الحلقة الثانية - المستوى المتوسط',
+    circle: 'حلقة المستوى المتوسط',
     plan: 'مراجعة فقط',
     linkLogic: 'الآية التالية',
     scheduleDays: [0, 1, 2, 3, 4, 5, 6],
@@ -355,10 +368,10 @@ export const INITIAL_STUDENTS: Student[] =
     id: 'st-6',
     name: 'طالب ٦',
     guardianName: 'ولي أمر طالب ٦',
-    whatsappPhone: '966551234506',
+    whatsappPhone: '01000000006',
     guardianPin: '654321',
     level: 'مبتدئ',
-    circle: 'الحلقة الثالثة - التأسيس والناشئة',
+    circle: 'حلقة التأسيس والناشئة',
     plan: 'قصار السور',
     linkLogic: 'آخر آية',
     scheduleDays: [0, 1, 2, 3, 4, 5, 6],
@@ -398,10 +411,10 @@ export const INITIAL_STUDENTS: Student[] =
     id: 'st-7',
     name: 'طالب ٧',
     guardianName: 'ولي أمر طالب ٧',
-    whatsappPhone: '201512345607',
+    whatsappPhone: '01000000007',
     guardianPin: '789012',
     level: 'مبتدئ',
-    circle: 'الحلقة الثالثة - التأسيس والناشئة',
+    circle: 'حلقة التأسيس والناشئة',
     plan: 'قصار السور',
     linkLogic: 'آخر آية',
     scheduleDays: [0, 1, 2, 3, 4, 5, 6],
@@ -446,10 +459,10 @@ export const INITIAL_STUDENTS: Student[] =
     id: 'st-8',
     name: 'طالب ٨',
     guardianName: 'ولي أمر طالب ٨',
-    whatsappPhone: '201098765408',
+    whatsappPhone: '01000000008',
     guardianPin: '890123',
     level: 'متقدم',
-    circle: 'الحلقة الأولى - المستوى المتقدم',
+    circle: 'حلقة المستوى المتقدم',
     plan: 'مكثفة',
     linkLogic: 'الآية التالية',
     scheduleDays: [0, 1, 2, 3, 4, 5, 6],
@@ -492,14 +505,10 @@ export const INITIAL_STUDENTS: Student[] =
   },
 ];
 
-export const INITIAL_SESSIONS: SessionRecord[] =
-  NORMALIZED_REAL_BACKUP && NORMALIZED_REAL_BACKUP.sessions.length > 0
-    ? NORMALIZED_REAL_BACKUP.sessions
-    : [
-  // Today's sessions
+export const INITIAL_SESSIONS: SessionRecord[] = [
   {
     id: 'ses-101',
-    studentId: 's1781360649235',
+    studentId: 'st-1',
     date: getLocalDateString(0),
     status: 'حضر',
     masteryScore: 96,
@@ -571,16 +580,71 @@ export const INITIAL_SESSIONS: SessionRecord[] =
     parentNotes: 'تلاوة متقنة ومتميزة اليوم، بارك الله في همته العالية.',
     createdAt: new Date().toISOString(),
   },
+  {
+    id: 'ses-102',
+    studentId: 'st-2',
+    date: getLocalDateString(-1),
+    status: 'حضر',
+    masteryScore: 95,
+    previousEvaluation: {
+      newGrade: 'ممتاز',
+      nearGrade: 'ممتاز',
+      farGrade: 'ممتاز',
+    },
+    errors: [],
+    newMemorization: {
+      enabled: true,
+      surahId: 2,
+      surahName: 'البقرة',
+      isFullSurah: false,
+      fromAyah: 120,
+      toAyah: 141,
+      direction: 'asc',
+      grade: 'ممتاز',
+    },
+    nearReview: {
+      enabled: true,
+      surahId: 2,
+      surahName: 'البقرة',
+      isFullSurah: false,
+      fromAyah: 100,
+      toAyah: 119,
+      direction: 'asc',
+      grade: 'ممتاز',
+    },
+    farReview: {
+      enabled: true,
+      surahId: 18,
+      surahName: 'الكهف',
+      isFullSurah: false,
+      fromAyah: 1,
+      toAyah: 35,
+      direction: 'asc',
+      grade: 'ممتاز',
+    },
+    juzReview: {
+      enabled: false,
+      items: [],
+      direction: 'desc',
+    },
+    surahReview: {
+      enabled: true,
+      surahNames: ['الملك', 'القلم'],
+      direction: 'desc',
+    },
+    parentNotes: 'إتقان ممتاز للآيات ومخارج الحروف.',
+    createdAt: new Date(Date.now() - 86400000).toISOString(),
+  },
 ];
 
 export const INITIAL_EXAMS: ExamRecord[] = [
   {
     id: 'ex-1',
-    studentId: 's1781370542977',
+    studentId: 'st-8',
     date: getLocalDateString(-10),
     type: 'اختبار جزء',
     targetTitle: 'اختبار جزء عمّ وتبارك كاملاً برواية حفص عن عاصم',
-    committee: ['الشيخ السيد الكومي', 'لجنة الاختبارات القرآنية'],
+    committee: ['المعلم المشرف', 'لجنة الاختبارات القرآنية'],
     score: 99,
     grade: 'ممتاز',
     passed: true,
@@ -589,11 +653,11 @@ export const INITIAL_EXAMS: ExamRecord[] = [
   },
   {
     id: 'ex-2',
-    studentId: 's1781360649235',
+    studentId: 'st-1',
     date: getLocalDateString(-7),
     type: 'اختبار سورة',
     targetTitle: 'اختبار سورة مريم وأوائل سورة الكهف',
-    committee: ['الشيخ السيد الكومي', 'لجنة الاختبارات القرآنية'],
+    committee: ['المعلم المشرف', 'لجنة الاختبارات القرآنية'],
     score: 96,
     grade: 'ممتاز',
     passed: true,
@@ -602,11 +666,11 @@ export const INITIAL_EXAMS: ExamRecord[] = [
   },
   {
     id: 'ex-3',
-    studentId: 'st-fbab3390-a137-4c2f-b00b-fbbd2676be5c',
+    studentId: 'st-2',
     date: getLocalDateString(-5),
     type: 'اختبار جزء',
     targetTitle: 'اختبار سورة النساء والجزء الخامس والسادس',
-    committee: ['الشيخ السيد الكومي'],
+    committee: ['المعلم المشرف'],
     score: 95,
     grade: 'ممتاز',
     passed: true,
@@ -615,11 +679,11 @@ export const INITIAL_EXAMS: ExamRecord[] = [
   },
   {
     id: 'ex-4',
-    studentId: 's1781624491007',
+    studentId: 'st-5',
     date: getLocalDateString(-6),
     type: 'اختبار جزء',
     targetTitle: 'اختبار جزء قد سمع وسورة الحج والأنبياء',
-    committee: ['الشيخ السيد الكومي'],
+    committee: ['المعلم المشرف'],
     score: 94,
     grade: 'ممتاز',
     passed: true,
@@ -631,11 +695,11 @@ export const INITIAL_EXAMS: ExamRecord[] = [
 export const INITIAL_IJAZAHS: IjazahRecord[] = [
   {
     id: 'ij-1',
-    studentId: 's1781370542977',
+    studentId: 'st-8',
     riwayah: 'رواية حفص عن عاصم من طريق الشاطبية',
-    sheikhName: 'الشيخ السيد الكومي — إدارة الحلقات القرآنية',
+    sheikhName: 'المعلم المشرف — إدارة الحلقات القرآنية',
     sanadChain:
-      'تم عرض جزءي عمّ وتبارك غيباً بتجويد متقن على الشيخ السيد الكومي وإدارة الحلقات القرآنية بالسند المتصل إلى الإمام عاصم بن أبي النجود عن أبي عبد الرحمن السلمي عن الصحابة الكرام عن رسول الله ﷺ.',
+      'تم عرض جزءي عمّ وتبارك غيباً بتجويد متقن على المعلم المشرف وإدارة الحلقات القرآنية بالسند المتصل إلى الإمام عاصم بن أبي النجود عن أبي عبد الرحمن السلمي عن الصحابة الكرام عن رسول الله ﷺ.',
     issueDate: getLocalDateString(-9),
     examId: 'ex-1',
     certificateNumber: 'IMAM-IJZ-2026-001',
@@ -643,11 +707,11 @@ export const INITIAL_IJAZAHS: IjazahRecord[] = [
   },
   {
     id: 'ij-2',
-    studentId: 's1781360649235',
+    studentId: 'st-1',
     riwayah: 'رواية حفص عن عاصم — إجازة جزئية (سورة مريم وجزء عمّ)',
-    sheikhName: 'الشيخ السيد الكومي — إدارة الحلقات القرآنية',
+    sheikhName: 'المعلم المشرف — إدارة الحلقات القرآنية',
     sanadChain:
-      'أتم الطالب عرض المقرر غيباً وتحقيقاً على الشيخ السيد الكومي وإدارة الحلقات القرآنية بالسند المتصل إلى الإمام حفص عن عاصم.',
+      'أتم الطالب عرض المقرر غيباً وتحقيقاً على المعلم المشرف وإدارة الحلقات القرآنية بالسند المتصل إلى الإمام حفص عن عاصم.',
     issueDate: getLocalDateString(-6),
     examId: 'ex-2',
     certificateNumber: 'IMAM-IJZ-2026-002',
@@ -658,8 +722,8 @@ export const INITIAL_IJAZAHS: IjazahRecord[] = [
 export const INITIAL_TASKS: TaskItem[] = [
   {
     id: 'tsk-1',
-    title: 'إعداد لجنة اختبار جزء قد سمع (حنين حازم)',
-    studentId: 's1781370542977',
+    title: 'إعداد لجنة اختبار جزء قد سمع (طالب ٨)',
+    studentId: 'st-8',
     dueDate: getLocalDateString(0),
     priority: 'مرتفع',
     completed: false,
@@ -667,8 +731,8 @@ export const INITIAL_TASKS: TaskItem[] = [
   },
   {
     id: 'tsk-2',
-    title: 'متابعة تثبيت حفظ سورة القصص والنمل (محمد إبراهيم)',
-    studentId: 's1781365938479',
+    title: 'متابعة تثبيت حفظ سورة القصص والنمل (طالب ٢)',
+    studentId: 'st-2',
     dueDate: getLocalDateString(0),
     priority: 'مرتفع',
     completed: false,
@@ -684,8 +748,8 @@ export const INITIAL_TASKS: TaskItem[] = [
   },
   {
     id: 'tsk-4',
-    title: 'متابعة التلقين السمعي لقصار السور (احمد علي الكومي)',
-    studentId: 's1782663440423',
+    title: 'متابعة التلقين السمعي لقصار السور (طالب ٦)',
+    studentId: 'st-6',
     dueDate: getLocalDateString(2),
     priority: 'عادي',
     completed: false,
@@ -696,9 +760,9 @@ export const INITIAL_TASKS: TaskItem[] = [
 export const INITIAL_TEACHER_RATINGS: TeacherRatingRecord[] = [
   {
     id: 'tr-1',
-    studentId: 's1781360649235',
-    studentName: 'احمد حازم',
-    guardianName: 'حازم',
+    studentId: 'st-1',
+    studentName: 'طالب ١',
+    guardianName: 'ولي أمر طالب ١',
     date: getLocalDateString(-2),
     punctuality: 5,
     explanationAndFoundation: 5,
@@ -706,7 +770,7 @@ export const INITIAL_TEACHER_RATINGS: TeacherRatingRecord[] = [
     audioAndBoardQuality: 5,
     guardianFollowUp: 5,
     gratitudeMessage:
-      'جزاكم الله خيراً يا شيخ سيد على صبركم وحرصكم الكبير على إتقان مخارج الحروف والمدود، بارك الله في علمكم ووقتكم.',
+      'جزاكم الله خيراً على صبركم وحرصكم الكبير على إتقان مخارج الحروف والمدود، بارك الله في علمكم ووقتكم.',
     criteria: {
       punctuality: 5,
       encouragement: 5,
@@ -716,13 +780,13 @@ export const INITIAL_TEACHER_RATINGS: TeacherRatingRecord[] = [
     },
     averageScore: 5.0,
     thankYouMessage:
-      'جزاكم الله خيراً يا شيخ سيد على صبركم وحرصكم الكبير على إتقان مخارج الحروف والمدود، بارك الله في علمكم ووقتكم.',
+      'جزاكم الله خيراً على صبركم وحرصكم الكبير على إتقان مخارج الحروف والمدود، بارك الله في علمكم ووقتكم.',
   },
   {
     id: 'tr-2',
-    studentId: 's1781370542977',
-    studentName: 'حنين حازم',
-    guardianName: 'حازم',
+    studentId: 'st-8',
+    studentName: 'طالب ٨',
+    guardianName: 'ولي أمر طالب ٨',
     date: getLocalDateString(-4),
     punctuality: 5,
     explanationAndFoundation: 5,
@@ -744,9 +808,9 @@ export const INITIAL_TEACHER_RATINGS: TeacherRatingRecord[] = [
   },
   {
     id: 'tr-3',
-    studentId: 's1782835781501',
-    studentName: 'يحيي زكريا',
-    guardianName: 'زكريا',
+    studentId: 'st-6',
+    studentName: 'طالب ٦',
+    guardianName: 'ولي أمر طالب ٦',
     date: getLocalDateString(-5),
     punctuality: 5,
     explanationAndFoundation: 5,
@@ -771,35 +835,33 @@ export const INITIAL_TEACHER_RATINGS: TeacherRatingRecord[] = [
 export const INITIAL_HOME_SUBMISSIONS: HomePracticeSubmission[] = [
   {
     id: 'hp-1',
-    studentId: 's1781360649235',
-    studentName: 'احمد حازم',
+    studentId: 'st-1',
+    studentName: 'طالب ١',
     surahName: 'الكهف',
     fromAyah: 45,
     toAyah: 50,
     date: getLocalDateString(0),
     createdAt: getLocalDateString(0),
     durationSeconds: 74,
-    studentNote: 'أتم أحمد تسميع الورد الجديد في المنزل بعد الاستماع للشيخ الحصري ٣ مرات.',
-    guardianNote: 'أتم أحمد تسميع الورد الجديد في المنزل بعد الاستماع للشيخ الحصري ٣ مرات.',
+    studentNote: 'أتم الطالب تسميع الورد الجديد في المنزل بعد الاستماع للشيخ الحصري ٣ مرات.',
+    guardianNote: 'أتم الطالب تسميع الورد الجديد في المنزل بعد الاستماع للشيخ الحصري ٣ مرات.',
     reviewed: false,
     reviewedByTeacher: false,
   },
   {
     id: 'hp-2',
-    studentId: 's1782663370479',
-    studentName: 'ضي علي الكومي',
+    studentId: 'st-6',
+    studentName: 'طالب ٦',
     surahName: 'التين',
     fromAyah: 1,
     toAyah: 8,
     date: getLocalDateString(-1),
     createdAt: getLocalDateString(-1),
     durationSeconds: 45,
-    studentNote: 'تدربت ضي على التلقين السمعي وتسميع سورة التين كاملة.',
-    guardianNote: 'تدربت ضي على التلقين السمعي وتسميع سورة التين كاملة.',
+    studentNote: 'تدرب الطالب على التلقين السمعي وتسميع سورة التين كاملة.',
+    guardianNote: 'تدرب الطالب على التلقين السمعي وتسميع سورة التين كاملة.',
     reviewed: true,
     reviewedByTeacher: true,
-    teacherFeedback: 'ما شاء الله تبارك الله! نطق ممتاز للمدود وحروف القلقلة يا بطلة.',
+    teacherFeedback: 'ما شاء الله تبارك الله! نطق ممتاز للمدود وحروف القلقلة.',
   },
 ];
-
-

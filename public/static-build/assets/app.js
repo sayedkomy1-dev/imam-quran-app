@@ -60242,6 +60242,14 @@ function getCurrentMonthKey() {
 	const d = /* @__PURE__ */ new Date();
 	return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
 }
+var DEFAULT_SUPERVISOR_PERMISSIONS = {
+	canViewAllTeachersStudents: true,
+	canAccessAndExportBackups: false,
+	canManageTeachers: true,
+	canManageStudentsAndAdmissions: true,
+	canViewFinancialRecords: false,
+	canViewSensitiveStudentContact: false
+};
 var BASE_SETTINGS = {
 	teacherName: "الشيخ السيد الكومي",
 	academyName: "أكاديمية الإمام لتحفيظ القرآن الكريم",
@@ -60263,7 +60271,13 @@ var BASE_SETTINGS = {
 	notifyOverdueTasks: true,
 	notifyUrgentStudents: true,
 	reminderIntervalMinutes: 30,
-	showHijriDates: true
+	showHijriDates: true,
+	hidePersonalDataFromPublic: true,
+	limitedSharingMode: false,
+	maskStudentPhoneAndPin: true,
+	hideFinancialDetailsInStudentPortal: false,
+	hideFamilyLineageInPublicViews: true,
+	supervisorPermissions: DEFAULT_SUPERVISOR_PERMISSIONS
 };
 var BASE_CIRCLES = [
 	{
@@ -98857,7 +98871,7 @@ var AcademyProvider = ({ children }) => {
 			return;
 		}
 		if (currentStaffTier !== "owner") {
-			showToast("تعديل الرتبة الوظيفية متاح للمالك العام فقط", "error");
+			showToast("تعديل الرتبة الوظيفية والصلاحيات متاح للمالك العام فقط", "error");
 			return;
 		}
 		const updatedRecord = {
@@ -98865,12 +98879,83 @@ var AcademyProvider = ({ children }) => {
 			staffRole: updates.staffRole ?? target.staffRole,
 			roleTitle: updates.roleTitle?.trim() || target.roleTitle,
 			assignedCirclesCount: updates.assignedCirclesCount ?? target.assignedCirclesCount,
+			assignedCircleNames: updates.assignedCircleNames ?? target.assignedCircleNames,
+			customPermissions: updates.customPermissions !== void 0 ? {
+				...target.customPermissions || {},
+				...updates.customPermissions
+			} : target.customPermissions,
 			lastSyncAt: getLocalDateString(0)
 		};
 		setManagedTeachers((prev) => prev.map((t) => t.id === staffId ? updatedRecord : t));
 		syncStaffRegistrationToFirestore(updatedRecord).catch(() => {});
-		recordAuditLog("صلاحيات وأمان", `تحديث رتبة/بيانات عضو الهيئة التعليمية (${updatedRecord.name}) في Firestore بواسطة المالك العام`, updatedRecord.name);
+		recordAuditLog("صلاحيات وأمان", `تحديث رتبة/صلاحيات عضو الهيئة التعليمية (${updatedRecord.name}) في Firestore بواسطة المالك العام`, updatedRecord.name);
 		showToast(`تم تحديث بيانات وصلاحيات (${updatedRecord.name}) في قاعدة بيانات Firestore بنجاح ✓`, "success");
+	};
+	const updateSupervisorPermissions = (permissions, targetSupervisorId) => {
+		if (currentStaffTier !== "owner") {
+			showToast("تحديد صلاحيات المشرفين متاح للمالك العام فقط", "error");
+			return;
+		}
+		if (targetSupervisorId) {
+			const target = managedTeachers.find((t) => t.id === targetSupervisorId);
+			if (!target) return;
+			const mergedCustom = {
+				...settings.supervisorPermissions || DEFAULT_SUPERVISOR_PERMISSIONS,
+				...target.customPermissions || {},
+				...permissions
+			};
+			const updatedRecord = {
+				...target,
+				customPermissions: mergedCustom,
+				lastSyncAt: getLocalDateString(0)
+			};
+			setManagedTeachers((prev) => prev.map((t) => t.id === targetSupervisorId ? updatedRecord : t));
+			syncStaffRegistrationToFirestore(updatedRecord).catch(() => {});
+			recordAuditLog("صلاحيات وأمان", `تخصيص صلاحيات المشرف (${target.name}) بواسطة المالك العام`, target.name);
+			showToast(`تم تحديث صلاحيات المشرف (${target.name}) بنجاح ✓`, "success");
+			return;
+		}
+		const nextGlobalPerms = {
+			...settings.supervisorPermissions || DEFAULT_SUPERVISOR_PERMISSIONS,
+			...permissions
+		};
+		setSettings((prev) => ({
+			...prev,
+			supervisorPermissions: nextGlobalPerms
+		}));
+		recordAuditLog("صلاحيات وأمان", "تحديث مصفوفة الصلاحيات العامة للمشرفين بواسطة المالك العام", "صلاحيات المشرفين");
+		showToast("تم تحديث صلاحيات المشرفين المعتمدة من المالك العام ✓", "success");
+	};
+	const updateStudentPrivacyPreference = (studentId, preference) => {
+		const target = students.find((s) => s.id === studentId);
+		setStudents((prev) => prev.map((s) => s.id === studentId ? {
+			...s,
+			privacyPreference: preference
+		} : s));
+		const prefLabel = preference === "private" ? "إخفاء كامل عن العامة (خاص)" : preference === "limited" ? "وضع المشاركة المحدودة (Private Mode)" : "الوضع القياسي";
+		if (target) recordAuditLog("صلاحيات وأمان", `تحديث إعدادات الخصوصية للطالب (${target.name}) إلى: ${prefLabel}`, target.name);
+		showToast(`تم تحديث إعدادات الخصوصية إلى: ${prefLabel}`, "success");
+	};
+	const applyBulkStudentPrivacyPreference = (preference) => {
+		setStudents((prev) => prev.map((s) => ({
+			...s,
+			privacyPreference: preference
+		})));
+		const prefLabel = preference === "private" ? "إخفاء كامل عن العامة (خاص)" : preference === "limited" ? "وضع المشاركة المحدودة (Private Mode)" : "الوضع القياسي";
+		recordAuditLog("صلاحيات وأمان", `تعميم تفضيل الخصوصية (${prefLabel}) على جميع ملفات الطلاب (${students.length} طالب)`, "جميع الطلاب");
+		showToast(`تم تطبيق وضع الخصوصية (${prefLabel}) على جميع ملفات الطلاب (${students.length}) بنجاح ✓`, "success");
+	};
+	const assignStudentToTeacher = (studentId, teacherEmail, teacherName) => {
+		const target = students.find((s) => s.id === studentId);
+		setStudents((prev) => prev.map((s) => s.id === studentId ? {
+			...s,
+			assignedTeacherEmail: teacherEmail.trim().toLowerCase(),
+			assignedTeacherName: teacherName.trim()
+		} : s));
+		if (target) {
+			recordAuditLog("تعديل طالب", `إسناد الطالب (${target.name}) إلى المحفظ (${teacherName}) بإشراف المالك`, target.name);
+			showToast(`تم إسناد الطالب (${target.name}) إلى المحفظ (${teacherName}) ✓`, "success");
+		}
 	};
 	const syncAllStaffToFirestoreNow = async () => {
 		if (!auth.currentUser || !auth.currentUser.emailVerified) {
@@ -99198,7 +99283,10 @@ var AcademyProvider = ({ children }) => {
 					error: `حساب (${matchedStaff.staffRole === "supervisor" ? "المشرف" : "المحفظ"}) قيد المراجعة وبانتظار القبول والتفعيل من المالك أو المشرف.`
 				};
 				setCurrentStaffTier(matchedStaff.staffRole || "teacher");
-			} else setCurrentStaffTier("teacher");
+			} else return {
+				ok: false,
+				error: "هذا البريد الإلكتروني غير مسجل ضمن قائمة المحفظين أو المشرفين المعتمدين بالأكاديمية."
+			};
 		}
 		hasNotifiedOnSessionRef.current = false;
 		setUserRole("teacher");
@@ -99442,7 +99530,7 @@ var AcademyProvider = ({ children }) => {
 	const loginAsGuardian = (phone, pin) => {
 		const cleanDigits = phone.replace(/\D/g, "");
 		const cleanPin = pin.trim();
-		const matched = students.find((s) => (s.accountStatus ?? "نشط") !== "مؤرشف" && cleanDigits.length >= 8 && (s.whatsappPhone.endsWith(cleanDigits.slice(-9)) || cleanDigits.endsWith(s.whatsappPhone.slice(-9)) || s.whatsappPhone === cleanDigits) && (s.guardianPin === cleanPin || cleanPin === "123456" || s.whatsappPhone.slice(-6) === cleanPin));
+		const matched = students.find((s) => (s.accountStatus ?? "نشط") !== "مؤرشف" && cleanDigits.length >= 8 && (s.whatsappPhone.endsWith(cleanDigits.slice(-9)) || cleanDigits.endsWith(s.whatsappPhone.slice(-9)) || s.whatsappPhone === cleanDigits) && (s.guardianPin === cleanPin || s.whatsappPhone.replace(/\D/g, "").slice(-6) === cleanPin));
 		if (!matched) return {
 			ok: false,
 			error: "رقم الهاتف أو رمز الدخول (PIN) غير صحيح، أو الحساب مؤرشف."
@@ -100531,9 +100619,11 @@ var AcademyProvider = ({ children }) => {
 		if (Array.isArray(obj.exams)) setExams(obj.exams);
 		if (Array.isArray(obj.ijazahs)) setIjazahs(obj.ijazahs);
 		if (Array.isArray(obj.tasks)) setTasks(obj.tasks);
+		if (Array.isArray(obj.managedTeachers)) setManagedTeachers(obj.managedTeachers);
 		if (Array.isArray(obj.teacherRatings)) setTeacherRatings(obj.teacherRatings);
 		if (Array.isArray(obj.homeSubmissions)) setHomeSubmissions(obj.homeSubmissions);
-		showToast(`تم استيراد النسخة الاحتياطية بنجاح (${normalized.students.length} طالباً و ${normalized.sessions.length} حصة مسجلة)`, "success");
+		recordAuditLog("إعدادات عامة", `استعادة البيانات من ملف نسخة احتياطية محلي JSON (${normalized.circles.length} حلقات، ${normalized.students.length} طلاب، ${normalized.sessions.length} حصة)`, "إدارة النسخ الاحتياطي");
+		showToast(`تمت استعادة البيانات بنجاح (${normalized.circles.length} حلقات، ${normalized.students.length} طالباً، و ${normalized.sessions.length} حصة مسجلة)`, "success");
 		return true;
 	};
 	const saveStudentPedagogicalProfile = (studentId, profile) => {
@@ -100624,6 +100714,10 @@ var AcademyProvider = ({ children }) => {
 			addStaffMember,
 			updateStaffFamilyDetails,
 			updateStaffRoleAndDetails,
+			updateSupervisorPermissions,
+			updateStudentPrivacyPreference,
+			applyBulkStudentPrivacyPreference,
+			assignStudentToTeacher,
 			syncAllStaffToFirestoreNow,
 			linkStudentGoogleAccount,
 			sessionReminderPreview,
@@ -104542,11 +104636,11 @@ var ZoomOut = createLucideIcon("zoom-out", [
 ]);
 // src/components/AuthGateModal.tsx
 var AuthGateModal = () => {
-	const { settings, students, setActiveTab: setAppActiveTab, googleAuthUser, loginAsTeacher, loginWithGoogleEmail, startGoogleOAuthRedirect, loginAsGuardian, loginAsGuardianDirect, loginAsGuest, submitAdmissionRequest, setPublicMushafPortalOpen, waqfImpactStats, recordWaqfAmeenPrayer } = useAcademy();
+	const { settings, setActiveTab: setAppActiveTab, googleAuthUser, loginAsTeacher, loginWithGoogleEmail, startGoogleOAuthRedirect, loginAsGuardian, loginAsGuest, submitAdmissionRequest, setPublicMushafPortalOpen, waqfImpactStats, recordWaqfAmeenPrayer } = useAcademy();
 	const [selectedPortal, setSelectedPortal] = (0, import_react.useState)("teacher");
 	const [googleLoading, setGoogleLoading] = (0, import_react.useState)(false);
 	const [teacherAuthMode, setTeacherAuthMode] = (0, import_react.useState)("google_and_pin");
-	const [teacherGoogleEmail, setTeacherGoogleEmail] = (0, import_react.useState)(SUPABASE_OFFICIAL_CONFIG.ownerEmail);
+	const [teacherGoogleEmail, setTeacherGoogleEmail] = (0, import_react.useState)("");
 	const [teacherPinInput, setTeacherPinInput] = (0, import_react.useState)("");
 	const [teacherError, setTeacherError] = (0, import_react.useState)("");
 	const [phone, setPhone] = (0, import_react.useState)("");
@@ -104828,65 +104922,9 @@ var AuthGateModal = () => {
 						}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 							className: "p-6",
 							children: [
-								(selectedPortal === "teacher" || selectedPortal === "supervisor") && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+								(selectedPortal === "teacher" || selectedPortal === "supervisor") && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
 									className: "space-y-4",
-									children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-										className: "p-4 rounded-2xl bg-gradient-to-l from-emerald-950 via-[#145a3a] to-[#0f452c] text-white border-2 border-[#c59b27] shadow-md space-y-3",
-										children: [
-											/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-												className: "flex flex-wrap items-center justify-between gap-2",
-												children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-													className: "flex items-center gap-2",
-													children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(ShieldCheck, { className: "w-5 h-5 text-[#dfbd69] shrink-0" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
-														className: "text-xs sm:text-sm font-black text-[#dfbd69]",
-														children: "👑 بيانات دخول المالك العام للأكاديمية (صلاحيات كاملة + لوحة تحكم Firestore)"
-													})]
-												}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
-													className: "text-[11px] font-mono text-emerald-200",
-													children: ["PIN: ", /* @__PURE__ */ (0, import_jsx_runtime.jsx)("strong", {
-														className: "text-[#dfbd69]",
-														children: "1234"
-													})]
-												})]
-											}),
-											/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-												className: "grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs bg-black/25 p-2.5 rounded-xl border border-white/10",
-												children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
-													className: "text-emerald-200/80 block text-[10px]",
-													children: "البريد الرسمي للمالك (1):"
-												}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("strong", {
-													className: "font-mono text-white select-all",
-													children: "sayedkomy2@gmail.com"
-												})] }), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
-													className: "text-emerald-200/80 block text-[10px]",
-													children: "البريد الرسمي للمالك (2):"
-												}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("strong", {
-													className: "font-mono text-white select-all",
-													children: "info.welivequran@gmail.com"
-												})] })]
-											}),
-											/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-												className: "flex flex-wrap items-center gap-2 pt-1",
-												children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
-													type: "button",
-													onClick: () => {
-														loginWithGoogleEmail(SUPABASE_OFFICIAL_CONFIG.ownerEmail, expectedTeacherPin);
-														setAppActiveTab("owner_panel");
-													},
-													className: "flex-1 py-2 px-3 rounded-xl bg-[#c59b27] hover:bg-[#b58c1e] text-[#14281d] text-xs font-black flex items-center justify-center gap-1.5 shadow-sm transition cursor-pointer",
-													children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(ShieldCheck, { className: "w-4 h-4" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "دخول فوري للوحة تحكم المالك (إدارة المحفظين والمشرفين)" })]
-												}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
-													type: "button",
-													onClick: () => {
-														loginWithGoogleEmail(SUPABASE_OFFICIAL_CONFIG.ownerEmail, expectedTeacherPin);
-														setAppActiveTab("dashboard");
-													},
-													className: "py-2 px-3 rounded-xl bg-white/15 hover:bg-white/25 text-white border border-white/20 text-xs font-extrabold flex items-center justify-center gap-1.5 transition cursor-pointer",
-													children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "دخول المالك للرئيسية" })
-												})]
-											})
-										]
-									}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+									children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 										className: "p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 space-y-3.5",
 										children: [
 											googleAuthUser && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
@@ -104895,13 +104933,7 @@ var AuthGateModal = () => {
 													className: "flex items-center gap-2",
 													children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(CircleCheck, { className: "w-4 h-4 text-emerald-600 shrink-0" }), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
 														className: "font-bold text-emerald-900 dark:text-emerald-200",
-														children: [
-															"حساب Google متصل: ",
-															googleAuthUser.displayName,
-															" (",
-															googleAuthUser.email,
-															")"
-														]
+														children: ["حساب Google متصل: ", googleAuthUser.displayName]
 													})]
 												})
 											}),
@@ -104932,13 +104964,13 @@ var AuthGateModal = () => {
 															d: "M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C17.95 1.19 15.24 0 12 0 7.31 0 3.26 2.7 1.29 6.62l3.98 3.09c.95-2.85 3.6-4.96 6.73-4.96z"
 														})
 													]
-												}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: googleLoading ? "جارٍ فتح نافذة تسجيل الدخول بحساب Google وحفظ الملف في Firestore..." : selectedPortal === "supervisor" ? "تسجيل الدخول المباشر للمشرف بحساب Google (وحفظ الملف في Firestore)" : "تسجيل الدخول المباشر للمحفظ بحساب Google (وحفظ الملف في Firestore)" })]
+												}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: googleLoading ? "جارٍ التحقق من حساب Google المعتمد..." : selectedPortal === "supervisor" ? "تسجيل الدخول بحساب Google للمشرف العام" : "تسجيل الدخول بحساب Google للمحفظ" })]
 											}),
 											/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 												className: "flex items-center gap-2 text-[11px] text-slate-400",
 												children: [
 													/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "flex-1 h-px bg-slate-200 dark:bg-slate-700" }),
-													/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "أو عبر البريد المعتمد ورمز المرور (PIN)" }),
+													/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "أو عبر البريد المعتمد ورمز المرور السري (PIN)" }),
 													/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", { className: "flex-1 h-px bg-slate-200 dark:bg-slate-700" })
 												]
 											}),
@@ -104962,7 +104994,7 @@ var AuthGateModal = () => {
 													}),
 													teacherAuthMode === "google_and_pin" && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("label", {
 														className: "block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1",
-														children: selectedPortal === "supervisor" ? "بريد Google للمشرف العام:" : "بريد Google للمحفظ المعتمد:"
+														children: selectedPortal === "supervisor" ? "البريد الإلكتروني للمشرف:" : "البريد الإلكتروني للمحفظ:"
 													}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 														className: "relative",
 														children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Mail, { className: "w-4 h-4 text-slate-400 absolute right-3 top-3" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
@@ -104970,14 +105002,15 @@ var AuthGateModal = () => {
 															dir: "ltr",
 															value: teacherGoogleEmail,
 															onChange: (e) => setTeacherGoogleEmail(e.target.value),
-															placeholder: "info.welivequran@gmail.com",
+															placeholder: "teacher@example.com",
+															autoComplete: "username",
 															className: "w-full pr-9 pl-3 py-2.5 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs sm:text-sm font-mono text-left focus:outline-none focus:ring-2 focus:ring-emerald-600",
 															required: true
 														})]
 													})] }),
 													/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("label", {
 														className: "block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1",
-														children: selectedPortal === "supervisor" ? "رمز مرور المشرف (PIN):" : "رمز مرور المحفظ (PIN):"
+														children: selectedPortal === "supervisor" ? "رمز مرور المشرف السري (PIN):" : "رمز مرور المحفظ السري (PIN):"
 													}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 														className: "relative",
 														children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(KeyRound, { className: "w-4 h-4 text-slate-400 absolute right-3 top-3" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
@@ -104987,6 +105020,7 @@ var AuthGateModal = () => {
 															onChange: (e) => setTeacherPinInput(e.target.value),
 															placeholder: "••••",
 															maxLength: 12,
+															autoComplete: "current-password",
 															className: "w-full pr-9 pl-3 py-2.5 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm font-mono tracking-widest text-center focus:outline-none focus:ring-2 focus:ring-emerald-600",
 															required: true
 														})]
@@ -104998,79 +105032,16 @@ var AuthGateModal = () => {
 													/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
 														type: "submit",
 														className: "w-full py-3 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white font-bold text-sm shadow-md shadow-emerald-900/15 flex items-center justify-center gap-2 transition cursor-pointer",
-														children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Lock, { className: "w-4 h-4" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: selectedPortal === "supervisor" ? "دخول لوحة الإشراف العام والإعدادات" : "دخول لوحة تحكم المحفظ والحلقات" })]
+														children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Lock, { className: "w-4 h-4" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: selectedPortal === "supervisor" ? "تسجيل الدخول للوحة الإشراف العام" : "تسجيل الدخول للوحة المحفظ والحلقات" })]
 													})
 												]
 											})
 										]
-									})]
+									})
 								}),
 								(selectedPortal === "guardian" || selectedPortal === "student") && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 									className: "space-y-4",
 									children: [
-										/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-											className: "p-3.5 rounded-xl bg-emerald-50/70 dark:bg-slate-800/80 border border-emerald-200 dark:border-emerald-800/50 space-y-2",
-											children: [
-												/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", {
-													className: "block text-xs font-extrabold text-emerald-900 dark:text-emerald-200",
-													children: [
-														"🎓 اختيار سريع من قائمة طلاب الأكاديمية (",
-														students.length,
-														" طالباً):"
-													]
-												}),
-												/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-													className: "flex flex-col sm:flex-row gap-2",
-													children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("select", {
-														"aria-label": "اختيار الطالب",
-														onChange: (e) => {
-															const st = students.find((s) => s.id === e.target.value);
-															if (st) {
-																setPhone(st.whatsappPhone);
-																setPin(st.guardianPin || "123456");
-																setGuardianError("");
-															}
-														},
-														defaultValue: "",
-														className: "flex-1 px-3 py-2 rounded-xl border border-emerald-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs font-bold text-slate-900 dark:text-slate-100",
-														children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", {
-															value: "",
-															disabled: true,
-															children: "— اختر اسم الطالب لتعبئة رقم الهاتف والكود تلقائياً —"
-														}), students.map((st) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("option", {
-															value: st.id,
-															children: [
-																st.name,
-																" (ولي الأمر: ",
-																st.guardianName,
-																" — ",
-																st.level,
-																")"
-															]
-														}, st.id))]
-													}), phone && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
-														type: "button",
-														onClick: () => {
-															const matched = students.find((s) => s.whatsappPhone === phone);
-															if (matched) loginAsGuardianDirect(matched.id);
-														},
-														className: "px-4 py-2 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-extrabold cursor-pointer shrink-0",
-														children: "دخول فوري لبوابة الطالب ←"
-													})]
-												}),
-												/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("p", {
-													className: "text-[11px] text-slate-500 dark:text-slate-400",
-													children: [
-														"💡 الكود الافتراضي لولي الأمر هو آخر 6 أرقام من رقم الهاتف المسجل (أو الكود الموحد ",
-														/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
-															className: "font-mono font-bold",
-															children: "123456"
-														}),
-														")."
-													]
-												})
-											]
-										}),
 										/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
 											type: "button",
 											disabled: googleLoading,
@@ -105098,7 +105069,7 @@ var AuthGateModal = () => {
 														d: "M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C17.95 1.19 15.24 0 12 0 7.31 0 3.26 2.7 1.29 6.62l3.98 3.09c.95-2.85 3.6-4.96 6.73-4.96z"
 													})
 												]
-											}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: googleLoading ? "جارٍ فتح نافذة تسجيل الدخول بحساب Google وحفظ الملف في Firestore..." : selectedPortal === "guardian" ? "تسجيل الدخول السريع لولي الأمر بحساب Google (وحفظ الملف في Firestore)" : "تسجيل الدخول السريع للطالب بحساب Google (وحفظ الملف في Firestore)" })]
+											}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: googleLoading ? "جارٍ التحقق من حساب Google..." : selectedPortal === "guardian" ? "تسجيل الدخول لولي الأمر بحساب Google المرتبط" : "تسجيل الدخول للطالب بحساب Google المرتبط" })]
 										}),
 										/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 											className: "flex items-center gap-2 text-[11px] text-slate-400",
@@ -141644,11 +141615,16 @@ var FamilyGuidanceGeneratorSection = ({ student, errors = [], surahName, fromAya
 };
 // src/components/StudentsView.tsx
 var StudentsView = () => {
-	const { students, sessions, circles, settings, selectedStudentId, setSelectedStudentId, setActiveTab, saveStudent, deleteStudent, setStudentAccountStatus, updateStudentFee, loginAsGuardianDirect, linkStudentStopToAyah, addStudentCustomMutashabih, deleteStudentCustomMutashabih, admissionRequests, approveAdmissionAsStudent, updateAdmissionRequestStatus, clearAllStudentsAndStartEmpty, googleAuthUser, showToast } = useAcademy();
+	const { students, sessions, circles, settings, managedTeachers, currentStaffTier, selectedStudentId, setSelectedStudentId, setActiveTab, saveStudent, deleteStudent, setStudentAccountStatus, updateStudentPrivacyPreference, updateStudentFee, loginAsGuardianDirect, linkStudentStopToAyah, addStudentCustomMutashabih, deleteStudentCustomMutashabih, admissionRequests, approveAdmissionAsStudent, updateAdmissionRequestStatus, clearAllStudentsAndStartEmpty, googleAuthUser, showToast } = useAcademy();
+	const supervisorPerms = settings.supervisorPermissions || DEFAULT_SUPERVISOR_PERMISSIONS;
+	const canSeeAllTeachersStudents = currentStaffTier === "owner" || currentStaffTier === "supervisor" && supervisorPerms.canViewAllTeachersStudents;
+	const canManageStudents = currentStaffTier === "owner" || currentStaffTier === "teacher" || currentStaffTier === "supervisor" && supervisorPerms.canManageStudentsAndAdmissions;
 	const [searchQuery, setSearchQuery] = (0, import_react.useState)("");
 	const [levelFilter, setLevelFilter] = (0, import_react.useState)("");
 	const [circleFilter, setCircleFilter] = (0, import_react.useState)("");
+	const [teacherFilter, setTeacherFilter] = (0, import_react.useState)("");
 	const [statusFilter, setStatusFilter] = (0, import_react.useState)("نشط");
+	const [ownerRevealSensitive, setOwnerRevealSensitive] = (0, import_react.useState)(false);
 	const [profileTab, setProfileTab] = (0, import_react.useState)("overview");
 	const [mushafViewMode, setMushafViewMode] = (0, import_react.useState)("surahs");
 	const [modalOpen, setModalOpen] = (0, import_react.useState)(false);
@@ -141718,14 +141694,19 @@ var StudentsView = () => {
 			const matchSearch = !q || st.name.includes(q) || st.guardianName.includes(q) || st.whatsappPhone.includes(q) || st.circle.includes(q);
 			const matchLevel = !levelFilter || st.level === levelFilter;
 			const matchCircle = !circleFilter || st.circle === circleFilter;
+			const stTeacherName = st.assignedTeacherName || circles.find((c) => c.name === st.circle)?.teacherName || settings.teacherName;
+			const matchTeacher = !teacherFilter || stTeacherName === teacherFilter;
 			const stStatus = st.accountStatus || "نشط";
-			return matchSearch && matchLevel && matchCircle && (statusFilter === "all" || stStatus === statusFilter);
+			return matchSearch && matchLevel && matchCircle && matchTeacher && (statusFilter === "all" || stStatus === statusFilter);
 		});
 	}, [
 		students,
+		circles,
+		settings.teacherName,
 		searchQuery,
 		levelFilter,
 		circleFilter,
+		teacherFilter,
 		statusFilter
 	]);
 	const activeStudent = (0, import_react.useMemo)(() => {
@@ -141930,6 +141911,23 @@ var StudentsView = () => {
 								value: c.name,
 								children: c.name
 							}, c.id))]
+						}),
+						canSeeAllTeachersStudents && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("select", {
+							value: teacherFilter,
+							onChange: (e) => setTeacherFilter(e.target.value),
+							className: "px-3.5 py-2.5 rounded-xl border border-neutral-200 dark:border-emerald-900 bg-[#f6f7f2] dark:bg-[#0b1711] text-xs font-bold",
+							title: "تصفية الطلاب حسب المحفظ (متاح للمالك والمشرف المصرح له)",
+							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("option", {
+								value: "",
+								children: [
+									"جميع المحفظين (",
+									managedTeachers.filter((t) => t.staffRole !== "supervisor").length,
+									")"
+								]
+							}), Array.from(new Set(managedTeachers.filter((t) => t.staffRole !== "supervisor").map((t) => t.name))).map((tName) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("option", {
+								value: tName,
+								children: ["طلاب المحفظ: ", tName]
+							}, tName))]
 						}),
 						/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("select", {
 							value: statusFilter,
@@ -142205,15 +142203,25 @@ var StudentsView = () => {
 											className: "w-16 h-16 rounded-2xl bg-white/15 border border-[#c59b27]/50 flex items-center justify-center text-xl font-extrabold text-[#dfbd69]",
 											children: activeStudent.name.split(" ").slice(0, 2).map((w) => w[0]).join("")
 										}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
-											/* @__PURE__ */ (0, import_jsx_runtime.jsx)("h2", {
-												className: "text-xl font-extrabold",
-												children: activeStudent.name
+											/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+												className: "flex flex-wrap items-center gap-2",
+												children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("h2", {
+													className: "text-xl font-extrabold",
+													children: activeStudent.name
+												}), (settings.limitedSharingMode || activeStudent.privacyPreference === "limited" || activeStudent.privacyPreference === "private" || (settings.hidePersonalDataFromPublic ?? true)) && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
+													className: "px-2.5 py-0.5 rounded-lg bg-black/25 border border-[#dfbd69]/50 text-[#dfbd69] text-[10px] font-extrabold flex items-center gap-1",
+													children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Lock, { className: "w-3 h-3" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: settings.limitedSharingMode || activeStudent.privacyPreference === "limited" ? "وضع المشاركة المحدودة (Private Mode)" : activeStudent.privacyPreference === "private" ? "إخفاء كامل عن العامة" : "محمي من الظهور للعامة" })]
+												})]
 											}),
 											/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("p", {
 												className: "text-xs text-emerald-100 mt-1",
 												children: [
 													activeStudent.circle,
-													" · المستوى: ",
+													" · المحفظ:",
+													" ",
+													activeStudent.assignedTeacherName || circles.find((c) => c.name === activeStudent.circle)?.teacherName || settings.teacherName,
+													" ",
+													"· المستوى: ",
 													activeStudent.level,
 													" · الخطة:",
 													" ",
@@ -142222,37 +142230,63 @@ var StudentsView = () => {
 													activeStudent.linkLogic
 												]
 											}),
-											/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-												className: "flex flex-wrap items-center gap-3 text-xs text-[#dfbd69] mt-2",
-												children: [
-													/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { children: ["ولي الأمر: ", activeStudent.guardianName] }),
-													/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "·" }),
-													/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
-														className: "tabular-nums font-mono",
-														dir: "ltr",
-														children: ["+", activeStudent.whatsappPhone]
-													}),
-													/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "·" }),
-													/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
-														className: "tabular-nums font-mono",
-														children: ["PIN البوابة: ", activeStudent.guardianPin]
-													}),
-													activeStudent.googleUid && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "·" }), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
-														className: "px-2 py-0.5 rounded-md bg-white/15 text-emerald-100 font-mono text-[10px]",
-														children: [
-															"Google UID: ",
-															activeStudent.googleUid.slice(0, 10),
-															"..."
-														]
-													})] })
-												]
-											}),
-											(activeStudent.motherName || activeStudent.grandfatherName || activeStudent.grandmotherName || activeStudent.uncleName) && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+											(() => {
+												const isPrivacyMaskActive = (settings.limitedSharingMode || (settings.maskStudentPhoneAndPin ?? true) || activeStudent.privacyPreference === "limited" || activeStudent.privacyPreference === "private") && !(ownerRevealSensitive && (currentStaffTier === "owner" || currentStaffTier === "supervisor" && supervisorPerms.canViewSensitiveStudentContact));
+												const maskedPhone = activeStudent.whatsappPhone.length >= 7 ? `${activeStudent.whatsappPhone.slice(0, 4)}•••••${activeStudent.whatsappPhone.slice(-3)}` : "••••••••••";
+												return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+													className: "flex flex-wrap items-center gap-3 text-xs text-[#dfbd69] mt-2",
+													children: [
+														/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { children: ["ولي الأمر: ", activeStudent.guardianName] }),
+														/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "·" }),
+														/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
+															className: "tabular-nums font-mono",
+															dir: "ltr",
+															children: ["+", isPrivacyMaskActive ? maskedPhone : activeStudent.whatsappPhone]
+														}),
+														/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "·" }),
+														/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
+															className: "tabular-nums font-mono",
+															children: ["PIN البوابة: ", isPrivacyMaskActive ? "••••••" : activeStudent.guardianPin]
+														}),
+														(currentStaffTier === "owner" || currentStaffTier === "supervisor" && supervisorPerms.canViewSensitiveStudentContact) && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+															type: "button",
+															onClick: () => setOwnerRevealSensitive((p) => !p),
+															className: "px-2 py-0.5 rounded-lg bg-white/15 hover:bg-white/25 text-white text-[10px] font-bold flex items-center gap-1 cursor-pointer",
+															title: "إظهار أو إخفاء بيانات الاتصال السرية (خاص بالمالك والمشرف المصرح له)",
+															children: ownerRevealSensitive ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(EyeOff, { className: "w-3 h-3" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "إخفاء الرقم والرمز" })] }) : /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Eye, { className: "w-3 h-3" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "إظهار للمالك" })] })
+														}),
+														canManageStudents && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("select", {
+															value: activeStudent.privacyPreference || (settings.limitedSharingMode ? "limited" : "standard"),
+															onChange: (e) => updateStudentPrivacyPreference(activeStudent.id, e.target.value),
+															className: "px-2 py-0.5 rounded-lg bg-black/25 border border-white/20 text-white text-[10px] font-extrabold cursor-pointer",
+															title: "تفضيل الخصوصية لهذا الطالب",
+															children: [
+																/* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", {
+																	value: "standard",
+																	className: "text-black",
+																	children: "خصوصية: قياسي"
+																}),
+																/* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", {
+																	value: "limited",
+																	className: "text-black",
+																	children: "خصوصية: مشاركة محدودة (Private Mode)"
+																}),
+																/* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", {
+																	value: "private",
+																	className: "text-black",
+																	children: "خصوصية: إخفاء كامل عن العامة"
+																})
+															]
+														})
+													]
+												});
+											})(),
+											(!settings.hideFamilyLineageInPublicViews || currentStaffTier === "owner") && (activeStudent.motherName || activeStudent.grandfatherName || activeStudent.grandmotherName || activeStudent.uncleName) && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 												className: "flex flex-wrap items-center gap-2 text-[11px] text-emerald-100 mt-2 bg-black/15 px-3 py-1.5 rounded-xl border border-white/10",
 												children: [
 													/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
 														className: "font-extrabold text-[#dfbd69]",
-														children: "بيانات العائلة:"
+														children: "بيانات العائلة (للمالك):"
 													}),
 													activeStudent.motherName && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { children: ["الوالدة: ", activeStudent.motherName] }),
 													activeStudent.grandfatherName && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { children: ["• الجد: ", activeStudent.grandfatherName] }),
@@ -159104,8 +159138,9 @@ var StudentAudioRecorder = ({ studentId, studentName, surahId, surahName, fromAy
 	});
 };
 var GuardianAndGuestView = () => {
-	const { userRole, guardianStudentId, guardianSiblings, students, sessions, circles, settings, homeSubmissions, teacherRatings, sessionReminderPreview, setSessionReminderPreview, toggleStudentFortressTask, saveHomeSubmission, addTimestampPinToHomeSubmission, updateStudentAccessibilityMode, submitAdmissionRequest, saveTeacherRating, setPublicMushafPortalOpen, updateSettings, saveStudent, addStudentXp, awardStudentBadge, logout, loginAsTeacher, setActiveTab, currentStaffTier, setCurrentStaffTier, isStaffPortalPreview, setIsStaffPortalPreview, publishFamilyGuidanceToGuardian, showToast } = useAcademy();
+	const { userRole, guardianStudentId, guardianSiblings, students, sessions, circles, settings, homeSubmissions, teacherRatings, sessionReminderPreview, setSessionReminderPreview, toggleStudentFortressTask, saveHomeSubmission, addTimestampPinToHomeSubmission, updateStudentAccessibilityMode, submitAdmissionRequest, saveTeacherRating, setPublicMushafPortalOpen, updateSettings, saveStudent, addStudentXp, awardStudentBadge, logout, loginAsTeacher, setActiveTab, currentStaffTier, setCurrentStaffTier, isStaffPortalPreview, setIsStaffPortalPreview, publishFamilyGuidanceToGuardian, updateStudentPrivacyPreference, showToast } = useAcademy();
 	const [familyCertificateModalOpen, setFamilyCertificateModalOpen] = (0, import_react.useState)(false);
+	const [revealGuardianFinanceInPrivateMode, setRevealGuardianFinanceInPrivateMode] = (0, import_react.useState)(false);
 	const [portalViewPersona, setPortalViewPersona] = (0, import_react.useState)(() => isStaffPortalPreview ? "staff_supervision" : "guardian");
 	const [tahfeezSubTab, setTahfeezSubTab] = (0, import_react.useState)("player");
 	const [quickStaffGuidanceTitle, setQuickStaffGuidanceTitle] = (0, import_react.useState)("توجيه ومتابعة من المشرف والشيخ المحفظ للأسرة");
@@ -159867,7 +159902,16 @@ var GuardianAndGuestView = () => {
 											className: "opacity-40",
 											children: "·"
 										}),
-										/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { children: ["الرواية: ", student.riwayah || "حفص عن عاصم"] })
+										/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { children: ["الرواية: ", student.riwayah || "حفص عن عاصم"] }),
+										/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+											"aria-hidden": "true",
+											className: "opacity-40",
+											children: "·"
+										}),
+										/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
+											className: "px-2 py-0.5 rounded-md bg-emerald-500/20 border border-emerald-400/40 text-emerald-100 text-[11px] font-extrabold flex items-center gap-1",
+											children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Shield, { className: "w-3 h-3 text-[#dfbd69]" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: (student.privacyPreference || (settings.limitedSharingMode ? "limited" : "standard")) === "private" ? "إخفاء كامل عن العامة" : (student.privacyPreference || (settings.limitedSharingMode ? "limited" : "standard")) === "limited" ? "وضع المشاركة المحدودة (Private Mode)" : settings.hidePersonalDataFromPublic !== false ? "محمي من الظهور للعامة" : "وضع قياسي" })]
+										})
 									]
 								})
 							]
@@ -159959,63 +160003,98 @@ var GuardianAndGuestView = () => {
 						}, m.id))]
 					}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 						className: "flex flex-wrap items-center gap-2",
-						children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-							className: "flex items-center gap-1 bg-black/20 p-0.5 rounded-lg border border-white/15",
-							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
-								type: "button",
-								onClick: () => {
-									const order = [
-										"sm",
-										"md",
-										"lg"
-									];
-									const idx = order.indexOf(settings.fontScale || "md");
-									const next = order[Math.min(order.length - 1, idx + 1)];
-									updateSettings({ fontScale: next });
-									showToast("تم تكبير الخط لراحة القراءة", "info");
-								},
-								className: "px-2 py-0.5 rounded text-[11px] font-extrabold text-[#dfbd69] hover:bg-white/10 cursor-pointer",
-								title: "تكبير حجم الخط (أ+)",
-								children: "أ+"
-							}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
-								type: "button",
-								onClick: () => {
-									const order = [
-										"sm",
-										"md",
-										"lg"
-									];
-									const idx = order.indexOf(settings.fontScale || "md");
-									const next = order[Math.max(0, idx - 1)];
-									updateSettings({ fontScale: next });
-									showToast("تم تصغير الخط", "info");
-								},
-								className: "px-2 py-0.5 rounded text-[11px] font-extrabold text-emerald-100 hover:bg-white/10 cursor-pointer",
-								title: "تصغير حجم الخط (أ-)",
-								children: "أ-"
-							})]
-						}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
-							className: "flex items-center gap-1 bg-black/20 p-0.5 rounded-lg border border-white/15",
-							children: [
-								{
-									id: "light",
-									label: "نهاري"
-								},
-								{
-									id: "dark",
-									label: "ليلي"
-								},
-								{
-									id: "sepia",
-									label: "كريمي"
-								}
-							].map((tm) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
-								type: "button",
-								onClick: () => updateSettings({ theme: tm.id }),
-								className: `px-2 py-0.5 rounded text-[11px] font-bold transition cursor-pointer ${settings.theme === tm.id ? "bg-[#c59b27] text-[#14281d] font-extrabold" : "text-emerald-100 hover:bg-white/10"}`,
-								children: tm.label
-							}, tm.id))
-						})]
+						children: [
+							/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+								className: "flex items-center gap-1 bg-black/20 p-0.5 rounded-lg border border-white/15",
+								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+									type: "button",
+									onClick: () => {
+										const order = [
+											"sm",
+											"md",
+											"lg"
+										];
+										const idx = order.indexOf(settings.fontScale || "md");
+										const next = order[Math.min(order.length - 1, idx + 1)];
+										updateSettings({ fontScale: next });
+										showToast("تم تكبير الخط لراحة القراءة", "info");
+									},
+									className: "px-2 py-0.5 rounded text-[11px] font-extrabold text-[#dfbd69] hover:bg-white/10 cursor-pointer",
+									title: "تكبير حجم الخط (أ+)",
+									children: "أ+"
+								}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+									type: "button",
+									onClick: () => {
+										const order = [
+											"sm",
+											"md",
+											"lg"
+										];
+										const idx = order.indexOf(settings.fontScale || "md");
+										const next = order[Math.max(0, idx - 1)];
+										updateSettings({ fontScale: next });
+										showToast("تم تصغير الخط", "info");
+									},
+									className: "px-2 py-0.5 rounded text-[11px] font-extrabold text-emerald-100 hover:bg-white/10 cursor-pointer",
+									title: "تصغير حجم الخط (أ-)",
+									children: "أ-"
+								})]
+							}),
+							userRole === "guardian" && student && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+								className: "flex items-center gap-1 bg-black/25 px-2 py-1 rounded-lg border border-[#dfbd69]/40",
+								children: [
+									/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Shield, { className: "w-3.5 h-3.5 text-[#dfbd69]" }),
+									/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+										className: "text-[11px] font-bold text-[#dfbd69]",
+										children: "الخصوصية:"
+									}),
+									[
+										{
+											id: "standard",
+											label: "قياسي"
+										},
+										{
+											id: "limited",
+											label: "مشاركة محدودة (Private)"
+										},
+										{
+											id: "private",
+											label: "إخفاء كامل"
+										}
+									].map((privOpt) => {
+										const activePriv = student.privacyPreference || (settings.limitedSharingMode ? "limited" : "standard");
+										return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+											type: "button",
+											onClick: () => updateStudentPrivacyPreference(student.id, privOpt.id),
+											className: `px-2 py-0.5 rounded text-[11px] font-bold transition cursor-pointer ${activePriv === privOpt.id ? "bg-[#c59b27] text-[#14281d] font-extrabold" : "text-emerald-100 hover:bg-white/10"}`,
+											children: privOpt.label
+										}, privOpt.id);
+									})
+								]
+							}),
+							/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+								className: "flex items-center gap-1 bg-black/20 p-0.5 rounded-lg border border-white/15",
+								children: [
+									{
+										id: "light",
+										label: "نهاري"
+									},
+									{
+										id: "dark",
+										label: "ليلي"
+									},
+									{
+										id: "sepia",
+										label: "كريمي"
+									}
+								].map((tm) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+									type: "button",
+									onClick: () => updateSettings({ theme: tm.id }),
+									className: `px-2 py-0.5 rounded text-[11px] font-bold transition cursor-pointer ${settings.theme === tm.id ? "bg-[#c59b27] text-[#14281d] font-extrabold" : "text-emerald-100 hover:bg-white/10"}`,
+									children: tm.label
+								}, tm.id))
+							})
+						]
 					})]
 				})]
 			}),
@@ -161579,88 +161658,131 @@ var GuardianAndGuestView = () => {
 					}),
 					guardianScreenTab === "documents_billing" && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 						className: "rounded-3xl bg-white dark:bg-[#12231a] p-6 border-2 border-[#c59b27]/50 shadow-xs space-y-4",
-						children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-							className: "flex flex-wrap items-center justify-between gap-3",
-							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-								className: "flex items-center gap-2.5",
-								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
-									className: "p-2.5 rounded-2xl bg-[#145a3a] text-[#dfbd69]",
-									children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(IdCard, { className: "w-5 h-5" })
-								}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("h3", {
-									className: "text-base font-extrabold text-[#145a3a] dark:text-[#dfbd69]",
-									children: portalViewPersona === "student" ? "بطاقة الهوية القرآنية الذكية للطالب" : "بطاقة الطالب الذكية وإيصالات السداد المعتمدة"
-								}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
-									className: "text-xs text-neutral-500",
-									children: portalViewPersona === "student" ? "يمكنك معاينة وتحميل بطاقة الهوية القرآنية الخاصة بك" : "يمكن لولي الأمر معاينة وتحميل بطاقة الهوية القرآنية وإيصالات السداد الشهرية المختومة"
-								})] })]
-							}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-								className: "flex flex-wrap items-center gap-2",
-								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
-									type: "button",
-									onClick: () => setGuardianIdCardOpen(true),
-									className: "flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-[#145a3a] hover:bg-[#0f452c] text-white text-xs font-extrabold cursor-pointer",
-									children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(IdCard, { className: "w-4 h-4 text-[#dfbd69]" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "فتح بطاقة الطالب الذكية" })]
-								}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
-									type: "button",
-									onClick: () => {
-										downloadStudentIdCardPng(student, settings);
-										showToast("تم تحميل بطاقة الطالب الذكية كصورة عالية الدقة", "success");
-									},
-									className: "flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-[#c59b27] hover:bg-[#b58c1e] text-[#14281d] text-xs font-extrabold cursor-pointer",
-									children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Download, { className: "w-4 h-4" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "حفظ صورة البطاقة" })]
+						children: [
+							/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+								className: "flex flex-wrap items-center justify-between gap-3",
+								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+									className: "flex items-center gap-2.5",
+									children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+										className: "p-2.5 rounded-2xl bg-[#145a3a] text-[#dfbd69]",
+										children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(IdCard, { className: "w-5 h-5" })
+									}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("h3", {
+										className: "text-base font-extrabold text-[#145a3a] dark:text-[#dfbd69]",
+										children: portalViewPersona === "student" ? "بطاقة الهوية القرآنية الذكية للطالب" : "بطاقة الطالب الذكية وإيصالات السداد المعتمدة"
+									}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+										className: "text-xs text-neutral-500",
+										children: portalViewPersona === "student" ? "يمكنك معاينة وتحميل بطاقة الهوية القرآنية الخاصة بك" : "يمكن لولي الأمر معاينة وتحميل بطاقة الهوية القرآنية وإيصالات السداد الشهرية المختومة"
+									})] })]
+								}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+									className: "flex flex-wrap items-center gap-2",
+									children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
+										type: "button",
+										onClick: () => setGuardianIdCardOpen(true),
+										className: "flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-[#145a3a] hover:bg-[#0f452c] text-white text-xs font-extrabold cursor-pointer",
+										children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(IdCard, { className: "w-4 h-4 text-[#dfbd69]" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "فتح بطاقة الطالب الذكية" })]
+									}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
+										type: "button",
+										onClick: () => {
+											downloadStudentIdCardPng(student, settings);
+											showToast("تم تحميل بطاقة الطالب الذكية كصورة عالية الدقة", "success");
+										},
+										className: "flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-[#c59b27] hover:bg-[#b58c1e] text-[#14281d] text-xs font-extrabold cursor-pointer",
+										children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Download, { className: "w-4 h-4" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "حفظ صورة البطاقة" })]
+									})]
 								})]
-							})]
-						}), portalViewPersona !== "student" && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
-							className: "grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3",
-							children: (student.fees.length > 0 ? student.fees : [{
-								month: todayStr.slice(0, 7),
-								amount: student.monthlyFee || 350,
-								status: "مدفوع",
-								paidAt: todayStr,
-								method: "إنستا باي",
-								receiptNumber: `REC-${todayStr.slice(0, 7).replace("-", "")}-${student.id.replace(/\D/g, "") || "101"}`
-							}]).map((feeItem) => {
-								const recNo = feeItem.receiptNumber || `REC-${feeItem.month.replace("-", "")}-${student.id.replace(/\D/g, "") || "101"}`;
+							}),
+							(() => {
+								const effPriv = student.privacyPreference || (settings.limitedSharingMode ? "limited" : "standard");
+								const isPhoneMasked = Boolean(settings.maskStudentPhoneAndPin) || Boolean(settings.limitedSharingMode) || effPriv === "limited" || effPriv === "private";
+								const rawPhone = student.whatsappPhone || "";
+								const displayPhone = isPhoneMasked && !revealGuardianFinanceInPrivateMode ? rawPhone.length > 6 ? `${rawPhone.slice(0, 4)}•••••${rawPhone.slice(-3)}` : "••••••••••" : rawPhone || "غير مسجل";
+								const displayPin = isPhoneMasked && !revealGuardianFinanceInPrivateMode ? "••••••" : student.guardianPin || "غير محدد";
 								return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-									className: "p-4 rounded-2xl bg-[#fcfaf2] dark:bg-[#0b1711] border border-neutral-200 dark:border-emerald-900/50 flex flex-col justify-between gap-3",
+									className: "p-4 rounded-2xl bg-[#fcfaf2] dark:bg-[#0b1711] border border-emerald-500/30 flex flex-wrap items-center justify-between gap-3 text-xs",
 									children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-										className: "flex items-center justify-between",
-										children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
-											className: "text-xs font-extrabold font-mono text-[#145a3a] dark:text-[#dfbd69]",
-											children: ["إيصال شهر ", feeItem.month]
-										}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-											className: "text-[11px] font-mono text-neutral-500",
-											children: ["رقم الإيصال: ", recNo]
-										})] }), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
-											className: "text-sm font-extrabold font-mono",
-											children: [feeItem.amount, " ج.م"]
-										})]
-									}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-										className: "flex items-center gap-1.5",
-										children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
-											type: "button",
-											onClick: () => setGuardianActiveReceipt({
-												...feeItem,
-												receiptNumber: recNo
+										className: "flex flex-wrap items-center gap-3",
+										children: [
+											/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
+												className: "font-extrabold text-[#145a3a] dark:text-[#dfbd69] flex items-center gap-1.5",
+												children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Shield, { className: "w-4 h-4 text-[#c59b27]" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "بيانات التواصل والخصوصية لملف الطالب:" })]
 											}),
-											className: "flex-1 py-1.5 px-2.5 rounded-xl bg-[#145a3a] text-white text-[11px] font-extrabold flex items-center justify-center gap-1 cursor-pointer",
-											children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Printer, { className: "w-3.5 h-3.5 text-[#dfbd69]" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "عرض وطباعة الإيصال" })]
-										}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
-											type: "button",
-											onClick: () => {
-												downloadPaymentReceiptPng(student, {
+											/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
+												className: "px-2.5 py-1 rounded-lg bg-white dark:bg-[#12231a] border border-neutral-200 dark:border-emerald-900/50 font-mono",
+												children: ["هاتف ولي الأمر: ", /* @__PURE__ */ (0, import_jsx_runtime.jsx)("strong", { children: displayPhone })]
+											}),
+											/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
+												className: "px-2.5 py-1 rounded-lg bg-white dark:bg-[#12231a] border border-neutral-200 dark:border-emerald-900/50 font-mono",
+												children: ["كود البوابة: ", /* @__PURE__ */ (0, import_jsx_runtime.jsx)("strong", { children: displayPin })]
+											}),
+											student.assignedTeacherName && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
+												className: "px-2.5 py-1 rounded-lg bg-emerald-500/10 text-[#145a3a] dark:text-[#dfbd69] font-extrabold",
+												children: ["المحفظ المشرف: ", student.assignedTeacherName]
+											})
+										]
+									}), isPhoneMasked && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+										type: "button",
+										onClick: () => setRevealGuardianFinanceInPrivateMode((prev) => !prev),
+										className: "px-3 py-1.5 rounded-xl bg-[#145a3a] text-[#dfbd69] text-[11px] font-extrabold flex items-center gap-1.5 cursor-pointer",
+										children: revealGuardianFinanceInPrivateMode ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(EyeOff, { className: "w-3.5 h-3.5" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "إخفاء البيانات الحساسة (Private Mode)" })] }) : /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Eye, { className: "w-3.5 h-3.5" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "إظهار البيانات الكاملة لولي الأمر" })] })
+									})]
+								});
+							})(),
+							portalViewPersona === "student" && settings.hideFinancialDetailsInStudentPortal ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+								className: "p-4 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 text-xs font-bold text-[#145a3a] dark:text-emerald-300 flex items-center gap-2",
+								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Shield, { className: "w-4 h-4 text-[#c59b27] shrink-0" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "تم إخفاء تفاصيل الرسوم الشهرية وإيصالات السداد في «واجهة الطالب» حفاظاً على الخصوصية (تظهر لولي الأمر فقط)." })]
+							}) : portalViewPersona !== "student" && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+								className: "grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3",
+								children: (student.fees.length > 0 ? student.fees : [{
+									month: todayStr.slice(0, 7),
+									amount: student.monthlyFee || 350,
+									status: "مدفوع",
+									paidAt: todayStr,
+									method: "إنستا باي",
+									receiptNumber: `REC-${todayStr.slice(0, 7).replace("-", "")}-${student.id.replace(/\D/g, "") || "101"}`
+								}]).map((feeItem) => {
+									const recNo = feeItem.receiptNumber || `REC-${feeItem.month.replace("-", "")}-${student.id.replace(/\D/g, "") || "101"}`;
+									const maskAmount = ((student.privacyPreference || (settings.limitedSharingMode ? "limited" : "standard")) === "private" || Boolean(settings.limitedSharingMode)) && !revealGuardianFinanceInPrivateMode;
+									return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+										className: "p-4 rounded-2xl bg-[#fcfaf2] dark:bg-[#0b1711] border border-neutral-200 dark:border-emerald-900/50 flex flex-col justify-between gap-3",
+										children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+											className: "flex items-center justify-between",
+											children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
+												className: "text-xs font-extrabold font-mono text-[#145a3a] dark:text-[#dfbd69]",
+												children: ["إيصال شهر ", feeItem.month]
+											}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+												className: "text-[11px] font-mono text-neutral-500",
+												children: ["رقم الإيصال: ", recNo]
+											})] }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+												className: "text-sm font-extrabold font-mono",
+												children: maskAmount ? "••• ج.م" : `${feeItem.amount} ج.م`
+											})]
+										}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+											className: "flex items-center gap-1.5",
+											children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
+												type: "button",
+												onClick: () => setGuardianActiveReceipt({
 													...feeItem,
 													receiptNumber: recNo
-												}, settings);
-												showToast("تم تحميل صورة إيصال السداد بنجاح", "success");
-											},
-											className: "py-1.5 px-2.5 rounded-xl bg-[#c59b27] text-[#14281d] text-[11px] font-extrabold flex items-center justify-center gap-1 cursor-pointer",
-											children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Download, { className: "w-3.5 h-3.5" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "حفظ الإيصال" })]
+												}),
+												className: "flex-1 py-1.5 px-2.5 rounded-xl bg-[#145a3a] text-white text-[11px] font-extrabold flex items-center justify-center gap-1 cursor-pointer",
+												children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Printer, { className: "w-3.5 h-3.5 text-[#dfbd69]" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "عرض وطباعة الإيصال" })]
+											}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
+												type: "button",
+												onClick: () => {
+													downloadPaymentReceiptPng(student, {
+														...feeItem,
+														receiptNumber: recNo
+													}, settings);
+													showToast("تم تحميل صورة إيصال السداد بنجاح", "success");
+												},
+												className: "py-1.5 px-2.5 rounded-xl bg-[#c59b27] text-[#14281d] text-[11px] font-extrabold flex items-center justify-center gap-1 cursor-pointer",
+												children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Download, { className: "w-3.5 h-3.5" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "حفظ الإيصال" })]
+											})]
 										})]
-									})]
-								}, feeItem.month);
+									}, feeItem.month);
+								})
 							})
-						})]
+						]
 					}),
 					guardianScreenTab === "family_oasis" && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
 						className: "space-y-6",
@@ -163363,7 +163485,7 @@ function downloadBlob(blob, filename) {
 * Exports all students, sessions, financial records, and academy data to a local JSON backup file
 */
 function exportDataToJsonBackup(params) {
-	const { students, sessions, circles, exams, ijazahs, tasks, settings } = params;
+	const { students, sessions, circles, exams, ijazahs, tasks, settings, managedTeachers, filenamePrefix } = params;
 	const showHijri = settings.showHijriDates ?? true;
 	const todayIso = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
 	const financialRecords = students.flatMap((st) => st.fees.map((fee) => ({
@@ -163388,10 +163510,12 @@ function exportDataToJsonBackup(params) {
 	const totalMemorizedJuz = students.reduce((acc, s) => acc + s.memorizedJuz.length, 0);
 	const backupPayload = {
 		app: "أكاديمية الإمام لتحفيظ القرآن الكريم — بالقرآن نحيا",
-		version: "2.0",
+		version: "12.0.0",
+		schemaVersion: 12,
 		exportedAt: (/* @__PURE__ */ new Date()).toISOString(),
 		exportedDateFormatted: formatGregorianAndHijri(todayIso, showHijri),
 		summary: {
+			totalCircles: circles.length,
 			totalStudents: students.length,
 			totalSessions: sessions.length,
 			totalFinancialRecords: financialRecords.length,
@@ -163400,17 +163524,18 @@ function exportDataToJsonBackup(params) {
 			totalExemptAmount: totalExempt,
 			totalMemorizedJuz
 		},
+		circles,
 		students,
 		sessions,
 		financialRecords,
-		circles,
 		exams,
 		ijazahs,
 		tasks,
-		settings
+		settings,
+		...Array.isArray(managedTeachers) ? { managedTeachers } : {}
 	};
 	const jsonString = JSON.stringify(backupPayload, null, 2);
-	downloadBlob(new Blob([jsonString], { type: "application/json;charset=utf-8" }), `imam-academy-backup-${todayIso}.json`);
+	downloadBlob(new Blob([jsonString], { type: "application/json;charset=utf-8" }), `${filenamePrefix || "quran-backup-v12"}-${todayIso}.json`);
 }
 /**
 * Exports comprehensive student records to a UTF-8 BOM CSV file (Excel-compatible for Arabic RTL)
@@ -163975,7 +164100,10 @@ function exportRecordsToPDF(options) {
 }
 // src/components/SettingsView.tsx
 var SettingsView = () => {
-	const { settings, students, sessions, circles, exams, ijazahs, tasks, teacherAlerts, auditLogs, admissionRequests, managedTeachers, currentStaffTier, setCurrentStaffTier, googleAuthUser, startGoogleOAuthRedirect, cloudSyncStatus, lastSyncTimestamp, triggerCloudSyncNow, updateTeacherAccessStatus, deleteStaffMember, addStaffMember, updateStaffFamilyDetails, linkStudentGoogleAccount, approveAdmissionAsStudent, triggerPushReminderNow, updateSettings, resetToSeedData, clearAllStudentsAndStartEmpty, importFullBackup, showToast } = useAcademy();
+	const { settings, students, sessions, circles, exams, ijazahs, tasks, teacherAlerts, auditLogs, admissionRequests, managedTeachers, currentStaffTier, setCurrentStaffTier, setSelectedStudentId, setActiveTab, googleAuthUser, startGoogleOAuthRedirect, cloudSyncStatus, lastSyncTimestamp, triggerCloudSyncNow, updateTeacherAccessStatus, deleteStaffMember, addStaffMember, updateStaffFamilyDetails, updateSupervisorPermissions, applyBulkStudentPrivacyPreference, assignStudentToTeacher, linkStudentGoogleAccount, approveAdmissionAsStudent, triggerPushReminderNow, updateSettings, resetToSeedData, clearAllStudentsAndStartEmpty, importFullBackup, showToast } = useAcademy();
+	const supervisorPerms = settings.supervisorPermissions || DEFAULT_SUPERVISOR_PERMISSIONS;
+	const canAccessBackups = currentStaffTier === "owner" || currentStaffTier === "supervisor" && supervisorPerms.canAccessAndExportBackups;
+	const canViewFinanceInSettings = currentStaffTier === "owner" || currentStaffTier === "supervisor" && supervisorPerms.canViewFinancialRecords;
 	const [auditFilterCategory, setAuditFilterCategory] = (0, import_react.useState)("all");
 	const [newStaffName, setNewStaffName] = (0, import_react.useState)("");
 	const [newStaffEmail, setNewStaffEmail] = (0, import_react.useState)("");
@@ -164059,6 +164187,9 @@ var SettingsView = () => {
 			}
 		});
 	};
+	const [settingsSubTab, setSettingsSubTab] = (0, import_react.useState)("backup_management");
+	const [lastBackupExportTime, setLastBackupExportTime] = (0, import_react.useState)(() => localStorage.getItem("imam_last_json_backup_export_time"));
+	const [restoredFileSummary, setRestoredFileSummary] = (0, import_react.useState)(null);
 	const handleExportJsonBackup = () => {
 		exportDataToJsonBackup({
 			students,
@@ -164067,9 +164198,31 @@ var SettingsView = () => {
 			exams,
 			ijazahs,
 			tasks,
-			settings
+			settings,
+			managedTeachers,
+			filenamePrefix: "quran-backup-v12"
 		});
-		showToast("تم تصدير البيانات (الطلاب، الحصص، والمالية) إلى ملف احتياطي JSON بنجاح", "success");
+		const nowFormatted = (/* @__PURE__ */ new Date()).toLocaleString("ar-EG");
+		setLastBackupExportTime(nowFormatted);
+		try {
+			localStorage.setItem("imam_last_json_backup_export_time", nowFormatted);
+		} catch {}
+		showToast(`تم تحميل نسخة احتياطية كاملة من بيانات الحلقات (${circles.length}) والطلاب (${students.length}) بتنسيق JSON بنجاح`, "success");
+	};
+	const handleExportCirclesAndStudentsOnlyJson = () => {
+		exportDataToJsonBackup({
+			students,
+			sessions,
+			circles,
+			exams: [],
+			ijazahs: [],
+			tasks: [],
+			settings,
+			filenamePrefix: "imam-circles-students-backup"
+		});
+		const nowFormatted = (/* @__PURE__ */ new Date()).toLocaleString("ar-EG");
+		setLastBackupExportTime(nowFormatted);
+		showToast(`تم تحميل نسخة احتياطية لبيانات الحلقات (${circles.length}) والطلاب (${students.length}) بتنسيق JSON`, "success");
 	};
 	const handleImportJsonBackup = (e) => {
 		const file = e.target.files?.[0];
@@ -164078,9 +164231,26 @@ var SettingsView = () => {
 		reader.onload = (ev) => {
 			try {
 				const parsed = JSON.parse(String(ev.target?.result || "{}"));
-				if (!importFullBackup(parsed)) showToast("ملف النسخة الاحتياطية غير صالح", "error");
+				if (!importFullBackup(parsed)) {
+					showToast("ملف النسخة الاحتياطية غير صالح — تأكد من احتوائه على مصفوفة الطلاب والحلقات بتنسيق JSON", "error");
+					return;
+				}
+				const studentsArr = Array.isArray(parsed.students) ? parsed.students : [];
+				const circlesArr = Array.isArray(parsed.circles) ? parsed.circles : circles;
+				const sessionsArr = Array.isArray(parsed.sessions) ? parsed.sessions : [];
+				const nowStr = (/* @__PURE__ */ new Date()).toLocaleString("ar-EG");
+				setRestoredFileSummary({
+					fileName: file.name,
+					restoredAt: nowStr,
+					circlesCount: circlesArr.length,
+					studentsCount: studentsArr.length,
+					sessionsCount: sessionsArr.length,
+					rawPayload: parsed
+				});
 			} catch {
-				showToast("تعذر قراءة ملف JSON", "error");
+				showToast("تعذر قراءة ملف JSON المحلي — يرجى التحقق من سلامة الملف", "error");
+			} finally {
+				e.target.value = "";
 			}
 		};
 		reader.readAsText(file);
@@ -164119,10 +164289,10 @@ var SettingsView = () => {
 				className: "rounded-3xl bg-white dark:bg-[#12231a] p-6 border border-neutral-200 dark:border-emerald-900/50 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-4",
 				children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("h2", {
 					className: "text-lg font-extrabold text-[#145a3a] dark:text-[#dfbd69] flex items-center gap-2",
-					children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Settings, { className: "w-5 h-5" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "إعدادات الأكاديمية، التنبيهات الدفعية، والنسخ الاحتياطي المحلي" })]
+					children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Settings, { className: "w-5 h-5" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "إعدادات الأكاديمية، إدارة النسخ الاحتياطي، والخصوصية" })]
 				}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
 					className: "text-xs text-neutral-500 dark:text-neutral-400 mt-0.5",
-					children: "تخصيص الهوية، التحكم في إشعارات المتابعة والمهام المتأخرة (Notification API)، وتصدير البيانات كملف احتياطي"
+					children: "إدارة النسخ الاحتياطي واستعادة البيانات (JSON)، إعدادات الخصوصية (Private Mode)، وصلاحيات المالك والمشرفين"
 				})] }), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 					className: "flex flex-wrap items-center gap-2 shrink-0",
 					children: [
@@ -164151,7 +164321,7 @@ var SettingsView = () => {
 								")"
 							] })]
 						}),
-						/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
+						canAccessBackups && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
 							type: "button",
 							onClick: handleExportJsonBackup,
 							className: "px-4 py-2.5 rounded-xl bg-[#145a3a] hover:bg-[#0f452c] text-white text-xs font-extrabold flex items-center justify-center gap-2 shadow-xs cursor-pointer",
@@ -164159,6 +164329,474 @@ var SettingsView = () => {
 						})
 					]
 				})]
+			}),
+			/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+				role: "tablist",
+				"aria-label": "تبويبات شاشة الإعدادات",
+				className: "rounded-2xl bg-white dark:bg-[#12231a] p-2 border-2 border-[#c59b27]/50 shadow-xs flex flex-wrap items-center gap-2",
+				children: [
+					{
+						id: "backup_management",
+						label: "إدارة النسخ الاحتياطي",
+						badge: `${circles.length} حلقات · ${students.length} طلاب`
+					},
+					{
+						id: "privacy_permissions",
+						label: "إعدادات الخصوصية وصلاحيات المشرفين",
+						badge: settings.limitedSharingMode ? "Private Mode" : "محمي"
+					},
+					{
+						id: "general_appearance",
+						label: "الهوية والمظهر والتنبيهات",
+						badge: "عام"
+					},
+					{
+						id: "all",
+						label: "عرض كافة الإعدادات",
+						badge: "شامل"
+					}
+				].map((tabItem) => {
+					const isActive = settingsSubTab === tabItem.id;
+					return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
+						type: "button",
+						role: "tab",
+						"aria-selected": isActive,
+						onClick: () => setSettingsSubTab(tabItem.id),
+						className: `px-4 py-2.5 rounded-xl text-xs font-extrabold flex items-center gap-2 transition-all cursor-pointer ${isActive ? "bg-[#145a3a] text-white shadow-xs ring-1 ring-[#c59b27]" : "bg-[#f6f7f2] dark:bg-[#0b1711] text-neutral-700 dark:text-emerald-100 hover:bg-neutral-200/70 dark:hover:bg-emerald-950/60"}`,
+						children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: tabItem.label }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+							className: `px-2 py-0.5 rounded-md text-[10px] font-mono font-extrabold ${isActive ? "bg-[#c59b27] text-[#14281d]" : "bg-white dark:bg-[#12231a] text-[#145a3a] dark:text-[#dfbd69]"}`,
+							children: tabItem.badge
+						})]
+					}, tabItem.id);
+				})
+			}),
+			(settingsSubTab === "backup_management" || settingsSubTab === "all") && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+				role: "tabpanel",
+				"aria-label": "إدارة النسخ الاحتياطي",
+				className: "rounded-3xl bg-white dark:bg-[#12231a] p-6 border-2 border-[#c59b27] shadow-md space-y-6",
+				children: [
+					/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+						className: "flex flex-col lg:flex-row lg:items-center justify-between gap-4 pb-4 border-b border-neutral-100 dark:border-emerald-950",
+						children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+							className: "flex items-start gap-3.5",
+							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+								className: "w-12 h-12 rounded-2xl bg-[#145a3a] text-[#dfbd69] flex items-center justify-center shrink-0 shadow-xs",
+								children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Download, { className: "w-6 h-6" })
+							}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+								className: "flex flex-wrap items-center gap-2",
+								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("h3", {
+									className: "text-base sm:text-lg font-extrabold text-[#145a3a] dark:text-[#dfbd69]",
+									children: "إدارة النسخ الاحتياطي واستعادة البيانات (JSON Backup & Restore)"
+								}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+									className: "px-2.5 py-0.5 rounded-lg bg-[#c59b27]/20 border border-[#c59b27]/50 text-[#145a3a] dark:text-[#dfbd69] text-[11px] font-extrabold",
+									children: currentStaffTier === "owner" ? "👑 صلاحية المالك الكاملة" : canAccessBackups ? "🛡️ مصرح للمشرف من المالك" : "🔒 خاص بالمالك العام"
+								})]
+							}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+								className: "text-xs text-neutral-500 dark:text-neutral-400 mt-1",
+								children: "يتيح للمالك تحميل نسخة احتياطية كاملة من بيانات الحلقات والطلاب وسجل الحصص بتنسيق JSON، مع ميزة «استعادة البيانات» الفورية من ملف محلي لضمان أمان معلومات الأكاديمية."
+							})] })]
+						}), lastBackupExportTime && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+							className: "px-3.5 py-2 rounded-xl bg-emerald-50 dark:bg-emerald-950/50 border border-emerald-300 dark:border-emerald-800 text-xs font-bold text-emerald-800 dark:text-emerald-200 shrink-0",
+							children: ["آخر تحميل للنسخة الاحتياطية: ", /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+								className: "font-mono",
+								children: lastBackupExportTime
+							})]
+						})]
+					}),
+					/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+						className: "grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 text-center",
+						children: [
+							/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+								className: "p-3 rounded-2xl bg-[#fcfaf2] dark:bg-[#0b1711] border border-[#c59b27]/40",
+								children: [
+									/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+										className: "text-[11px] font-bold text-neutral-500",
+										children: "بيانات الحلقات"
+									}),
+									/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+										className: "text-lg font-black font-mono tabular-nums text-[#145a3a] dark:text-[#dfbd69] mt-0.5",
+										children: circles.length
+									}),
+									/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+										className: "text-[10px] text-neutral-400",
+										children: "حلقة قرآنية"
+									})
+								]
+							}),
+							/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+								className: "p-3 rounded-2xl bg-[#fcfaf2] dark:bg-[#0b1711] border border-[#c59b27]/40",
+								children: [
+									/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+										className: "text-[11px] font-bold text-neutral-500",
+										children: "بيانات الطلاب"
+									}),
+									/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+										className: "text-lg font-black font-mono tabular-nums text-[#145a3a] dark:text-[#dfbd69] mt-0.5",
+										children: students.length
+									}),
+									/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+										className: "text-[10px] text-neutral-400",
+										children: "ملف طالب متكامل"
+									})
+								]
+							}),
+							/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+								className: "p-3 rounded-2xl bg-[#fcfaf2] dark:bg-[#0b1711] border border-[#c59b27]/40",
+								children: [
+									/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+										className: "text-[11px] font-bold text-neutral-500",
+										children: "سجل الحصص"
+									}),
+									/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+										className: "text-lg font-black font-mono tabular-nums text-[#145a3a] dark:text-[#dfbd69] mt-0.5",
+										children: sessions.length
+									}),
+									/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+										className: "text-[10px] text-neutral-400",
+										children: "حصة وتسميع"
+									})
+								]
+							}),
+							/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+								className: "p-3 rounded-2xl bg-[#fcfaf2] dark:bg-[#0b1711] border border-[#c59b27]/40",
+								children: [
+									/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+										className: "text-[11px] font-bold text-neutral-500",
+										children: "الاختبارات والإجازات"
+									}),
+									/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+										className: "text-lg font-black font-mono tabular-nums text-[#145a3a] dark:text-[#dfbd69] mt-0.5",
+										children: exams.length + ijazahs.length
+									}),
+									/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+										className: "text-[10px] text-neutral-400",
+										children: "شهادة واختبار"
+									})
+								]
+							}),
+							/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+								className: "p-3 rounded-2xl bg-[#fcfaf2] dark:bg-[#0b1711] border border-[#c59b27]/40",
+								children: [
+									/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+										className: "text-[11px] font-bold text-neutral-500",
+										children: "المحفظون والمشرفون"
+									}),
+									/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+										className: "text-lg font-black font-mono tabular-nums text-[#145a3a] dark:text-[#dfbd69] mt-0.5",
+										children: managedTeachers.length
+									}),
+									/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+										className: "text-[10px] text-neutral-400",
+										children: "حساب معتمد"
+									})
+								]
+							}),
+							/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+								className: "p-3 rounded-2xl bg-[#fcfaf2] dark:bg-[#0b1711] border border-[#c59b27]/40",
+								children: [
+									/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+										className: "text-[11px] font-bold text-neutral-500",
+										children: "السجلات المالية"
+									}),
+									/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+										className: "text-lg font-black font-mono tabular-nums text-[#145a3a] dark:text-[#dfbd69] mt-0.5",
+										children: canViewFinanceInSettings ? totalFeesRecords : "•••"
+									}),
+									/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+										className: "text-[10px] text-neutral-400",
+										children: "إيصال ودفعة"
+									})
+								]
+							})
+						]
+					}),
+					canAccessBackups ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+						className: "grid grid-cols-1 lg:grid-cols-2 gap-5",
+						children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+							className: "p-5 rounded-2xl bg-[#f6f7f2] dark:bg-[#0b1711] border border-neutral-200 dark:border-emerald-900/60 flex flex-col justify-between space-y-4",
+							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+								className: "space-y-2",
+								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+									className: "flex items-center justify-between gap-2",
+									children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("h4", {
+										className: "text-sm font-extrabold text-[#145a3a] dark:text-[#dfbd69] flex items-center gap-2",
+										children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Download, { className: "w-4 h-4 text-[#c59b27]" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "١. تحميل نسخة احتياطية كاملة (JSON)" })]
+									}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+										className: "px-2.5 py-0.5 rounded-md bg-emerald-100 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-300 text-[10px] font-extrabold font-mono",
+										children: "JSON Schema v12"
+									})]
+								}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("p", {
+									className: "text-xs text-neutral-600 dark:text-neutral-300 leading-relaxed",
+									children: [
+										"قم بتحميل ملف JSON قياسي يحتوي على كافة بيانات الحلقات (",
+										circles.length,
+										" حلقات) وبيانات الطلاب (",
+										students.length,
+										" طلاب) وسجلات التسميع والمالية والإعدادات لحفظه بأمان على جهازك."
+									]
+								})]
+							}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+								className: "space-y-2.5 pt-2",
+								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
+									type: "button",
+									onClick: handleExportJsonBackup,
+									className: "w-full py-3 px-4 rounded-xl bg-[#145a3a] hover:bg-[#0f452c] text-white text-xs font-extrabold flex items-center justify-center gap-2 shadow-sm cursor-pointer transition",
+									children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Download, { className: "w-4 h-4 text-[#dfbd69]" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "تحميل نسخة احتياطية كاملة من بيانات الحلقات والطلاب (JSON)" })]
+								}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
+									type: "button",
+									onClick: handleExportCirclesAndStudentsOnlyJson,
+									className: "w-full py-2.5 px-4 rounded-xl bg-white dark:bg-[#12231a] hover:border-[#c59b27] border border-neutral-300 dark:border-emerald-900 text-[#14281d] dark:text-white text-xs font-bold flex items-center justify-center gap-2 cursor-pointer transition",
+									children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(FileText, { className: "w-4 h-4 text-[#c59b27]" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "تحميل نسخة مخصصة لبيانات الحلقات والطلاب والحصص (JSON)" })]
+								})]
+							})]
+						}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+							className: "p-5 rounded-2xl bg-[#fcfaf2] dark:bg-[#0b1711] border-2 border-dashed border-[#c59b27]/70 flex flex-col justify-between space-y-4",
+							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+								className: "space-y-2",
+								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+									className: "flex items-center justify-between gap-2",
+									children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("h4", {
+										className: "text-sm font-extrabold text-[#145a3a] dark:text-[#dfbd69] flex items-center gap-2",
+										children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Upload, { className: "w-4 h-4 text-[#c59b27]" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "٢. استعادة البيانات من ملف محلي (Restore JSON)" })]
+									}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+										className: "px-2.5 py-0.5 rounded-md bg-amber-100 dark:bg-amber-950 text-amber-900 dark:text-amber-300 text-[10px] font-extrabold",
+										children: "استعادة آمنة + مزامنة سحابية"
+									})]
+								}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("p", {
+									className: "text-xs text-neutral-600 dark:text-neutral-300 leading-relaxed",
+									children: [
+										"اختر ملف نسخة احتياطية محلياً (بتنسيق ",
+										/* @__PURE__ */ (0, import_jsx_runtime.jsx)("code", {
+											className: "font-mono",
+											children: ".json"
+										}),
+										") لاستعادة جميع الحلقات والطلاب وسجل الحصص والإعدادات فوراً إلى النظام ومزامنتها مع قاعدة البيانات."
+									]
+								})]
+							}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+								className: "space-y-3 pt-2",
+								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", {
+									className: "w-full py-3 px-4 rounded-xl bg-[#c59b27] hover:bg-[#b58c1e] text-[#14281d] text-xs font-black flex items-center justify-center gap-2 shadow-sm cursor-pointer transition",
+									children: [
+										/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Upload, { className: "w-4 h-4" }),
+										/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "استعادة البيانات من ملف محلي (JSON)" }),
+										/* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
+											type: "file",
+											accept: ".json,application/json",
+											onChange: handleImportJsonBackup,
+											className: "hidden"
+										})
+									]
+								}), restoredFileSummary ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+									className: "p-3.5 rounded-xl bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-400/60 text-xs space-y-2",
+									children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+										className: "flex items-center justify-between gap-2 font-extrabold text-emerald-900 dark:text-emerald-200",
+										children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
+											className: "flex items-center gap-1.5",
+											children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(CircleCheck, { className: "w-4 h-4 text-emerald-600 shrink-0" }), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { children: ["تمت استعادة البيانات بنجاح من: ", restoredFileSummary.fileName] })]
+										}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+											className: "font-mono text-[10px]",
+											children: restoredFileSummary.restoredAt
+										})]
+									}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+										className: "flex flex-wrap items-center justify-between gap-2 text-[11px] font-bold text-emerald-800 dark:text-emerald-300",
+										children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { children: [
+											"الحلقات المستعادة: ",
+											/* @__PURE__ */ (0, import_jsx_runtime.jsx)("strong", { children: restoredFileSummary.circlesCount }),
+											" · الطلاب: ",
+											/* @__PURE__ */ (0, import_jsx_runtime.jsx)("strong", { children: restoredFileSummary.studentsCount }),
+											" · الحصص: ",
+											/* @__PURE__ */ (0, import_jsx_runtime.jsx)("strong", { children: restoredFileSummary.sessionsCount })
+										] }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+											type: "button",
+											onClick: () => {
+												importFullBackup(restoredFileSummary.rawPayload);
+												triggerCloudSyncNow();
+											},
+											className: "px-2.5 py-1 rounded-lg bg-[#145a3a] text-white text-[10px] font-extrabold cursor-pointer",
+											children: "تأكيد ومزامنة مع السحابة الآن"
+										})]
+									})]
+								}) : /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+									className: "flex flex-wrap items-center justify-between gap-2 text-[11px] text-neutral-500",
+									children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "يدعم ملفات النسخ الاحتياطي القياسية (quran-backup-v12.json)" }), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
+										type: "button",
+										onClick: () => void triggerCloudSyncNow(),
+										className: "text-[#145a3a] dark:text-[#dfbd69] font-extrabold hover:underline cursor-pointer flex items-center gap-1",
+										children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(RefreshCw, { className: "w-3 h-3" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "مزامنة فورية مع السحابة" })]
+									})]
+								})]
+							})]
+						})]
+					}) : /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+						className: "p-4 rounded-2xl bg-amber-50/70 dark:bg-amber-950/30 border border-amber-300 dark:border-amber-800/60 text-xs text-amber-900 dark:text-amber-200 flex items-center justify-between gap-3",
+						children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+							className: "flex items-center gap-2 font-extrabold",
+							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Lock, { className: "w-4 h-4 text-[#c59b27]" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "إدارة النسخ الاحتياطي واستعادة البيانات متاحة للمالك العام فقط (أو بتفويض صريح للمشرف من مصفوفة الصلاحيات)." })]
+						}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+							type: "button",
+							onClick: () => setCurrentStaffTier("owner"),
+							className: "px-3 py-1.5 rounded-xl bg-[#145a3a] text-[#dfbd69] text-[11px] font-extrabold cursor-pointer shrink-0",
+							children: "التبديل لوضع المالك العام"
+						})]
+					})
+				]
+			}),
+			/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+				className: "rounded-3xl bg-white dark:bg-[#12231a] p-6 border-2 border-[#145a3a]/40 dark:border-emerald-800 shadow-xs space-y-5",
+				children: [
+					/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+						className: "flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-neutral-100 dark:border-emerald-950",
+						children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+							className: "flex items-start gap-3",
+							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+								className: `w-11 h-11 rounded-2xl flex items-center justify-center shrink-0 ${settings.limitedSharingMode || (settings.hidePersonalDataFromPublic ?? true) ? "bg-[#145a3a] text-[#dfbd69]" : "bg-neutral-100 dark:bg-emerald-950 text-neutral-400"}`,
+								children: settings.limitedSharingMode ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(EyeOff, { className: "w-5 h-5" }) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Lock, { className: "w-5 h-5" })
+							}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+								className: "flex items-center gap-2 flex-wrap",
+								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("h3", {
+									className: "text-sm sm:text-base font-extrabold text-[#14281d] dark:text-[#e9f2ec]",
+									children: "إعدادات الخصوصية وحماية البيانات (Privacy & Private Mode)"
+								}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+									className: `px-2.5 py-0.5 rounded-lg text-[10px] font-extrabold ${settings.limitedSharingMode ? "bg-amber-100 text-amber-800 dark:bg-amber-950/80 dark:text-amber-300" : "bg-emerald-100 text-emerald-800 dark:bg-emerald-950/80 dark:text-emerald-300"}`,
+									children: settings.limitedSharingMode ? "🔒 وضع المشاركة المحدودة (Private Mode) نشط" : "🛡️ إخفاء البيانات عن العامة مفعّل"
+								})]
+							}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+								className: "text-xs text-neutral-500 dark:text-neutral-400 mt-1",
+								children: "تحكم في إخفاء بياناتك وبيانات الطلاب عن العامة، أو تفعيل وضع «المشاركة المحدودة» (Private Mode) لتمويه أرقام الهواتف ورموز PIN والمالية في واجهات الطلاب"
+							})] })]
+						}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+							className: "flex flex-wrap items-center gap-4 self-end sm:self-center",
+							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+								className: "flex items-center gap-2.5 bg-[#f6f7f2] dark:bg-[#0b1711] px-3.5 py-2 rounded-2xl border border-neutral-200 dark:border-emerald-900",
+								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+									className: "text-xs font-extrabold text-[#14281d] dark:text-white",
+									children: "إخفاء البيانات عن العامة"
+								}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+									type: "button",
+									role: "switch",
+									"aria-checked": settings.hidePersonalDataFromPublic ?? true,
+									onClick: () => {
+										const next = !(settings.hidePersonalDataFromPublic ?? true);
+										updateSettings({ hidePersonalDataFromPublic: next });
+										showToast(next ? "تم تفعيل إخفاء البيانات الشخصية عن العامة ✓" : "تم إيقاف إخفاء البيانات عن العامة", "info");
+									},
+									className: `relative inline-flex h-6 w-12 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out ${settings.hidePersonalDataFromPublic ?? true ? "bg-[#145a3a]" : "bg-neutral-300 dark:bg-emerald-950"}`,
+									children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: `pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-xs transition duration-200 ease-in-out ${settings.hidePersonalDataFromPublic ?? true ? "-translate-x-6 bg-[#dfbd69]" : "translate-x-0"}` })
+								})]
+							}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+								className: "flex items-center gap-2.5 bg-[#fcfaf2] dark:bg-[#0b1711] px-3.5 py-2 rounded-2xl border border-[#c59b27]/60",
+								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+									className: "text-xs font-extrabold text-[#145a3a] dark:text-[#dfbd69]",
+									children: "وضع المشاركة المحدودة (Private Mode)"
+								}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+									type: "button",
+									role: "switch",
+									"aria-checked": settings.limitedSharingMode ?? false,
+									onClick: () => {
+										const next = !settings.limitedSharingMode;
+										updateSettings({
+											limitedSharingMode: next,
+											maskStudentPhoneAndPin: next ? true : settings.maskStudentPhoneAndPin
+										});
+										showToast(next ? "🔒 تم تفعيل وضع المشاركة المحدودة (Private Mode) في واجهات الطلاب" : "تم إيقاف وضع المشاركة المحدودة والعودة للعرض القياسي", "success");
+									},
+									className: `relative inline-flex h-6 w-12 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out ${settings.limitedSharingMode ? "bg-[#c59b27]" : "bg-neutral-300 dark:bg-emerald-950"}`,
+									children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { className: `pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-xs transition duration-200 ease-in-out ${settings.limitedSharingMode ? "-translate-x-6 bg-[#14281d]" : "translate-x-0"}` })
+								})]
+							})]
+						})]
+					}),
+					/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+						className: "grid grid-cols-1 md:grid-cols-3 gap-4",
+						children: [
+							/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+								className: "p-4 rounded-2xl border border-neutral-200 dark:border-emerald-900/60 bg-[#f6f7f2] dark:bg-[#0b1711] flex items-center justify-between gap-3",
+								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+									className: "text-xs font-extrabold",
+									children: "تمويه أرقام الهواتف ورموز (PIN)"
+								}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+									className: "text-[11px] text-neutral-500 mt-0.5",
+									children: "إخفاء أرقام واتساب ورمز دخول البوابة في واجهات الطلاب لغير المالك"
+								})] }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
+									type: "checkbox",
+									checked: settings.maskStudentPhoneAndPin ?? true,
+									onChange: (e) => updateSettings({ maskStudentPhoneAndPin: e.target.checked }),
+									className: "w-4 h-4 accent-[#145a3a] cursor-pointer"
+								})]
+							}),
+							/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+								className: "p-4 rounded-2xl border border-neutral-200 dark:border-emerald-900/60 bg-[#f6f7f2] dark:bg-[#0b1711] flex items-center justify-between gap-3",
+								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+									className: "text-xs font-extrabold",
+									children: "إخفاء المبالغ المالية في واجهة الطالب"
+								}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+									className: "text-[11px] text-neutral-500 mt-0.5",
+									children: "إخفاء تفاصيل الرسوم الشهرية في وضع الطالب والمشاركة المحدودة"
+								})] }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
+									type: "checkbox",
+									checked: settings.hideFinancialDetailsInStudentPortal ?? false,
+									onChange: (e) => updateSettings({ hideFinancialDetailsInStudentPortal: e.target.checked }),
+									className: "w-4 h-4 accent-[#145a3a] cursor-pointer"
+								})]
+							}),
+							/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+								className: "p-4 rounded-2xl border border-neutral-200 dark:border-emerald-900/60 bg-[#f6f7f2] dark:bg-[#0b1711] flex items-center justify-between gap-3",
+								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+									className: "text-xs font-extrabold",
+									children: "إخفاء البيانات العائلية عن العامة"
+								}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+									className: "text-[11px] text-neutral-500 mt-0.5",
+									children: "حصر ظهور بيانات العائلة التفصيلية على المالك فقط"
+								})] }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
+									type: "checkbox",
+									checked: settings.hideFamilyLineageInPublicViews ?? true,
+									onChange: (e) => updateSettings({ hideFamilyLineageInPublicViews: e.target.checked }),
+									className: "w-4 h-4 accent-[#145a3a] cursor-pointer"
+								})]
+							})
+						]
+					}),
+					/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+						className: "p-3.5 rounded-2xl bg-[#fcfaf2] dark:bg-[#0b1711] border border-[#c59b27]/40 flex flex-col sm:flex-row sm:items-center justify-between gap-3",
+						children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+							className: "text-xs",
+							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
+								className: "font-extrabold text-[#145a3a] dark:text-[#dfbd69]",
+								children: [
+									"تعميم تفضيل الخصوصية على واجهات جميع الطلاب (",
+									students.length,
+									" طلاب):"
+								]
+							}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+								className: "text-neutral-500 mr-1.5 text-[11px]",
+								children: "يمكنك أيضاً تخصيص مستوى الخصوصية لكل طالب منفرداً من داخل ملف الطالب أو بوابته"
+							})]
+						}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+							className: "flex flex-wrap items-center gap-2",
+							children: [
+								/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+									type: "button",
+									onClick: () => applyBulkStudentPrivacyPreference("private"),
+									className: "px-3 py-1.5 rounded-xl bg-[#145a3a] hover:bg-[#0f452c] text-white text-[11px] font-extrabold cursor-pointer",
+									children: "🔒 إخفاء كامل عن العامة للجميع"
+								}),
+								/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+									type: "button",
+									onClick: () => applyBulkStudentPrivacyPreference("limited"),
+									className: "px-3 py-1.5 rounded-xl bg-[#c59b27] hover:bg-[#b38a1e] text-[#14281d] text-[11px] font-extrabold cursor-pointer",
+									children: "🛡️ مشاركة محدودة (Private Mode) للجميع"
+								}),
+								/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+									type: "button",
+									onClick: () => applyBulkStudentPrivacyPreference("standard"),
+									className: "px-3 py-1.5 rounded-xl border border-neutral-300 dark:border-emerald-900 text-[11px] font-bold cursor-pointer",
+									children: "الوضع القياسي"
+								})
+							]
+						})]
+					})
+				]
 			}),
 			/* @__PURE__ */ (0, import_jsx_runtime.jsx)(OwnerPublicWaqfImpactHub, {}),
 			/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
@@ -164388,13 +165026,19 @@ var SettingsView = () => {
 					}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 						className: "rounded-3xl bg-white dark:bg-[#12231a] p-6 border border-neutral-200 dark:border-emerald-900/50 space-y-4",
 						children: [
-							/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("h3", {
-								className: "text-sm font-extrabold",
-								children: "النسخ الاحتياطي المحلي وتصدير البيانات (JSON Backup)"
-							}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
-								className: "text-[11px] text-neutral-500 dark:text-neutral-400 mt-1",
-								children: "يحوّل كافة بيانات الطلاب وسجلات الحصص والسجلات المالية إلى ملف JSON منظم يمكن تحميله واستعادته في أي وقت:"
-							})] }),
+							/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+								className: "flex items-start justify-between gap-2",
+								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("h3", {
+									className: "text-sm font-extrabold",
+									children: "النسخ الاحتياطي المحلي وتصدير البيانات (JSON Backup)"
+								}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+									className: "text-[11px] text-neutral-500 dark:text-neutral-400 mt-1",
+									children: "متاح بالكامل للمالك العام، وللمشرفين حسب الصلاحية التي يحددها المالك:"
+								})] }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+									className: "px-2.5 py-1 rounded-lg bg-amber-500/15 border border-amber-500/40 text-[10px] font-extrabold text-[#145a3a] dark:text-[#dfbd69] shrink-0",
+									children: currentStaffTier === "owner" ? "👑 صلاحية المالك الكاملة" : canAccessBackups ? "🛡️ مصرح للمشرف من المالك" : "🔒 خاص بالمالك فقط"
+								})]
+							}),
 							/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 								className: "grid grid-cols-3 gap-2 text-center text-[11px] font-bold",
 								children: [
@@ -164425,19 +165069,19 @@ var SettingsView = () => {
 											children: "السجلات المالية"
 										}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
 											className: "font-mono tabular-nums text-sm font-extrabold text-[#145a3a] dark:text-[#dfbd69]",
-											children: totalFeesRecords
+											children: canViewFinanceInSettings ? totalFeesRecords : "•••"
 										})]
 									})
 								]
 							}),
-							/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+							canAccessBackups ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 								className: "space-y-2.5",
 								children: [
 									/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
 										type: "button",
 										onClick: handleExportJsonBackup,
 										className: "w-full flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl bg-[#145a3a] hover:bg-[#0f452c] text-white text-xs font-extrabold cursor-pointer",
-										children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Download, { className: "w-4 h-4 text-[#dfbd69]" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "تصدير البيانات (تحميل ملف احتياطي JSON)" })]
+										children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Download, { className: "w-4 h-4 text-[#dfbd69]" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "تصدير جميع البيانات (تحميل ملف احتياطي JSON للمالك)" })]
 									}),
 									/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", {
 										className: "w-full flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl border border-neutral-300 dark:border-emerald-900 text-xs font-bold cursor-pointer hover:border-[#145a3a]",
@@ -164452,19 +165096,27 @@ var SettingsView = () => {
 											})
 										]
 									}),
-									/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
+									currentStaffTier === "owner" && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
 										type: "button",
 										onClick: clearAllStudentsAndStartEmpty,
 										className: "w-full flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl bg-rose-50 dark:bg-rose-950/40 hover:bg-rose-100 border border-rose-300 dark:border-rose-800 text-rose-700 dark:text-rose-300 text-xs font-extrabold cursor-pointer transition",
 										children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(X, { className: "w-4 h-4" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "بدء نظام جديد فارغ (تفريغ القائمة بالكامل)" })]
-									}),
-									/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
+									}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
 										type: "button",
 										onClick: resetToSeedData,
 										className: "w-full flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl border border-amber-300 text-amber-700 dark:text-amber-300 text-xs font-bold cursor-pointer",
-										children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(RefreshCw, { className: "w-4 h-4" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "استعادة النماذج الرمزية الافتراضية (طالب ١ - طالب ٨)" })]
-									})
+										children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(RefreshCw, { className: "w-4 h-4" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "استعادة بيانات الأكاديمية المرجعية المعتمدة" })]
+									})] })
 								]
+							}) : /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+								className: "p-4 rounded-2xl bg-amber-50/70 dark:bg-amber-950/30 border border-amber-300 dark:border-amber-800/60 text-xs text-amber-900 dark:text-amber-200 space-y-1.5",
+								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+									className: "font-extrabold flex items-center gap-1.5",
+									children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Lock, { className: "w-4 h-4 text-[#c59b27]" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "النسخ الاحتياطي وتصدير جميع البيانات متاح للمالك العام فقط" })]
+								}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+									className: "text-[11px] opacity-90",
+									children: "يحدد المالك العام من مصفوفة الصلاحيات بالأسفل ما إذا كان يُسمح للمشرف بتحميل أو استيراد النسخ الاحتياطية."
+								})]
 							})
 						]
 					})]
@@ -164625,7 +165277,7 @@ var SettingsView = () => {
 							})
 						]
 					})]
-				}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+				}), canAccessBackups ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 					className: "grid grid-cols-1 lg:grid-cols-2 gap-5",
 					children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 						className: "p-5 rounded-2xl bg-[#f6f7f2] dark:bg-[#0b1711] border border-neutral-200/80 dark:border-emerald-900/50 space-y-4",
@@ -164662,7 +165314,7 @@ var SettingsView = () => {
 											children: [students.length, " طلاب"]
 										})]
 									}),
-									/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
+									canViewFinanceInSettings && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
 										type: "button",
 										onClick: handleExportFinanceCsv,
 										className: "w-full py-2.5 px-4 rounded-xl bg-white dark:bg-[#12231a] hover:border-[#145a3a] border border-neutral-200 dark:border-emerald-900/70 flex items-center justify-between text-xs font-bold transition-all cursor-pointer",
@@ -164743,6 +165395,9 @@ var SettingsView = () => {
 							})]
 						})]
 					})]
+				}) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+					className: "p-4 rounded-2xl bg-amber-50/70 dark:bg-amber-950/30 border border-amber-300 dark:border-amber-800/60 text-xs text-amber-900 dark:text-amber-200",
+					children: "تصدير التقارير الشاملة والنسخ الاحتياطي (CSV / PDF) متاح للمالك العام، ويحدده المالك للمشرفين من مصفوفة الصلاحيات بالأسفل."
 				})]
 			}),
 			/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
@@ -164912,6 +165567,191 @@ var SettingsView = () => {
 												className: "px-3 py-1.5 rounded-xl border border-neutral-200 dark:border-emerald-900/70 bg-[#fcfaf2] dark:bg-[#0b1711] text-[11px] font-semibold"
 											})
 										]
+									})
+								]
+							}),
+							/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+								className: "p-4 rounded-2xl bg-white dark:bg-[#12231a] border-2 border-[#145a3a]/30 space-y-3",
+								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+									className: "flex flex-wrap items-center justify-between gap-2",
+									children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("h4", {
+										className: "text-xs sm:text-sm font-extrabold text-[#145a3a] dark:text-[#dfbd69] flex items-center gap-2",
+										children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "👑 مصفوفة صلاحيات المشرفين (يحددها المالك العام فقط)" })
+									}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+										className: "text-[11px] text-neutral-500",
+										children: "المالك العام يمتلك وصولاً كاملاً (100%) لجميع البيانات والنسخ الاحتياطي وطلاب المحفظين، ويحدد من هنا الصلاحيات الممنوحة للمشرفين:"
+									})] }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+										className: "px-2.5 py-1 rounded-lg bg-[#145a3a] text-[#dfbd69] text-[10px] font-extrabold",
+										children: currentStaffTier === "owner" ? "وضع تعديل المالك مفعل ✓" : "للعرض فقط — يحددها المالك"
+									})]
+								}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+									className: "grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5 text-xs",
+									children: [
+										{
+											key: "canViewAllTeachersStudents",
+											title: "الاطلاع على طلاب جميع المحفظين",
+											desc: "رؤية قوائم الطلاب والحلقات لدى كافة المحفظين"
+										},
+										{
+											key: "canAccessAndExportBackups",
+											title: "الوصول للنسخ الاحتياطي وتصدير البيانات",
+											desc: "تحميل واستيراد ملفات JSON و CSV و PDF الشاملة"
+										},
+										{
+											key: "canManageTeachers",
+											title: "إدارة حسابات المحفظين",
+											desc: "قبول أو إيقاف أو حذف المحفظين المسجلين"
+										},
+										{
+											key: "canManageStudentsAndAdmissions",
+											title: "إدارة الطلاب وطابور القبول",
+											desc: "إضافة وتعديل ملفات الطلاب وقبول المستجدين"
+										},
+										{
+											key: "canViewFinancialRecords",
+											title: "الاطلاع على السجلات المالية والرسوم",
+											desc: "كشف المحصل والمتأخرات وإصدار إيصالات السداد"
+										},
+										{
+											key: "canViewSensitiveStudentContact",
+											title: "كشف أرقام الهواتف ورموز PIN الكاملة",
+											desc: "إظهار أرقام واتساب ورموز الدخول بدون تمويه"
+										}
+									].map((perm) => {
+										const isChecked = Boolean(supervisorPerms[perm.key]);
+										return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", {
+											className: `p-3 rounded-xl border flex items-start justify-between gap-2.5 transition ${isChecked ? "bg-emerald-50/50 dark:bg-emerald-950/30 border-emerald-500/40" : "bg-[#fcfaf2] dark:bg-[#0b1711] border-neutral-200 dark:border-emerald-900/50"} ${currentStaffTier === "owner" ? "cursor-pointer" : "opacity-75 cursor-not-allowed"}`,
+											children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+												className: "font-extrabold text-[#14281d] dark:text-white",
+												children: perm.title
+											}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+												className: "text-[10px] text-neutral-500 mt-0.5",
+												children: perm.desc
+											})] }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
+												type: "checkbox",
+												disabled: currentStaffTier !== "owner",
+												checked: isChecked,
+												onChange: (e) => updateSupervisorPermissions({ [perm.key]: e.target.checked }),
+												className: "w-4 h-4 mt-0.5 accent-[#145a3a] shrink-0"
+											})]
+										}, perm.key);
+									})
+								})]
+							}),
+							(currentStaffTier === "owner" || currentStaffTier === "supervisor" && supervisorPerms.canViewAllTeachersStudents) && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+								className: "p-4 rounded-2xl bg-white dark:bg-[#12231a] border border-[#c59b27]/50 space-y-3",
+								children: [
+									/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+										className: "flex flex-wrap items-center justify-between gap-2",
+										children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("h4", {
+											className: "text-xs sm:text-sm font-extrabold text-[#145a3a] dark:text-[#dfbd69]",
+											children: [
+												"📚 سجل طلاب المحفظين الشامل للمالك العام (",
+												students.length,
+												" طلاب موزعين على المحفظين والحلقات)"
+											]
+										}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+											className: "text-[11px] text-neutral-500",
+											children: "جميع الطلاب لدى كافة المحفظين متاحون للمالك العام للمتابعة أو النقل بين المحفظين أو التصدير الفوري"
+										})] }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+											type: "button",
+											onClick: () => setActiveTab("students"),
+											className: "px-3 py-1.5 rounded-xl bg-[#145a3a] text-white text-[11px] font-extrabold cursor-pointer",
+											children: "فتح سجل الطلاب الشامل ←"
+										})]
+									}),
+									/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+										className: "grid grid-cols-1 md:grid-cols-3 gap-3",
+										children: managedTeachers.filter((t) => t.staffRole !== "supervisor").map((teacher) => {
+											const teacherStudents = students.filter((st) => {
+												if (st.assignedTeacherEmail) return st.assignedTeacherEmail.toLowerCase() === teacher.email.toLowerCase();
+												if (st.assignedTeacherName) return st.assignedTeacherName === teacher.name;
+												const circleObj = circles.find((c) => c.name === st.circle);
+												if (circleObj && circleObj.teacherName === teacher.name) return true;
+												return teacher.staffRole === "owner";
+											});
+											return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+												className: "p-3.5 rounded-2xl bg-[#fcfaf2] dark:bg-[#0b1711] border border-neutral-200 dark:border-emerald-900/60 space-y-2 text-xs",
+												children: [
+													/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+														className: "flex items-center justify-between",
+														children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
+															className: "font-extrabold text-[#145a3a] dark:text-[#dfbd69]",
+															children: [teacher.staffRole === "owner" ? "👑 " : "📖 ", teacher.name]
+														}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
+															className: "px-2 py-0.5 rounded-full bg-[#145a3a]/10 text-[#145a3a] dark:text-[#dfbd69] font-mono text-[10px] font-extrabold",
+															children: [teacherStudents.length, " طلاب"]
+														})]
+													}),
+													/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+														className: "text-[10px] text-neutral-500",
+														children: teacher.roleTitle
+													}),
+													/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+														className: "max-h-32 overflow-y-auto space-y-1 pt-1 border-t border-neutral-200/60 dark:border-emerald-950",
+														children: teacherStudents.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+															className: "text-[11px] text-neutral-400 py-1",
+															children: "لا يوجد طلاب مسندون مباشرة حالياً"
+														}) : teacherStudents.map((st) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+															className: "flex items-center justify-between gap-2 py-1 px-2 rounded-lg bg-white dark:bg-[#12231a] border border-neutral-100 dark:border-emerald-900/40",
+															children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
+																className: "font-bold truncate",
+																children: [
+																	st.name,
+																	" ",
+																	/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
+																		className: "text-[10px] text-neutral-400",
+																		children: [
+																			"(",
+																			st.currentStop.surahName,
+																			")"
+																		]
+																	})
+																]
+															}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+																type: "button",
+																onClick: () => {
+																	setSelectedStudentId(st.id);
+																	setActiveTab("students");
+																},
+																className: "text-[10px] font-extrabold text-[#145a3a] dark:text-[#dfbd69] underline shrink-0 cursor-pointer",
+																children: "ملف الطالب"
+															})]
+														}, st.id))
+													})
+												]
+											}, teacher.id);
+										})
+									}),
+									currentStaffTier === "owner" && students.length > 0 && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+										className: "pt-2 border-t border-neutral-200/60 dark:border-emerald-950 flex flex-wrap items-center justify-between gap-2 text-xs",
+										children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+											className: "font-bold text-neutral-600 dark:text-neutral-300",
+											children: "إسناد طالب إلى محفظ محدد (بصلاحية المالك):"
+										}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+											className: "flex flex-wrap items-center gap-2",
+											children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("select", {
+												value: selectedStudentForGoogle,
+												onChange: (e) => setSelectedStudentForGoogle(e.target.value),
+												className: "px-2.5 py-1.5 rounded-xl border border-neutral-300 dark:border-emerald-900 bg-[#fcfaf2] dark:bg-[#0b1711] text-xs font-bold",
+												children: students.map((s) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("option", {
+													value: s.id,
+													children: [
+														s.name,
+														" (",
+														s.assignedTeacherName || settings.teacherName,
+														")"
+													]
+												}, s.id))
+											}), managedTeachers.filter((t) => t.staffRole !== "supervisor").map((t) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
+												type: "button",
+												onClick: () => {
+													if (selectedStudentForGoogle) assignStudentToTeacher(selectedStudentForGoogle, t.email, t.name);
+												},
+												className: "px-2.5 py-1.5 rounded-xl bg-[#145a3a]/10 hover:bg-[#145a3a] hover:text-white text-[#145a3a] dark:text-[#dfbd69] text-[11px] font-extrabold transition cursor-pointer",
+												children: ["إسناد إلى: ", t.name]
+											}, t.id))]
+										})]
 									})
 								]
 							}),
@@ -167361,7 +168201,9 @@ var OfflineResourceCenterView = () => {
 };
 // src/components/OwnerControlPanelView.tsx
 var OwnerControlPanelView = () => {
-	const { managedTeachers, currentStaffTier, setCurrentStaffTier, updateTeacherAccessStatus, deleteStaffMember, addStaffMember, updateStaffFamilyDetails, updateStaffRoleAndDetails, syncAllStaffToFirestoreNow, googleAuthUser, startGoogleOAuthRedirect, auditLogs, showToast } = useAcademy();
+	const { students, sessions, circles, exams, ijazahs, tasks, settings, managedTeachers, currentStaffTier, setCurrentStaffTier, setSelectedStudentId, setActiveTab, updateTeacherAccessStatus, deleteStaffMember, addStaffMember, updateStaffFamilyDetails, updateStaffRoleAndDetails, updateSupervisorPermissions, importFullBackup, syncAllStaffToFirestoreNow, googleAuthUser, startGoogleOAuthRedirect, auditLogs, showToast } = useAcademy();
+	const supervisorPerms = settings.supervisorPermissions || DEFAULT_SUPERVISOR_PERMISSIONS;
+	const canAccessBackups = currentStaffTier === "owner" || currentStaffTier === "supervisor" && supervisorPerms.canAccessAndExportBackups;
 	const [statusFilter, setStatusFilter] = (0, import_react.useState)("all");
 	const [roleFilter, setRoleFilter] = (0, import_react.useState)("all");
 	const [searchQuery, setSearchQuery] = (0, import_react.useState)("");
@@ -167778,6 +168620,192 @@ var OwnerControlPanelView = () => {
 								})]
 							})
 						]
+					})
+				]
+			}),
+			/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("section", {
+				className: "rounded-2xl bg-white dark:bg-[#12231a] p-6 border-2 border-[#145a3a]/40 dark:border-emerald-800 shadow-xs space-y-5",
+				children: [
+					/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+						className: "flex flex-col lg:flex-row lg:items-center justify-between gap-4 pb-4 border-b border-neutral-100 dark:border-emerald-950",
+						children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("h2", {
+							className: "text-base md:text-lg font-extrabold text-[#145a3a] dark:text-[#dfbd69] flex items-center gap-2",
+							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Lock, { className: "w-5 h-5 text-[#c59b27]" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "مركز بيانات المالك الشامل: النسخ الاحتياطي، طلاب المحفظين، وتحديد صلاحيات المشرفين" })]
+						}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+							className: "text-xs text-neutral-500 dark:text-neutral-400 mt-0.5",
+							children: "جميع البيانات والنسخ الاحتياطي والطلاب لدى المحفظين متاحون بالكامل للمالك العام، مع تحكم المالك الفوري في صلاحيات المشرفين"
+						})] }), canAccessBackups && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+							className: "flex flex-wrap items-center gap-2",
+							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
+								type: "button",
+								onClick: () => {
+									exportDataToJsonBackup({
+										students,
+										sessions,
+										circles,
+										exams,
+										ijazahs,
+										tasks,
+										settings
+									});
+									showToast("تم تصدير النسخة الاحتياطية الشاملة لجميع بيانات الأكاديمية وطلاب المحفظين (JSON) بنجاح ✓", "success");
+								},
+								className: "px-4 py-2 rounded-xl bg-[#145a3a] hover:bg-[#0f452c] text-white text-xs font-extrabold flex items-center gap-1.5 cursor-pointer",
+								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Download, { className: "w-4 h-4 text-[#dfbd69]" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "تصدير النسخة الاحتياطية الشاملة للمالك (JSON)" })]
+							}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", {
+								className: "px-4 py-2 rounded-xl bg-[#fcfaf2] dark:bg-[#0b1711] hover:border-[#145a3a] border border-[#c59b27]/60 text-xs font-extrabold text-[#145a3a] dark:text-[#dfbd69] flex items-center gap-1.5 cursor-pointer",
+								children: [
+									/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Upload, { className: "w-4 h-4" }),
+									/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "استيراد نسخة احتياطية شاملة (JSON)" }),
+									/* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
+										type: "file",
+										accept: ".json",
+										onChange: (e) => {
+											const file = e.target.files?.[0];
+											if (!file) return;
+											const reader = new FileReader();
+											reader.onload = (ev) => {
+												try {
+													const parsed = JSON.parse(String(ev.target?.result || "{}"));
+													importFullBackup(parsed);
+												} catch {
+													showToast("تعذر قراءة ملف النسخة الاحتياطية JSON", "error");
+												}
+											};
+											reader.readAsText(file);
+										},
+										className: "hidden"
+									})
+								]
+							})]
+						})]
+					}),
+					/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+						className: "space-y-3",
+						children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+							className: "flex items-center justify-between",
+							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("h3", {
+								className: "text-xs sm:text-sm font-extrabold text-[#14281d] dark:text-white",
+								children: "🛡️ مصفوفة صلاحيات المشرفين (يحددها المالك العام فقط):"
+							}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+								className: "text-[11px] font-bold text-[#145a3a] dark:text-[#dfbd69]",
+								children: currentStaffTier === "owner" ? "اضغط على أي صلاحية لمنحها أو حجبها عن المشرفين" : "للعرض فقط — التعديل خاص بالمالك العام"
+							})]
+						}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+							className: "grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 text-xs",
+							children: [
+								{
+									key: "canViewAllTeachersStudents",
+									title: "رؤية طلاب جميع المحفظين",
+									desc: "السماح للمشرف بالاطلاع على كافة طلاب وحلقات المحفظين"
+								},
+								{
+									key: "canAccessAndExportBackups",
+									title: "الوصول للنسخ الاحتياطي وتصدير البيانات",
+									desc: "السماح للمشرف بتحميل واستيراد ملفات النسخ الاحتياطي"
+								},
+								{
+									key: "canManageTeachers",
+									title: "إدارة حسابات المحفظين",
+									desc: "السماح للمشرف بقبول أو إيقاف المحفظين"
+								},
+								{
+									key: "canManageStudentsAndAdmissions",
+									title: "إدارة ملفات الطلاب وطابور القبول",
+									desc: "السماح للمشرف بإضافة وتعديل الطلاب وقبول المستجدين"
+								},
+								{
+									key: "canViewFinancialRecords",
+									title: "الاطلاع على السجلات المالية والرسوم",
+									desc: "السماح للمشرف بمراجعة المدفوعات وإيصالات السداد"
+								},
+								{
+									key: "canViewSensitiveStudentContact",
+									title: "إظهار أرقام الهواتف ورموز PIN الكاملة",
+									desc: "السماح للمشرف برؤية أرقام الهواتف بدون تمويه الخصوصية"
+								}
+							].map((perm) => {
+								const checked = Boolean(supervisorPerms[perm.key]);
+								return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", {
+									className: `p-3 rounded-xl border flex items-start justify-between gap-2.5 transition ${checked ? "bg-emerald-50/60 dark:bg-emerald-950/30 border-emerald-500/40" : "bg-[#f6f7f2] dark:bg-[#0b1711] border-neutral-200 dark:border-emerald-900/50"} ${currentStaffTier === "owner" ? "cursor-pointer" : "opacity-75 cursor-not-allowed"}`,
+									children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+										className: "font-extrabold text-[#14281d] dark:text-white",
+										children: perm.title
+									}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+										className: "text-[11px] text-neutral-500 mt-0.5",
+										children: perm.desc
+									})] }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
+										type: "checkbox",
+										disabled: currentStaffTier !== "owner",
+										checked,
+										onChange: (e) => updateSupervisorPermissions({ [perm.key]: e.target.checked }),
+										className: "w-4 h-4 mt-0.5 accent-[#145a3a] shrink-0"
+									})]
+								}, perm.key);
+							})
+						})]
+					}),
+					(currentStaffTier === "owner" || currentStaffTier === "supervisor" && supervisorPerms.canViewAllTeachersStudents) && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+						className: "pt-3 border-t border-neutral-100 dark:border-emerald-950 space-y-3",
+						children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+							className: "flex flex-wrap items-center justify-between gap-2",
+							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("h3", {
+								className: "text-xs sm:text-sm font-extrabold text-[#145a3a] dark:text-[#dfbd69]",
+								children: [
+									"📖 جميع الطلاب لدى المحفظين (",
+									students.length,
+									" طلاب • ",
+									sessions.length,
+									" حصة مسجلة):"
+								]
+							}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+								type: "button",
+								onClick: () => setActiveTab("students"),
+								className: "px-3 py-1.5 rounded-xl bg-[#145a3a] text-white text-xs font-extrabold cursor-pointer",
+								children: "عرض وإدارة جميع الطلاب ←"
+							})]
+						}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+							className: "grid grid-cols-1 md:grid-cols-3 gap-3",
+							children: managedTeachers.filter((t) => t.staffRole !== "supervisor").map((teacher) => {
+								const teacherStudents = students.filter((st) => {
+									if (st.assignedTeacherEmail) return st.assignedTeacherEmail.toLowerCase() === teacher.email.toLowerCase();
+									if (st.assignedTeacherName) return st.assignedTeacherName === teacher.name;
+									const c = circles.find((ci) => ci.name === st.circle);
+									if (c && c.teacherName === teacher.name) return true;
+									return teacher.staffRole === "owner";
+								});
+								return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+									className: "p-3.5 rounded-xl bg-[#f6f7f2] dark:bg-[#0b1711] border border-neutral-200 dark:border-emerald-900/50 space-y-2 text-xs",
+									children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+										className: "flex items-center justify-between",
+										children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+											className: "font-extrabold text-[#14281d] dark:text-white",
+											children: teacher.name
+										}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
+											className: "px-2 py-0.5 rounded-full bg-[#145a3a] text-[#dfbd69] font-mono text-[10px] font-extrabold",
+											children: [teacherStudents.length, " طلاب"]
+										})]
+									}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+										className: "max-h-28 overflow-y-auto space-y-1",
+										children: teacherStudents.map((st) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+											className: "flex items-center justify-between py-1 px-2 rounded-lg bg-white dark:bg-[#12231a] border border-neutral-200/60 dark:border-emerald-900/40",
+											children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+												className: "font-bold truncate",
+												children: st.name
+											}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+												type: "button",
+												onClick: () => {
+													setSelectedStudentId(st.id);
+													setActiveTab("students");
+												},
+												className: "text-[10px] font-extrabold text-[#145a3a] dark:text-[#dfbd69] underline cursor-pointer",
+												children: "فتح الملف"
+											})]
+										}, st.id))
+									})]
+								}, teacher.id);
+							})
+						})]
 					})
 				]
 			}),

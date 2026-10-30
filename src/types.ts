@@ -310,6 +310,27 @@ export interface OwnerAuditLogItem {
 
 export type StaffHierarchyRole = 'owner' | 'supervisor' | 'teacher';
 
+export type StudentPrivacyPreference = 'standard' | 'limited' | 'private';
+
+export interface SupervisorPermissions {
+  canViewAllTeachersStudents: boolean;
+  canAccessAndExportBackups: boolean;
+  canManageTeachers: boolean;
+  canManageStudentsAndAdmissions: boolean;
+  canViewFinancialRecords: boolean;
+  canViewSensitiveStudentContact: boolean;
+}
+
+export interface TeacherPermissions {
+  canAddAndEditStudents: boolean;
+  canExportTeacherJsonBackup: boolean;
+  canImportTeacherJsonBackup: boolean;
+  canCreateAndEditCircles: boolean;
+  canIssueExamsAndCertificates: boolean;
+  canManageStudentFees: boolean;
+  canApproveAdmissionRequests: boolean;
+}
+
 export interface TeacherAccessRecord {
   id: string;
   name: string;
@@ -319,6 +340,9 @@ export interface TeacherAccessRecord {
   status: 'active' | 'blocked' | 'pending';
   lastSyncAt: string;
   assignedCirclesCount: number;
+  assignedCircleNames?: string[];
+  customPermissions?: Partial<SupervisorPermissions>;
+  customTeacherPermissions?: Partial<TeacherPermissions>;
   googleUid?: string;
   photoURL?: string | null;
   motherName?: string;
@@ -353,6 +377,9 @@ export interface Student {
   grandmotherName?: string;
   uncleName?: string;
   accountStatus?: StudentAccountStatus; // نشط | متوقف | مؤرشف
+  privacyPreference?: StudentPrivacyPreference; // standard | limited | private
+  assignedTeacherEmail?: string;
+  assignedTeacherName?: string;
   archivedAt?: string;
   archiveReason?: string;
   level: StudentLevel;
@@ -565,6 +592,18 @@ export interface AcademySettings {
   notifyUrgentStudents: boolean;
   reminderIntervalMinutes: number;
   showHijriDates: boolean;
+  // Privacy & Data Protection Settings (إعدادات الخصوصية ووضع المشاركة المحدودة)
+  hidePersonalDataFromPublic?: boolean;
+  limitedSharingMode?: boolean;
+  maskStudentPhoneAndPin?: boolean;
+  hideFinancialDetailsInStudentPortal?: boolean;
+  hideFamilyLineageInPublicViews?: boolean;
+  // Owner-defined Supervisor Permissions Matrix (صلاحيات المشرفين المحددة من المالك)
+  supervisorPermissions?: SupervisorPermissions;
+  // Owner-defined Additional Teacher Permissions Matrix (صلاحيات المحفظين الإضافية المحددة من المالك)
+  teacherPermissions?: TeacherPermissions;
+  // Automatic Cloud Backup to Firebase Cloud Firestore
+  autoCloudBackupEnabled?: boolean;
 }
 
 export type PublicBookmarkCategory = 'khatmah' | 'memorization' | 'tadabbur';

@@ -60,9 +60,16 @@ import {
   Trash2,
   TrendingUp,
   User,
+  Eye,
+  EyeOff,
+  Lock,
   Wallet,
   X,
+  Cloud,
+  Upload,
+  RefreshCw,
 } from 'lucide-react';
+import { DEFAULT_SUPERVISOR_PERMISSIONS } from '../data/seedData';
 
 export const StudentsView: React.FC = () => {
   const {
@@ -70,12 +77,15 @@ export const StudentsView: React.FC = () => {
     sessions,
     circles,
     settings,
+    managedTeachers,
+    currentStaffTier,
     selectedStudentId,
     setSelectedStudentId,
     setActiveTab,
     saveStudent,
     deleteStudent,
     setStudentAccountStatus,
+    updateStudentPrivacyPreference,
     updateStudentFee,
     loginAsGuardianDirect,
     linkStudentStopToAyah,
@@ -85,14 +95,36 @@ export const StudentsView: React.FC = () => {
     approveAdmissionAsStudent,
     updateAdmissionRequestStatus,
     clearAllStudentsAndStartEmpty,
+    currentTeacherPermissions,
+    exportTeacherScopedJsonBackup,
+    importTeacherScopedJsonBackup,
+    triggerCloudSyncNow,
+    restoreFromCloudFirestoreNow,
+    cloudSyncStatus,
+    lastSyncTimestamp,
     googleAuthUser,
     showToast,
   } = useAcademy();
 
+  const supervisorPerms =
+    settings.supervisorPermissions || DEFAULT_SUPERVISOR_PERMISSIONS;
+  const canSeeAllTeachersStudents =
+    currentStaffTier === 'owner' ||
+    (currentStaffTier === 'supervisor' &&
+      supervisorPerms.canViewAllTeachersStudents);
+  const canManageStudents =
+    currentStaffTier === 'owner' ||
+    (currentStaffTier === 'teacher' &&
+      currentTeacherPermissions.canAddAndEditStudents) ||
+    (currentStaffTier === 'supervisor' &&
+      supervisorPerms.canManageStudentsAndAdmissions);
+
   const [searchQuery, setSearchQuery] = useState('');
   const [levelFilter, setLevelFilter] = useState<string>('');
   const [circleFilter, setCircleFilter] = useState<string>('');
+  const [teacherFilter, setTeacherFilter] = useState<string>('');
   const [statusFilter, setStatusFilter] = useState<'نشط' | 'متوقف' | 'مؤرشف' | 'all'>('نشط');
+  const [ownerRevealSensitive, setOwnerRevealSensitive] = useState(false);
   const [profileTab, setProfileTab] = useState<
     'overview' | 'id_and_receipts' | 'mushaf' | 'errors' | 'sessions'
   >('overview');
@@ -188,11 +220,25 @@ export const StudentsView: React.FC = () => {
         st.circle.includes(q);
       const matchLevel = !levelFilter || st.level === levelFilter;
       const matchCircle = !circleFilter || st.circle === circleFilter;
+      const stTeacherName =
+        st.assignedTeacherName ||
+        circles.find((c) => c.name === st.circle)?.teacherName ||
+        settings.teacherName;
+      const matchTeacher = !teacherFilter || stTeacherName === teacherFilter;
       const stStatus = st.accountStatus || 'نشط';
       const matchStatus = statusFilter === 'all' || stStatus === statusFilter;
-      return matchSearch && matchLevel && matchCircle && matchStatus;
+      return matchSearch && matchLevel && matchCircle && matchTeacher && matchStatus;
     });
-  }, [students, searchQuery, levelFilter, circleFilter, statusFilter]);
+  }, [
+    students,
+    circles,
+    settings.teacherName,
+    searchQuery,
+    levelFilter,
+    circleFilter,
+    teacherFilter,
+    statusFilter,
+  ]);
 
   const activeStudent = useMemo(() => {
     return (
@@ -391,6 +437,28 @@ export const StudentsView: React.FC = () => {
             ))}
           </select>
 
+          {canSeeAllTeachersStudents && (
+            <select
+              value={teacherFilter}
+              onChange={(e) => setTeacherFilter(e.target.value)}
+              className="px-3.5 py-2.5 rounded-xl border border-neutral-200 dark:border-emerald-900 bg-[#f6f7f2] dark:bg-[#0b1711] text-xs font-bold"
+              title="تصفية الطلاب حسب المحفظ (متاح للمالك والمشرف المصرح له)"
+            >
+              <option value="">جميع المحفظين ({managedTeachers.filter((t) => t.staffRole !== 'supervisor').length})</option>
+              {Array.from(
+                new Set(
+                  managedTeachers
+                    .filter((t) => t.staffRole !== 'supervisor')
+                    .map((t) => t.name)
+                )
+              ).map((tName) => (
+                <option key={tName} value={tName}>
+                  طلاب المحفظ: {tName}
+                </option>
+              ))}
+            </select>
+          )}
+
           <select
             value={statusFilter}
             onChange={(e) =>
@@ -442,7 +510,78 @@ export const StudentsView: React.FC = () => {
             </span>
           </button>
 
-          {students.length > 0 && (
+          {currentTeacherPermissions.canExportTeacherJsonBackup && (
+            <button
+              type="button"
+              onClick={() => exportTeacherScopedJsonBackup()}
+              className="flex items-center justify-center gap-1.5 px-3.5 py-2.5 rounded-xl bg-[#fcfaf2] dark:bg-[#0b1711] hover:border-[#145a3a] border border-[#c59b27]/70 text-[#145a3a] dark:text-[#dfbd69] text-xs font-extrabold transition-colors cursor-pointer shrink-0"
+              title="تنزيل نسخة احتياطية JSON من طلابك وحلقاتك وجلساتك"
+            >
+              <Download className="w-4 h-4 text-[#c59b27]" />
+              <span>تنزيل نسخة JSON لطلابي وحلقاتي</span>
+            </button>
+          )}
+
+          {currentTeacherPermissions.canImportTeacherJsonBackup && (
+            <label
+              className="flex items-center justify-center gap-1.5 px-3.5 py-2.5 rounded-xl bg-[#fcfaf2] dark:bg-[#0b1711] hover:border-[#145a3a] border border-emerald-600/60 text-[#145a3a] dark:text-[#dfbd69] text-xs font-extrabold transition-colors cursor-pointer shrink-0"
+              title="رفع واستعادة نسخة JSON لطلابك وحلقاتك ودمجها سحابياً"
+            >
+              <Upload className="w-4 h-4 text-emerald-600" />
+              <span>رفع نسخة JSON لطلابي</span>
+              <input
+                type="file"
+                accept=".json"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (!file) return;
+                  const reader = new FileReader();
+                  reader.onload = (ev) => {
+                    try {
+                      const parsed = JSON.parse(String(ev.target?.result || '{}'));
+                      importTeacherScopedJsonBackup(parsed);
+                    } catch {
+                      showToast('تعذر قراءة ملف JSON المرفوع', 'error');
+                    }
+                  };
+                  reader.readAsText(file);
+                }}
+                className="hidden"
+              />
+            </label>
+          )}
+
+          <button
+            type="button"
+            onClick={() => void triggerCloudSyncNow(true)}
+            className="flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 hover:bg-emerald-100 border border-emerald-500/50 text-emerald-800 dark:text-emerald-300 text-xs font-extrabold transition-colors cursor-pointer shrink-0"
+            title={
+              lastSyncTimestamp
+                ? `النسخ السحابي التلقائي مفعل (Firestore) — آخر مزامنة: ${new Date(
+                    lastSyncTimestamp
+                  ).toLocaleTimeString('ar-EG')}`
+                : 'مزامنة بيانات الطلاب والحلقات سحابياً مع Firebase Firestore'
+            }
+          >
+            <Cloud
+              className={`w-4 h-4 ${
+                cloudSyncStatus === 'syncing' ? 'animate-pulse text-amber-500' : 'text-emerald-600'
+              }`}
+            />
+            <span>☁️ حفظ سحابي فوري</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => void restoreFromCloudFirestoreNow()}
+            className="flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-xl bg-[#f6f7f2] dark:bg-[#0b1711] hover:border-emerald-600 border border-neutral-200 dark:border-emerald-900 text-[#14281d] dark:text-emerald-200 text-xs font-extrabold transition-colors cursor-pointer shrink-0"
+            title="جلب واستعادة أحدث نسخة من طلابك وحلقاتك المحفوظة في السحابة (Firestore) عند الدخول من أي جهاز"
+          >
+            <RefreshCw className="w-3.5 h-3.5 text-[#145a3a] dark:text-[#dfbd69]" />
+            <span>استعادة طلابي من السحابة</span>
+          </button>
+
+          {students.length > 0 && currentStaffTier === 'owner' && (
             <button
               type="button"
               onClick={clearAllStudentsAndStartEmpty}
@@ -454,13 +593,15 @@ export const StudentsView: React.FC = () => {
             </button>
           )}
 
-          <button
-            onClick={openAddModal}
-            className="flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-[#145a3a] hover:bg-[#0f452c] text-white text-xs font-bold shadow-xs transition-colors cursor-pointer shrink-0"
-          >
-            <Plus className="w-4 h-4 text-[#dfbd69]" />
-            <span>إضافة طالب جديد</span>
-          </button>
+          {canManageStudents && (
+            <button
+              onClick={openAddModal}
+              className="flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-[#145a3a] hover:bg-[#0f452c] text-white text-xs font-bold shadow-xs transition-colors cursor-pointer shrink-0"
+            >
+              <Plus className="w-4 h-4 text-[#dfbd69]" />
+              <span>إضافة طالب جديد</span>
+            </button>
+          )}
         </div>
       </div>
 
@@ -685,50 +826,142 @@ export const StudentsView: React.FC = () => {
                         .join('')}
                     </div>
                     <div>
-                      <h2 className="text-xl font-extrabold">{activeStudent.name}</h2>
-                      <p className="text-xs text-emerald-100 mt-1">
-                        {activeStudent.circle} · المستوى: {activeStudent.level} · الخطة:{' '}
-                        {activeStudent.plan} · الربط: من {activeStudent.linkLogic}
-                      </p>
-                      <div className="flex flex-wrap items-center gap-3 text-xs text-[#dfbd69] mt-2">
-                        <span>ولي الأمر: {activeStudent.guardianName}</span>
-                        <span>·</span>
-                        <span className="tabular-nums font-mono" dir="ltr">
-                          +{activeStudent.whatsappPhone}
-                        </span>
-                        <span>·</span>
-                        <span className="tabular-nums font-mono">
-                          PIN البوابة: {activeStudent.guardianPin}
-                        </span>
-                        {activeStudent.googleUid && (
-                          <>
-                            <span>·</span>
-                            <span className="px-2 py-0.5 rounded-md bg-white/15 text-emerald-100 font-mono text-[10px]">
-                              Google UID: {activeStudent.googleUid.slice(0, 10)}...
+                      <div className="flex flex-wrap items-center gap-2">
+                        <h2 className="text-xl font-extrabold">{activeStudent.name}</h2>
+                        {(settings.limitedSharingMode ||
+                          activeStudent.privacyPreference === 'limited' ||
+                          activeStudent.privacyPreference === 'private' ||
+                          (settings.hidePersonalDataFromPublic ?? true)) && (
+                          <span className="px-2.5 py-0.5 rounded-lg bg-black/25 border border-[#dfbd69]/50 text-[#dfbd69] text-[10px] font-extrabold flex items-center gap-1">
+                            <Lock className="w-3 h-3" />
+                            <span>
+                              {settings.limitedSharingMode ||
+                              activeStudent.privacyPreference === 'limited'
+                                ? 'وضع المشاركة المحدودة (Private Mode)'
+                                : activeStudent.privacyPreference === 'private'
+                                ? 'إخفاء كامل عن العامة'
+                                : 'محمي من الظهور للعامة'}
                             </span>
-                          </>
+                          </span>
                         )}
                       </div>
-                      {(activeStudent.motherName ||
-                        activeStudent.grandfatherName ||
-                        activeStudent.grandmotherName ||
-                        activeStudent.uncleName) && (
-                        <div className="flex flex-wrap items-center gap-2 text-[11px] text-emerald-100 mt-2 bg-black/15 px-3 py-1.5 rounded-xl border border-white/10">
-                          <span className="font-extrabold text-[#dfbd69]">بيانات العائلة:</span>
-                          {activeStudent.motherName && (
-                            <span>الوالدة: {activeStudent.motherName}</span>
-                          )}
-                          {activeStudent.grandfatherName && (
-                            <span>• الجد: {activeStudent.grandfatherName}</span>
-                          )}
-                          {activeStudent.grandmotherName && (
-                            <span>• الجدة: {activeStudent.grandmotherName}</span>
-                          )}
-                          {activeStudent.uncleName && (
-                            <span>• العم: {activeStudent.uncleName}</span>
-                          )}
-                        </div>
-                      )}
+                      <p className="text-xs text-emerald-100 mt-1">
+                        {activeStudent.circle} · المحفظ:{' '}
+                        {activeStudent.assignedTeacherName ||
+                          circles.find((c) => c.name === activeStudent.circle)
+                            ?.teacherName ||
+                          settings.teacherName}{' '}
+                        · المستوى: {activeStudent.level} · الخطة:{' '}
+                        {activeStudent.plan} · الربط: من {activeStudent.linkLogic}
+                      </p>
+                      {(() => {
+                        const isPrivacyMaskActive =
+                          (settings.limitedSharingMode ||
+                            (settings.maskStudentPhoneAndPin ?? true) ||
+                            activeStudent.privacyPreference === 'limited' ||
+                            activeStudent.privacyPreference === 'private') &&
+                          !(
+                            ownerRevealSensitive &&
+                            (currentStaffTier === 'owner' ||
+                              (currentStaffTier === 'supervisor' &&
+                                supervisorPerms.canViewSensitiveStudentContact))
+                          );
+
+                        const maskedPhone =
+                          activeStudent.whatsappPhone.length >= 7
+                            ? `${activeStudent.whatsappPhone.slice(
+                                0,
+                                4
+                              )}•••••${activeStudent.whatsappPhone.slice(-3)}`
+                            : '••••••••••';
+
+                        return (
+                          <div className="flex flex-wrap items-center gap-3 text-xs text-[#dfbd69] mt-2">
+                            <span>ولي الأمر: {activeStudent.guardianName}</span>
+                            <span>·</span>
+                            <span className="tabular-nums font-mono" dir="ltr">
+                              +{isPrivacyMaskActive ? maskedPhone : activeStudent.whatsappPhone}
+                            </span>
+                            <span>·</span>
+                            <span className="tabular-nums font-mono">
+                              PIN البوابة: {isPrivacyMaskActive ? '••••••' : activeStudent.guardianPin}
+                            </span>
+                            {(currentStaffTier === 'owner' ||
+                              (currentStaffTier === 'supervisor' &&
+                                supervisorPerms.canViewSensitiveStudentContact)) && (
+                              <button
+                                type="button"
+                                onClick={() => setOwnerRevealSensitive((p) => !p)}
+                                className="px-2 py-0.5 rounded-lg bg-white/15 hover:bg-white/25 text-white text-[10px] font-bold flex items-center gap-1 cursor-pointer"
+                                title="إظهار أو إخفاء بيانات الاتصال السرية (خاص بالمالك والمشرف المصرح له)"
+                              >
+                                {ownerRevealSensitive ? (
+                                  <>
+                                    <EyeOff className="w-3 h-3" />
+                                    <span>إخفاء الرقم والرمز</span>
+                                  </>
+                                ) : (
+                                  <>
+                                    <Eye className="w-3 h-3" />
+                                    <span>إظهار للمالك</span>
+                                  </>
+                                )}
+                              </button>
+                            )}
+                            {/* Per-student privacy mode selector */}
+                            {canManageStudents && (
+                              <select
+                                value={
+                                  activeStudent.privacyPreference ||
+                                  (settings.limitedSharingMode ? 'limited' : 'standard')
+                                }
+                                onChange={(e) =>
+                                  updateStudentPrivacyPreference(
+                                    activeStudent.id,
+                                    e.target.value as 'standard' | 'limited' | 'private'
+                                  )
+                                }
+                                className="px-2 py-0.5 rounded-lg bg-black/25 border border-white/20 text-white text-[10px] font-extrabold cursor-pointer"
+                                title="تفضيل الخصوصية لهذا الطالب"
+                              >
+                                <option value="standard" className="text-black">
+                                  خصوصية: قياسي
+                                </option>
+                                <option value="limited" className="text-black">
+                                  خصوصية: مشاركة محدودة (Private Mode)
+                                </option>
+                                <option value="private" className="text-black">
+                                  خصوصية: إخفاء كامل عن العامة
+                                </option>
+                              </select>
+                            )}
+                          </div>
+                        );
+                      })()}
+                      {(!settings.hideFamilyLineageInPublicViews ||
+                        currentStaffTier === 'owner') &&
+                        (activeStudent.motherName ||
+                          activeStudent.grandfatherName ||
+                          activeStudent.grandmotherName ||
+                          activeStudent.uncleName) && (
+                          <div className="flex flex-wrap items-center gap-2 text-[11px] text-emerald-100 mt-2 bg-black/15 px-3 py-1.5 rounded-xl border border-white/10">
+                            <span className="font-extrabold text-[#dfbd69]">
+                              بيانات العائلة (للمالك):
+                            </span>
+                            {activeStudent.motherName && (
+                              <span>الوالدة: {activeStudent.motherName}</span>
+                            )}
+                            {activeStudent.grandfatherName && (
+                              <span>• الجد: {activeStudent.grandfatherName}</span>
+                            )}
+                            {activeStudent.grandmotherName && (
+                              <span>• الجدة: {activeStudent.grandmotherName}</span>
+                            )}
+                            {activeStudent.uncleName && (
+                              <span>• العم: {activeStudent.uncleName}</span>
+                            )}
+                          </div>
+                        )}
                     </div>
                   </div>
 

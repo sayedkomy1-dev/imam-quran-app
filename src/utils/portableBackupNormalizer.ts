@@ -414,10 +414,10 @@ export function normalizePortableStudent(
   const circle =
     rawCircle ||
     (level === 'متقدم'
-      ? 'الحلقة الأولى - المستوى المتقدم'
+      ? 'حلقة المستوى المتقدم'
       : level === 'متوسط'
-      ? 'الحلقة الثانية - المستوى المتوسط'
-      : 'الحلقة الثالثة - التأسيس والناشئة');
+      ? 'حلقة المستوى المتوسط'
+      : 'حلقة التأسيس والناشئة');
 
   const rawPlan = String(rawObj.plan || 'balanced');
   const plan: StudentPlan =

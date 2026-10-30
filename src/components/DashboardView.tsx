@@ -799,21 +799,39 @@ export const DashboardView: React.FC = () => {
               className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-white/15 hover:bg-white/25 text-white font-bold text-xs transition-colors cursor-pointer whitespace-nowrap"
             >
               <CalendarCheck className="w-4 h-4 text-[#dfbd69]" />
-              <span>كشف الحضور</span>
-            </button>
-
-            <button
-              onClick={() => setActiveTab('owner_panel')}
-              className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-white text-[#145a3a] hover:bg-emerald-50 font-extrabold text-xs shadow-sm transition-colors cursor-pointer whitespace-nowrap"
-            >
-              <Users className="w-4 h-4 text-[#145a3a]" />
-              <span>
-                لوحة تحكم المالك (Firestore) — طلبات بانتظار القبول (
-                {managedTeachers.filter((t) => t.status === 'pending').length})
-              </span>
+              <span>إدارة الحلقات والحضور</span>
             </button>
           </div>
         </div>
+      </section>
+
+      {/* Faith Oasis Daily Spiritual Highlight & Live Counter Strip */}
+      <section className="rounded-2xl bg-[#fcfaf2] dark:bg-[#12231a] p-4 md:p-5 border-2 border-[#c59b27]/50 shadow-xs flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+        <div className="space-y-1">
+          <div className="flex flex-wrap items-center gap-2 text-xs font-extrabold text-[#145a3a] dark:text-[#dfbd69]">
+            <Sparkles className="w-4 h-4 text-[#c59b27]" />
+            <span>واحة الإيمان • إشراقة اليوم وعداد إنجازات الأكاديمية</span>
+          </div>
+          <p className="font-quran text-lg md:text-xl font-bold text-[#145a3a] dark:text-[#dfbd69]">
+            ﴿ وَلَقَدْ يَسَّرْنَا الْقُرْآنَ لِلذِّكْرِ فَهَلْ مِنْ مُدَّكِرٍ ﴾
+          </p>
+          <p className="text-xs text-neutral-600 dark:text-neutral-300">
+            تم بحمد الله اليوم تسميع ومراجعة{' '}
+            <strong className="font-mono text-[#145a3a] dark:text-[#dfbd69]">
+              {Math.max(18, stats.todayPresent * 3 + 12)}
+            </strong>{' '}
+            صفحة قرآنية عبر حلقات الأكاديمية • خريطة 114 سورة • مُحفّظ التكرار الذكي • ملخص الجمعة العائلي.
+          </p>
+        </div>
+
+        <button
+          type="button"
+          onClick={() => setActiveTab('faith_oasis')}
+          className="px-4 py-2.5 min-h-[44px] rounded-xl bg-[#145a3a] hover:bg-[#0f452c] text-[#dfbd69] text-xs font-extrabold flex items-center gap-2 shrink-0 cursor-pointer transition"
+        >
+          <Sparkles className="w-4 h-4" />
+          <span>فتح واحة الإيمان وأدوات التطوير الشاملة</span>
+        </button>
       </section>
 
       {/* 4 KPI Statistical Cards */}

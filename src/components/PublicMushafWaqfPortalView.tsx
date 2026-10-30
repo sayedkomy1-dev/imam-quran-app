@@ -59,28 +59,16 @@ export interface WaqfDedicationProps {
 
 export const WAQF_MEMORIAL_NAMES_LIST = [
   {
-    id: 'mother',
-    relation: 'المغفور لها بإذن الله',
-    fullName: 'حورية أحمد الطنطاوي',
-    shortName: 'حورية الطنطاوي',
+    id: 'parents',
+    relation: 'لوالدينا الكريمين',
+    fullName: 'لوالدينا الكريمين رحمهما الله وغفر لهما',
+    shortName: 'والدينا الكريمين',
   },
   {
-    id: 'grandfather',
-    relation: 'المغفور له بإذن الله',
-    fullName: 'محمد محمد الكومي',
-    shortName: 'محمد الكومي',
-  },
-  {
-    id: 'grandmother',
-    relation: 'المغفور لها بإذن الله',
-    fullName: 'خيرية الطنطاوي',
-    shortName: 'خيرية الطنطاوي',
-  },
-  {
-    id: 'uncle',
-    relation: 'المغفور له بإذن الله',
-    fullName: 'أحمد الكومي',
-    shortName: 'أحمد الكومي',
+    id: 'all_muslims',
+    relation: 'ولجميع أموات المسلمين',
+    fullName: 'لجميع موتانا وموتى المسلمين أجمعين',
+    shortName: 'موتانا وموتى المسلمين',
   },
 ] as const;
 
@@ -109,14 +97,13 @@ export const WaqfDedication: React.FC<WaqfDedicationProps> = ({
       <div className="rounded-xl border border-amber-300/70 dark:border-amber-700/40 bg-[#fcf9ef] dark:bg-[#112119] px-3.5 py-2.5 flex flex-wrap items-center justify-between gap-2 text-xs shadow-2xs">
         <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-neutral-700 dark:text-emerald-100">
           <span className="font-extrabold text-[#145a3a] dark:text-[#dfbd69]">
-            🌿 وقف قرآني وصدقة جارية (من مؤسس الأكاديمية):
+            🌿 وقف قرآني وصدقة جارية:
           </span>
           <span>
-            اللهم اجعل ثواب التلاوة نوراً ورحمةً لـ:{' '}
+            اللهم اجعل ثواب التلاوة صدقة جارية ونوراً ورحمةً{' '}
             <strong className="text-[#14281d] dark:text-amber-200">
-              حورية أحمد الطنطاوي • محمد محمد الكومي • خيرية الطنطاوي • أحمد الكومي
-            </strong>{' '}
-            ولموتانا وموتى المسلمين.
+              لوالدينا وأمواتنا وأموات المسلمين أجمعين.
+            </strong>
           </span>
           <span className="text-[11px] font-mono tabular-nums text-amber-800 dark:text-amber-300 font-bold">
             (الدعوات والختمات: {totalDedicatedKhatmahsAndPrayers.toLocaleString('ar-EG')})
@@ -165,9 +152,8 @@ export const WaqfDedication: React.FC<WaqfDedicationProps> = ({
           <p className="text-xs font-bold text-slate-800 dark:text-amber-100 leading-relaxed">
             {WAQF_DEDICATION_TEXT.intro}{' '}
             <strong className="text-[#145a3a] dark:text-amber-200">
-              {WAQF_MEMORIAL_NAMES_LIST.map((item) => item.fullName).join(' • ')}
-            </strong>{' '}
-            • ولجميع موتانا وموتى المسلمين أجمعين.
+              لوالدينا الكريمين ولجميع موتانا وموتى المسلمين أجمعين.
+            </strong>
           </p>
         </div>
 
@@ -1334,7 +1320,7 @@ export const PublicMushafWaqfPortalView: React.FC<PublicMushafWaqfPortalViewProp
             <div className="rounded-2xl bg-gradient-to-l from-emerald-950 via-emerald-900 to-amber-950 text-white px-4 py-2.5 border border-amber-400/60 shadow-md flex flex-col lg:flex-row lg:items-center justify-between gap-2.5">
               <div className="text-xs sm:text-sm font-extrabold text-amber-100 leading-relaxed flex items-center gap-2">
                 <span>
-                  🌿 صدقة جارية: اللهم ارحم <strong>حورية أحمد الطنطاوي</strong>، و<strong>محمد محمد الكومي</strong>، و<strong>خيرية الطنطاوي</strong>، و<strong>أحمد الكومي</strong>، وأموات المسلمين
+                  🌿 وقف قرآني وصدقة جارية: اللهم اجعل ثواب هذا المصحف وتلاوته صدقة جارية ونوراً ورحمة لوالدينا وأمواتنا وأموات المسلمين أجمعين
                 </span>
               </div>
 
@@ -2101,7 +2087,7 @@ export const PublicMushafWaqfPortalView: React.FC<PublicMushafWaqfPortalViewProp
                 </div>
                 <div>
                   <h3 className="text-base sm:text-lg font-extrabold">
-                    مركز التنزيل المسبق للعمل بدون إنترنت 100% (IndexedDB & Cache Storage)
+                    مركز التنزيل المسبق للعمل بدون إنترنت 100%
                   </h3>
                   <p className="text-xs text-slate-500">
                     حمّل صفحات مصحف المدينة والتفسير الميسر والتلاوات الصوتية لتعمل معك في السفر والمسجد وبدون شبكة
@@ -2220,7 +2206,7 @@ export const PublicMushafWaqfPortalView: React.FC<PublicMushafWaqfPortalViewProp
                 🤲 دعاء ختم القرآن الكريم وإهداء ثواب التلاوة
               </h3>
               <p className="text-sm leading-loose font-bold text-slate-800 dark:text-slate-200">
-                «اللهم ارحمني بالقرآن واجعله لي إماماً ونوراً وهدىً ورحمة، اللهم ذكرني منه ما نُسّيت وعلمني منه ما جهلت، وارزقني تلاوته آناء الليل وأطراف النهار، واجعله لي حجةً يا رب العالمين. اللهم تقبل منا ختم كتابك العظيم، واجعل ثواب ما قرأناه وتدبرناه نوراً وفسحةً وسروراً وصدقةً جاريةً لوالدتي رحمها الله حورية أحمد الطنطاوي، وجدي رحمه الله محمد محمد الكومي، وجدتي رحمها الله خيرية الطنطاوي، وعمي رحمه الله أحمد الكومي، ولجميع أمواتنا وأموات المسلمين أجمعين.»
+                «اللهم ارحمني بالقرآن واجعله لي إماماً ونوراً وهدىً ورحمة، اللهم ذكرني منه ما نُسّيت وعلمني منه ما جهلت، وارزقني تلاوته آناء الليل وأطراف النهار، واجعله لي حجةً يا رب العالمين. اللهم تقبل منا ختم كتابك العظيم، واجعل ثواب ما قرأناه وتدبرناه صدقة جارية ونوراً ورحمة لوالدينا وأمواتنا وأموات المسلمين أجمعين.»
               </p>
             </div>
           </div>
@@ -2311,7 +2297,7 @@ export const PublicMushafWaqfPortalView: React.FC<PublicMushafWaqfPortalViewProp
               </div>
 
               <div className="pt-2 border-t border-amber-400/40 text-[11px] font-bold text-amber-900 dark:text-amber-200">
-                🌿 صدقة جارية ووقف قرآني عن: حورية أحمد الطنطاوي • محمد محمد الكومي • خيرية الطنطاوي • أحمد الكومي • وجميع أموات المسلمين
+                🌿 وقف قرآني وصدقة جارية لوالدينا وأمواتنا وأموات المسلمين أجمعين
               </div>
             </div>
 
@@ -2393,7 +2379,7 @@ export const PublicMushafWaqfPortalView: React.FC<PublicMushafWaqfPortalViewProp
                 🤲 دعاء ختم القرآن الكريم:
               </p>
               <p>
-                اللهم ارحمني بالقرآن واجعله لي إماماً ونوراً وهدىً ورحمة، اللهم ذكرني منه ما نُسّيت وعلمني منه ما جهلت، وارزقني تلاوته آناء الليل وأطراف النهار، واجعله لي حجةً يا رب العالمين. اللهم أوصل ثواب ما قرأناه ونور ما تلوناه هديةً بالغةً ونوراً ورحمةً في القبور لوالدتي رحمها الله حورية أحمد الطنطاوي، وجدي رحمه الله محمد محمد الكومي، وجدتي رحمها الله خيرية الطنطاوي، وعمي رحمه الله أحمد الكومي، ولجميع أمواتنا وأموات المسلمين أجمعين.
+                اللهم ارحمني بالقرآن واجعله لي إماماً ونوراً وهدىً ورحمة، اللهم ذكرني منه ما نُسّيت وعلمني منه ما جهلت، وارزقني تلاوته آناء الليل وأطراف النهار، واجعله لي حجةً يا رب العالمين. اللهم أوصل ثواب ما قرأناه ونور ما تلوناه صدقة جارية ونوراً ورحمة لوالدينا وأمواتنا وأموات المسلمين أجمعين.
               </p>
             </div>
           </div>

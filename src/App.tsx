@@ -19,6 +19,7 @@ import { HybridFoundationView } from './components/HybridFoundationView';
 import { OfflineResourceCenterView } from './components/OfflineResourceCenterView';
 import { PublicMushafWaqfPortalView } from './components/PublicMushafWaqfPortalView';
 import { OwnerControlPanelView } from './components/OwnerControlPanelView';
+import { FaithOasisView } from './components/FaithOasisView';
 import { OFFICIAL_ACADEMY_WHATSAPP } from './data/hybridFoundationData';
 import { formatGregorianAndHijri } from './utils/dateUtils';
 import {
@@ -66,6 +67,8 @@ const MainShell: React.FC = () => {
     triggerPushReminderNow,
     publicMushafPortalOpen,
     setPublicMushafPortalOpen,
+    isFullScreenFocus,
+    setIsFullScreenFocus,
   } = useAcademy();
 
   const [mobileMoreOpen, setMobileMoreOpen] = useState(false);
@@ -131,9 +134,9 @@ const MainShell: React.FC = () => {
           icon: <LayoutDashboard className="w-4 h-4" />,
         },
         {
-          id: 'owner_panel',
-          label: 'لوحة تحكم المالك (Firestore)',
-          icon: <Shield className="w-4 h-4" />,
+          id: 'students',
+          label: 'الطلاب وملف الطالب',
+          icon: <Users className="w-4 h-4" />,
         },
         {
           id: 'session',
@@ -150,16 +153,16 @@ const MainShell: React.FC = () => {
           label: 'إدارة الحلقات والحضور',
           icon: <Users className="w-4 h-4" />,
         },
+        {
+          id: 'faith_oasis',
+          label: 'واحة الإيمان والإنجاز',
+          icon: <Sparkles className="w-4 h-4" />,
+        },
       ],
     },
     {
-      groupTitle: 'شؤون الطلاب والمناهج',
+      groupTitle: 'المناهج والتقييم',
       items: [
-        {
-          id: 'students',
-          label: 'الطلاب وملف الطالب',
-          icon: <Users className="w-4 h-4" />,
-        },
         {
           id: 'foundation',
           label: 'منهج الإمام للتأسيس',
@@ -171,14 +174,14 @@ const MainShell: React.FC = () => {
           icon: <Compass className="w-4 h-4" />,
         },
         {
-          id: 'struggling',
-          label: 'متابعة المتعثرين',
-          icon: <AlertTriangle className="w-4 h-4" />,
-        },
-        {
           id: 'exams',
           label: 'الاختبارات والإجازات',
           icon: <GraduationCap className="w-4 h-4" />,
+        },
+        {
+          id: 'struggling',
+          label: 'متابعة المتعثرين',
+          icon: <AlertTriangle className="w-4 h-4" />,
         },
       ],
     },
@@ -200,16 +203,6 @@ const MainShell: React.FC = () => {
           label: 'رسائل واتساب الجماعية',
           icon: <MessageSquare className="w-4 h-4" />,
         },
-      ],
-    },
-    {
-      groupTitle: 'الوقف والنظام',
-      items: [
-        {
-          id: 'public_mushaf',
-          label: 'مصحف المدينة العام والوقف',
-          icon: <BookOpen className="w-4 h-4" />,
-        },
         {
           id: 'resources',
           label: 'المواد والعمل أوفلاين',
@@ -219,6 +212,16 @@ const MainShell: React.FC = () => {
           id: 'settings',
           label: 'الإعدادات والنسخ',
           icon: <Settings className="w-4 h-4" />,
+        },
+        {
+          id: 'owner_panel',
+          label: 'لوحة تحكم المالك العام',
+          icon: <Shield className="w-4 h-4" />,
+        },
+        {
+          id: 'public_mushaf',
+          label: 'مصحف المدينة العام والوقف',
+          icon: <BookOpen className="w-4 h-4" />,
         },
       ],
     },
@@ -236,7 +239,11 @@ const MainShell: React.FC = () => {
   return (
     <div className="h-screen overflow-hidden bg-[#f6f7f2] dark:bg-[#0b1711] text-[#14281d] dark:text-[#e9f2ec] flex">
       {/* Desktop RTL Sidebar */}
-      <aside className="hidden lg:flex flex-col justify-between w-64 shrink-0 bg-white dark:bg-[#12231a] border-l border-neutral-200 dark:border-emerald-900/50 p-4 h-screen overflow-y-auto no-scrollbar no-print">
+      <aside
+        className={`${
+          isFullScreenFocus ? 'hidden' : 'hidden lg:flex'
+        } flex-col justify-between w-64 shrink-0 bg-white dark:bg-[#12231a] border-l border-neutral-200 dark:border-emerald-900/50 p-4 h-screen overflow-y-auto scrollbar-thin no-print`}
+      >
         <div className="space-y-5">
           {/* Brand Lockup */}
           <div className="flex items-center gap-3 px-2 pt-1 pb-2 border-b border-neutral-100 dark:border-emerald-900/40">
@@ -363,7 +370,7 @@ const MainShell: React.FC = () => {
                         مركز تنبيهات المتابعة والمهام ({teacherAlerts.length})
                       </div>
                       <div className="text-[10px] text-neutral-500">
-                        Notification API — {settings.notificationsEnabled ? 'نشط' : 'متوقف'}
+                        حالة التنبيهات: {settings.notificationsEnabled ? 'نشط' : 'متوقف'}
                       </div>
                     </div>
                     <div className="flex items-center gap-1.5">
@@ -517,6 +524,7 @@ const MainShell: React.FC = () => {
         {/* Active View Viewport */}
         <main className="max-w-7xl w-full mx-auto p-4 md:p-6 flex-1">
           {activeTab === 'dashboard' && <DashboardView />}
+          {activeTab === 'faith_oasis' && <FaithOasisView />}
           {activeTab === 'owner_panel' && <OwnerControlPanelView />}
           {activeTab === 'students' && <StudentsView />}
           {activeTab === 'session' && <SessionEngineView />}

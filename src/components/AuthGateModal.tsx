@@ -30,14 +30,12 @@ type WelcomePortalRole = 'teacher' | 'supervisor' | 'guardian' | 'student' | 'ad
 export const AuthGateModal: React.FC = () => {
   const {
     settings,
-    students,
     setActiveTab: setAppActiveTab,
     googleAuthUser,
     loginAsTeacher,
     loginWithGoogleEmail,
     startGoogleOAuthRedirect,
     loginAsGuardian,
-    loginAsGuardianDirect,
     loginAsGuest,
     submitAdmissionRequest,
     setPublicMushafPortalOpen,
@@ -45,12 +43,12 @@ export const AuthGateModal: React.FC = () => {
     recordWaqfAmeenPrayer,
   } = useAcademy();
 
-  const [selectedPortal, setSelectedPortal] = useState<WelcomePortalRole>('teacher');
+  const [selectedPortal, setSelectedPortal] = useState<WelcomePortalRole | null>(null);
   const [googleLoading, setGoogleLoading] = useState(false);
 
   // Teacher & Supervisor Auth state
-  const [teacherAuthMode, setTeacherAuthMode] = useState<'google_and_pin' | 'pin_only'>('google_and_pin');
-  const [teacherGoogleEmail, setTeacherGoogleEmail] = useState<string>(SUPABASE_OFFICIAL_CONFIG.ownerEmail);
+  const [teacherAuthMode, setTeacherAuthMode] = useState<'google_and_pin' | 'pin_only'>('pin_only');
+  const [teacherGoogleEmail, setTeacherGoogleEmail] = useState<string>('');
   const [teacherPinInput, setTeacherPinInput] = useState('');
   const [teacherError, setTeacherError] = useState('');
 
@@ -75,13 +73,6 @@ export const AuthGateModal: React.FC = () => {
   // Sadaqah Jariyah Popup Modal State
   const [sadaqahModalOpen, setSadaqahModalOpen] = useState(false);
 
-  // Family fields saved to Firestore user_profiles/{uid} on first Google login
-  const [loginMotherName, setLoginMotherName] = useState('');
-  const [loginGrandfatherName, setLoginGrandfatherName] = useState('');
-  const [loginGrandmotherName, setLoginGrandmotherName] = useState('');
-  const [loginUncleName, setLoginUncleName] = useState('');
-  const [showFirstLoginFamilyFields, setShowFirstLoginFamilyFields] = useState(true);
-
   const expectedTeacherPin = (settings.teacherPin || '1234').trim();
 
   const handleGoogleSignInClick = async (
@@ -89,14 +80,13 @@ export const AuthGateModal: React.FC = () => {
   ) => {
     setTeacherError('');
     setGuardianError('');
+    if ((role === 'teacher' || role === 'supervisor') && teacherPinInput.trim() !== expectedTeacherPin) {
+      setTeacherError('يرجى إدخال رمز المرور السري للمشرف (PIN) أولاً للتحقق قبل فتح لوحة التحكم.');
+      return;
+    }
     setGoogleLoading(true);
     try {
-      const res = await startGoogleOAuthRedirect(role, {
-        motherName: loginMotherName.trim(),
-        grandfatherName: loginGrandfatherName.trim(),
-        grandmotherName: loginGrandmotherName.trim(),
-        uncleName: loginUncleName.trim(),
-      });
+      const res = await startGoogleOAuthRedirect(role);
       if (!res.ok && res.error) {
         if (role === 'guardian' || role === 'student') {
           setGuardianError(res.error);
@@ -172,14 +162,14 @@ export const AuthGateModal: React.FC = () => {
       id: 'teacher',
       title: 'دخول المحفظ',
       subtitle: 'إدارة الحلقات والتسميع والتقييم الصوتي',
-      badge: 'بريد Google + PIN',
+      badge: 'رمز المرور (PIN)',
       icon: <BookOpen className="w-8 h-8 sm:w-10 sm:h-10" />,
     },
     {
       id: 'supervisor',
       title: 'دخول المشرف',
       subtitle: 'الإشراف العام، التقارير، وصلاحيات النظام',
-      badge: 'حساب الإدارة + PIN',
+      badge: 'رمز المرور (PIN)',
       icon: <ShieldCheck className="w-8 h-8 sm:w-10 sm:h-10" />,
     },
     {
@@ -193,7 +183,7 @@ export const AuthGateModal: React.FC = () => {
       id: 'student',
       title: 'دخول الطالب',
       subtitle: 'الورد اليومي، المصحف، وتسجيل الواجب',
-      badge: 'رقم الهاتف + كود الشيخ',
+      badge: 'رقم الهاتف + الكود',
       icon: <GraduationCap className="w-8 h-8 sm:w-10 sm:h-10" />,
     },
   ];
@@ -226,110 +216,82 @@ export const AuthGateModal: React.FC = () => {
           <div className="flex flex-wrap items-center justify-center gap-2 w-full sm:w-auto">
             <button
               type="button"
-              onClick={() => setSadaqahModalOpen(true)}
-              className="px-4 py-2 rounded-xl text-amber-300 hover:text-amber-200 hover:bg-emerald-900/70 text-xs sm:text-sm font-bold flex items-center gap-1.5 transition cursor-pointer"
-            >
-              <Heart className="w-4 h-4 text-amber-400 shrink-0" />
-              <span className="underline underline-offset-4">بوابة الصدقة الجارية</span>
-            </button>
-
-            <button
-              type="button"
               onClick={() => setPublicMushafPortalOpen(true)}
-              className="px-3.5 py-2 rounded-xl bg-emerald-900/90 hover:bg-emerald-800 text-amber-200 border border-amber-400/30 text-xs font-bold flex items-center justify-center gap-1.5 transition cursor-pointer"
+              className="px-4 py-2 rounded-xl bg-gradient-to-l from-amber-400/20 to-emerald-900/90 hover:from-amber-400/30 hover:to-emerald-800 text-amber-200 border border-amber-400/40 text-xs sm:text-sm font-bold flex items-center justify-center gap-2 transition cursor-pointer shadow-sm"
             >
               <BookOpen className="w-4 h-4 text-amber-300 shrink-0" />
-              <span>المصحف العام</span>
+              <span>بوابة المصحف العام والورد اليومي</span>
             </button>
           </div>
         </div>
       </header>
 
-      {/* Main Welcoming Content & 4 Large Circular Role Buttons */}
+      {/* Main Centered Portal Selection Card */}
       <main className="relative z-10 flex-1 flex flex-col items-center justify-center px-4 py-6 max-w-5xl mx-auto w-full space-y-6">
-        {/* Welcome Hero Banner */}
-        <div className="text-center max-w-2xl mx-auto space-y-2">
-          <p className="text-xs sm:text-sm font-bold text-amber-300 tracking-wide">
-            مرحباً بكم في الصفحة الافتتاحية لأكاديمية الإمام
-          </p>
-          <h2 className="font-amiri text-2xl sm:text-3xl font-bold text-white leading-snug">
-            اختر بوابة الدخول المناسبة لك للبدء الفوري
-          </h2>
-          <p className="text-xs sm:text-sm text-emerald-100/80">
-            اضغط على الأيقونة الدائرية الخاصة بدورك لفتح نموذج الدخول المخصص لك
-          </p>
-        </div>
+        <div className="w-full bg-emerald-950/60 backdrop-blur-md rounded-3xl border border-emerald-800/70 p-6 sm:p-8 shadow-2xl space-y-6">
+          <div className="text-center max-w-2xl mx-auto space-y-1.5">
+            <h2 className="font-amiri text-2xl sm:text-3xl font-bold text-white leading-snug">
+              اختر بوابة الدخول المناسبة لك
+            </h2>
+            <p className="text-xs sm:text-sm text-emerald-100/80">
+              اضغط على الأيقونة المخصصة لدورك لفتح نموذج التحقق والدخول الآمن
+            </p>
+          </div>
 
-        {/* 4 Prominent, Large Circular Icon Entry Buttons (المحفظ، المشرف، ولي الأمر، الطالب) */}
-        <div className="w-full grid grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6">
-          {portalCards.map((card) => {
-            const isSelected = selectedPortal === card.id;
-            return (
-              <button
-                key={card.id}
-                type="button"
-                onClick={() => {
-                  setSelectedPortal(card.id);
-                  setTeacherError('');
-                  setGuardianError('');
-                }}
-                className={`group text-center p-5 sm:p-6 rounded-3xl border-2 transition-all cursor-pointer flex flex-col items-center justify-between gap-3.5 ${
-                  isSelected
-                    ? 'bg-gradient-to-b from-amber-400/20 via-emerald-900/95 to-emerald-950 text-white border-amber-400 shadow-2xl scale-[1.03]'
-                    : 'bg-emerald-900/50 hover:bg-emerald-900/80 text-white border-emerald-800/70 hover:border-amber-400/50'
-                }`}
-              >
-                {/* Large Distinctive Circular Icon */}
-                <div
-                  className={`w-20 h-20 sm:w-24 sm:h-24 rounded-full flex items-center justify-center transition-transform duration-200 group-hover:scale-105 ${
+          {/* 4 Prominent Circular Icon Entry Buttons */}
+          <div className="w-full grid grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-5">
+            {portalCards.map((card) => {
+              const isSelected = selectedPortal === card.id;
+              return (
+                <button
+                  key={card.id}
+                  type="button"
+                  onClick={() => {
+                    setSelectedPortal((prev) => (prev === card.id ? null : card.id));
+                    setTeacherError('');
+                    setGuardianError('');
+                  }}
+                  className={`group text-center p-5 rounded-2xl border-2 transition-all cursor-pointer flex flex-col items-center justify-between gap-3 ${
                     isSelected
-                      ? 'bg-gradient-to-br from-amber-400 via-amber-300 to-yellow-300 text-emerald-950 ring-4 ring-amber-400/35 shadow-xl'
-                      : 'bg-emerald-950/90 text-amber-300 border-2 border-amber-400/40 ring-4 ring-emerald-900/60 group-hover:border-amber-300'
+                      ? 'bg-gradient-to-b from-amber-400/20 via-emerald-900/95 to-emerald-950 text-white border-amber-400 shadow-xl scale-[1.02]'
+                      : 'bg-emerald-900/40 hover:bg-emerald-900/75 text-white border-emerald-800/70 hover:border-amber-400/50'
                   }`}
                 >
-                  {card.icon}
-                </div>
+                  <div
+                    className={`w-16 h-16 sm:w-20 sm:h-20 rounded-full flex items-center justify-center transition-transform duration-200 group-hover:scale-105 ${
+                      isSelected
+                        ? 'bg-gradient-to-br from-amber-400 via-amber-300 to-yellow-300 text-emerald-950 ring-4 ring-amber-400/35 shadow-lg'
+                        : 'bg-emerald-950/90 text-amber-300 border-2 border-amber-400/40 ring-4 ring-emerald-900/60 group-hover:border-amber-300'
+                    }`}
+                  >
+                    {card.icon}
+                  </div>
 
-                <div className="space-y-1">
-                  <h3 className="text-base sm:text-lg font-extrabold text-white">
-                    {card.title}
-                  </h3>
-                  <p className="text-[11px] sm:text-xs text-emerald-100/80 leading-relaxed">
-                    {card.subtitle}
-                  </p>
-                </div>
+                  <div className="space-y-1">
+                    <h3 className="text-base sm:text-lg font-extrabold text-white">
+                      {card.title}
+                    </h3>
+                    <p className="text-[11px] sm:text-xs text-emerald-100/80 leading-relaxed">
+                      {card.subtitle}
+                    </p>
+                  </div>
 
-                <span
-                  className={`text-[11px] font-bold pt-1 ${
-                    isSelected ? 'text-amber-300' : 'text-emerald-300/80 group-hover:text-amber-200'
-                  }`}
-                >
-                  {isSelected ? '● البوابة النشطة حالياً' : card.badge}
-                </span>
-              </button>
-            );
-          })}
+                  <span
+                    className={`text-[11px] font-bold pt-1 ${
+                      isSelected ? 'text-amber-300' : 'text-emerald-300/80 group-hover:text-amber-200'
+                    }`}
+                  >
+                    {isSelected ? '● البوابة النشطة حالياً' : card.badge}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
         </div>
 
-        {/* Fixed, Elegant Text-Button Link for "بوابة الصدقة الجارية" Directly Below the 4 Role Buttons */}
-        <div className="w-full flex flex-col items-center justify-center pt-1 pb-2">
-          <button
-            type="button"
-            onClick={() => setSadaqahModalOpen(true)}
-            className="group inline-flex flex-wrap items-center justify-center gap-2.5 px-6 py-3 rounded-2xl bg-emerald-900/60 hover:bg-emerald-900/90 border border-amber-400/40 hover:border-amber-300 text-amber-200 hover:text-amber-100 transition-all cursor-pointer shadow-md"
-          >
-            <Heart className="w-4 h-4 text-amber-400 fill-amber-400/30 group-hover:scale-110 transition-transform" />
-            <span className="text-xs sm:text-sm font-extrabold underline decoration-amber-400/60 underline-offset-8">
-              بوابة الصدقة الجارية والوقف القرآني العام
-            </span>
-            <span className="text-emerald-200/80 text-xs hidden sm:inline">
-              — إهداء الثواب والمصحف الشريف ({waqfImpactStats.ameenPrayersCount.toLocaleString('ar-EG')} دعوة)
-            </span>
-          </button>
-        </div>
-
-        {/* Active Login Card Container */}
-        <div className="w-full max-w-2xl bg-white dark:bg-slate-900 rounded-3xl shadow-2xl border border-emerald-500/30 overflow-hidden">
+        {/* Active Login Card Container — Only visible when a portal icon is clicked */}
+        {selectedPortal !== null && (
+        <div className="w-full max-w-2xl bg-white dark:bg-slate-900 rounded-3xl shadow-2xl border border-emerald-500/30 overflow-hidden animate-in fade-in slide-in-from-top-2 duration-200">
           {/* Card Top Bar */}
           <div className="bg-gradient-to-l from-emerald-900 via-emerald-800 to-teal-900 px-6 py-4 text-white flex flex-wrap items-center justify-between gap-3 border-b border-emerald-700/50">
             <div className="flex items-center gap-2.5">
@@ -363,27 +325,37 @@ export const AuthGateModal: React.FC = () => {
               </div>
             </div>
 
-            {selectedPortal !== 'admission' ? (
+            <div className="flex items-center gap-2">
+              {selectedPortal !== 'admission' ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSelectedPortal('admission');
+                    setAdmSuccess(false);
+                  }}
+                  className="px-3 py-1.5 rounded-xl bg-amber-400/20 hover:bg-amber-400/30 border border-amber-300/40 text-amber-200 text-xs font-bold flex items-center gap-1.5 transition cursor-pointer"
+                >
+                  <UserPlus className="w-3.5 h-3.5" />
+                  <span>تسجيل طالب جديد</span>
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setSelectedPortal('guardian')}
+                  className="px-3 py-1.5 rounded-xl bg-emerald-950/60 hover:bg-emerald-950 text-amber-200 border border-amber-400/30 text-xs font-bold cursor-pointer"
+                >
+                  العودة لتسجيل الدخول ←
+                </button>
+              )}
               <button
                 type="button"
-                onClick={() => {
-                  setSelectedPortal('admission');
-                  setAdmSuccess(false);
-                }}
-                className="px-3 py-1.5 rounded-xl bg-amber-400/20 hover:bg-amber-400/30 border border-amber-300/40 text-amber-200 text-xs font-bold flex items-center gap-1.5 transition cursor-pointer"
+                onClick={() => setSelectedPortal(null)}
+                title="إغلاق نافذة الدخول"
+                className="p-1.5 rounded-xl bg-emerald-950/60 hover:bg-red-600/80 text-emerald-100 hover:text-white border border-emerald-700/60 transition cursor-pointer"
               >
-                <UserPlus className="w-3.5 h-3.5" />
-                <span>تسجيل طالب جديد</span>
+                <X className="w-4 h-4" />
               </button>
-            ) : (
-              <button
-                type="button"
-                onClick={() => setSelectedPortal('guardian')}
-                className="px-3 py-1.5 rounded-xl bg-emerald-950/60 hover:bg-emerald-950 text-amber-200 border border-amber-400/30 text-xs font-bold cursor-pointer"
-              >
-                العودة لتسجيل الدخول ←
-              </button>
-            )}
+            </div>
           </div>
 
           {/* Card Form Content */}
@@ -391,67 +363,13 @@ export const AuthGateModal: React.FC = () => {
             {/* PORTAL 1 & 2: TEACHER OR SUPERVISOR LOGIN (Google Account + PIN) */}
             {(selectedPortal === 'teacher' || selectedPortal === 'supervisor') && (
               <div className="space-y-4">
-                {/* Academy Owner Credentials & 1-Click Direct Access Banner */}
-                <div className="p-4 rounded-2xl bg-gradient-to-l from-emerald-950 via-[#145a3a] to-[#0f452c] text-white border-2 border-[#c59b27] shadow-md space-y-3">
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <div className="flex items-center gap-2">
-                      <ShieldCheck className="w-5 h-5 text-[#dfbd69] shrink-0" />
-                      <span className="text-xs sm:text-sm font-black text-[#dfbd69]">
-                        👑 بيانات دخول المالك العام للأكاديمية (صلاحيات كاملة + لوحة تحكم Firestore)
-                      </span>
-                    </div>
-                    <span className="text-[11px] font-mono text-emerald-200">
-                      PIN: <strong className="text-[#dfbd69]">1234</strong>
-                    </span>
-                  </div>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs bg-black/25 p-2.5 rounded-xl border border-white/10">
-                    <div>
-                      <span className="text-emerald-200/80 block text-[10px]">البريد الرسمي للمالك (1):</span>
-                      <strong className="font-mono text-white select-all">sayedkomy2@gmail.com</strong>
-                    </div>
-                    <div>
-                      <span className="text-emerald-200/80 block text-[10px]">البريد الرسمي للمالك (2):</span>
-                      <strong className="font-mono text-white select-all">info.welivequran@gmail.com</strong>
-                    </div>
-                  </div>
-                  <div className="flex flex-wrap items-center gap-2 pt-1">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        loginWithGoogleEmail(
-                          SUPABASE_OFFICIAL_CONFIG.ownerEmail,
-                          expectedTeacherPin
-                        );
-                        setAppActiveTab('owner_panel');
-                      }}
-                      className="flex-1 py-2 px-3 rounded-xl bg-[#c59b27] hover:bg-[#b58c1e] text-[#14281d] text-xs font-black flex items-center justify-center gap-1.5 shadow-sm transition cursor-pointer"
-                    >
-                      <ShieldCheck className="w-4 h-4" />
-                      <span>دخول فوري للوحة تحكم المالك (إدارة المحفظين والمشرفين)</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        loginWithGoogleEmail(
-                          SUPABASE_OFFICIAL_CONFIG.ownerEmail,
-                          expectedTeacherPin
-                        );
-                        setAppActiveTab('dashboard');
-                      }}
-                      className="py-2 px-3 rounded-xl bg-white/15 hover:bg-white/25 text-white border border-white/20 text-xs font-extrabold flex items-center justify-center gap-1.5 transition cursor-pointer"
-                    >
-                      <span>دخول المالك للرئيسية</span>
-                    </button>
-                  </div>
-                </div>
-
                 <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 space-y-3.5">
                   {googleAuthUser && (
                     <div className="p-2.5 rounded-xl bg-emerald-50 dark:bg-emerald-950/50 border border-emerald-200 dark:border-emerald-800 flex items-center justify-between gap-2 text-xs">
                       <div className="flex items-center gap-2">
                         <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
                         <span className="font-bold text-emerald-900 dark:text-emerald-200">
-                          حساب Google متصل: {googleAuthUser.displayName} ({googleAuthUser.email})
+                          حساب Google متصل: {googleAuthUser.displayName}
                         </span>
                       </div>
                     </div>
@@ -483,16 +401,16 @@ export const AuthGateModal: React.FC = () => {
                     </svg>
                     <span>
                       {googleLoading
-                        ? 'جارٍ فتح نافذة تسجيل الدخول بحساب Google وحفظ الملف في Firestore...'
+                        ? 'جارٍ التحقق من حساب Google المعتمد...'
                         : selectedPortal === 'supervisor'
-                        ? 'تسجيل الدخول المباشر للمشرف بحساب Google (وحفظ الملف في Firestore)'
-                        : 'تسجيل الدخول المباشر للمحفظ بحساب Google (وحفظ الملف في Firestore)'}
+                        ? 'تسجيل الدخول بحساب Google للمشرف العام'
+                        : 'تسجيل الدخول بحساب Google للمحفظ'}
                     </span>
                   </button>
 
                   <div className="flex items-center gap-2 text-[11px] text-slate-400">
                     <div className="flex-1 h-px bg-slate-200 dark:bg-slate-700" />
-                    <span>أو عبر البريد المعتمد ورمز المرور (PIN)</span>
+                    <span>أو عبر البريد المعتمد ورمز المرور السري (PIN)</span>
                     <div className="flex-1 h-px bg-slate-200 dark:bg-slate-700" />
                   </div>
 
@@ -526,8 +444,8 @@ export const AuthGateModal: React.FC = () => {
                       <div>
                         <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
                           {selectedPortal === 'supervisor'
-                            ? 'بريد Google للمشرف العام:'
-                            : 'بريد Google للمحفظ المعتمد:'}
+                            ? 'البريد الإلكتروني للمشرف:'
+                            : 'البريد الإلكتروني للمحفظ:'}
                         </label>
                         <div className="relative">
                           <Mail className="w-4 h-4 text-slate-400 absolute right-3 top-3" />
@@ -536,7 +454,8 @@ export const AuthGateModal: React.FC = () => {
                             dir="ltr"
                             value={teacherGoogleEmail}
                             onChange={(e) => setTeacherGoogleEmail(e.target.value)}
-                            placeholder="info.welivequran@gmail.com"
+                            placeholder="teacher@example.com"
+                            autoComplete="username"
                             className="w-full pr-9 pl-3 py-2.5 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs sm:text-sm font-mono text-left focus:outline-none focus:ring-2 focus:ring-emerald-600"
                             required
                           />
@@ -547,8 +466,8 @@ export const AuthGateModal: React.FC = () => {
                     <div>
                       <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
                         {selectedPortal === 'supervisor'
-                          ? 'رمز مرور المشرف (PIN):'
-                          : 'رمز مرور المحفظ (PIN):'}
+                          ? 'رمز مرور المشرف السري (PIN):'
+                          : 'رمز مرور المحفظ السري (PIN):'}
                       </label>
                       <div className="relative">
                         <KeyRound className="w-4 h-4 text-slate-400 absolute right-3 top-3" />
@@ -559,6 +478,7 @@ export const AuthGateModal: React.FC = () => {
                           onChange={(e) => setTeacherPinInput(e.target.value)}
                           placeholder="••••"
                           maxLength={12}
+                          autoComplete="current-password"
                           className="w-full pr-9 pl-3 py-2.5 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm font-mono tracking-widest text-center focus:outline-none focus:ring-2 focus:ring-emerald-600"
                           required
                         />
@@ -578,8 +498,8 @@ export const AuthGateModal: React.FC = () => {
                       <Lock className="w-4 h-4" />
                       <span>
                         {selectedPortal === 'supervisor'
-                          ? 'دخول لوحة الإشراف العام والإعدادات'
-                          : 'دخول لوحة تحكم المحفظ والحلقات'}
+                          ? 'تسجيل الدخول للوحة الإشراف العام'
+                          : 'تسجيل الدخول للوحة المحفظ والحلقات'}
                       </span>
                     </button>
                   </form>
@@ -590,55 +510,6 @@ export const AuthGateModal: React.FC = () => {
             {/* PORTAL 3 & 4: GUARDIAN OR STUDENT LOGIN (Google Sign-In or Phone + PIN) */}
             {(selectedPortal === 'guardian' || selectedPortal === 'student') && (
               <div className="space-y-4">
-                <div className="p-3.5 rounded-xl bg-emerald-50/70 dark:bg-slate-800/80 border border-emerald-200 dark:border-emerald-800/50 space-y-2">
-                  <label className="block text-xs font-extrabold text-emerald-900 dark:text-emerald-200">
-                    🎓 اختيار سريع من قائمة طلاب الأكاديمية ({students.length} طالباً):
-                  </label>
-                  <div className="flex flex-col sm:flex-row gap-2">
-                    <select
-                      aria-label="اختيار الطالب"
-                      onChange={(e) => {
-                        const st = students.find((s) => s.id === e.target.value);
-                        if (st) {
-                          setPhone(st.whatsappPhone);
-                          setPin(st.guardianPin || '123456');
-                          setGuardianError('');
-                        }
-                      }}
-                      defaultValue=""
-                      className="flex-1 px-3 py-2 rounded-xl border border-emerald-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs font-bold text-slate-900 dark:text-slate-100"
-                    >
-                      <option value="" disabled>
-                        — اختر اسم الطالب لتعبئة رقم الهاتف والكود تلقائياً —
-                      </option>
-                      {students.map((st) => (
-                        <option key={st.id} value={st.id}>
-                          {st.name} (ولي الأمر: {st.guardianName} — {st.level})
-                        </option>
-                      ))}
-                    </select>
-                    {phone && (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          const matched = students.find(
-                            (s) => s.whatsappPhone === phone
-                          );
-                          if (matched) {
-                            loginAsGuardianDirect(matched.id);
-                          }
-                        }}
-                        className="px-4 py-2 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-extrabold cursor-pointer shrink-0"
-                      >
-                        دخول فوري لبوابة الطالب ←
-                      </button>
-                    )}
-                  </div>
-                  <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                    💡 الكود الافتراضي لولي الأمر هو آخر 6 أرقام من رقم الهاتف المسجل (أو الكود الموحد <span className="font-mono font-bold">123456</span>).
-                  </p>
-                </div>
-
                 <button
                   type="button"
                   disabled={googleLoading}
@@ -665,10 +536,10 @@ export const AuthGateModal: React.FC = () => {
                   </svg>
                   <span>
                     {googleLoading
-                      ? 'جارٍ فتح نافذة تسجيل الدخول بحساب Google وحفظ الملف في Firestore...'
+                      ? 'جارٍ التحقق من حساب Google...'
                       : selectedPortal === 'guardian'
-                      ? 'تسجيل الدخول السريع لولي الأمر بحساب Google (وحفظ الملف في Firestore)'
-                      : 'تسجيل الدخول السريع للطالب بحساب Google (وحفظ الملف في Firestore)'}
+                      ? 'تسجيل الدخول لولي الأمر بحساب Google المرتبط'
+                      : 'تسجيل الدخول للطالب بحساب Google المرتبط'}
                   </span>
                 </button>
 
@@ -691,7 +562,7 @@ export const AuthGateModal: React.FC = () => {
                         dir="ltr"
                         value={phone}
                         onChange={(e) => setPhone(e.target.value)}
-                        placeholder="201012345601"
+                        placeholder="01000000001"
                         className="w-full pr-9 pl-3 py-2.5 rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-sm font-mono text-left focus:outline-none focus:ring-2 focus:ring-emerald-600"
                         required
                       />
@@ -902,28 +773,16 @@ export const AuthGateModal: React.FC = () => {
             )}
           </div>
         </div>
+        )}
       </main>
-
-      {/* Fixed Independent Floating Button for "بوابة الصدقة الجارية" */}
-      <div className="fixed bottom-16 left-4 z-40">
-        <button
-          type="button"
-          onClick={() => setSadaqahModalOpen(true)}
-          className="px-4 py-2.5 rounded-full bg-gradient-to-l from-amber-400 to-yellow-300 hover:from-amber-300 hover:to-yellow-200 text-emerald-950 font-black text-xs shadow-2xl border-2 border-white flex items-center gap-2 transition cursor-pointer"
-          title="فتح نافذة بوابة الصدقة الجارية والوقف القرآني"
-        >
-          <Heart className="w-4 h-4 fill-emerald-950 text-emerald-950" />
-          <span>بوابة الصدقة الجارية</span>
-        </button>
-      </div>
 
       {/* Calm Footer Bar */}
       <footer className="relative z-10 w-full bg-emerald-950/90 border-t border-amber-400/20 px-4 py-3 text-emerald-100">
         <div className="max-w-5xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-2 text-center sm:text-right">
           <div className="flex items-center gap-2 text-xs">
-            <span className="text-amber-300 font-bold">🌿 وقف قرآني وصدقة جارية:</span>
+            <span className="text-amber-300 font-bold">🌿 وقف قرآني وصدقة جارية —</span>
             <span className="text-emerald-100/90">
-              اللهم اجعل ثواب هذا المصحف وتلاوته وحفظه صدقة جارية ونوراً ورحمة لوالدينا وأمواتنا وأموات المسلمين
+              اللهم اجعل ثواب هذا المصحف وتلاوته وحفظه صدقة جارية ونوراً ورحمة لوالدينا وأمواتنا وأموات المسلمين أجمعين
             </span>
           </div>
           <div className="flex items-center gap-2 shrink-0">
@@ -933,7 +792,7 @@ export const AuthGateModal: React.FC = () => {
               className="px-3.5 py-1.5 rounded-xl bg-amber-400/15 hover:bg-amber-400/25 border border-amber-300/40 text-amber-200 text-xs font-bold flex items-center gap-1.5 transition cursor-pointer"
             >
               <Heart className="w-3.5 h-3.5 text-amber-300" />
-              <span>فتح نافذة الصدقة الجارية ({waqfImpactStats.ameenPrayersCount.toLocaleString('ar-EG')})</span>
+              <span>تفاصيل الوقف القرآني ({waqfImpactStats.ameenPrayersCount.toLocaleString('ar-EG')})</span>
             </button>
           </div>
         </div>

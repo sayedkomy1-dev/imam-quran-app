@@ -72,21 +72,22 @@ service cloud.firestore {
 
     function isValidAcademyCloudSnapshot(data) {
       return data.keys().hasAll(['ownerUid', 'academyName', 'studentsCount', 'sessionsCount', 'schemaVersion', 'createdAt', 'updatedAt']) &&
-        data.keys().hasOnly(['ownerUid', 'academyName', 'studentsCount', 'sessionsCount', 'schemaVersion', 'createdAt', 'updatedAt']) &&
+        data.keys().hasOnly(['ownerUid', 'teacherEmail', 'academyName', 'studentsCount', 'sessionsCount', 'schemaVersion', 'payloadJson', 'createdAt', 'updatedAt']) &&
         data.ownerUid is string && data.ownerUid.size() >= 1 && data.ownerUid.size() <= 128 &&
         data.ownerUid.matches('^[a-zA-Z0-9_\\-]+$') &&
-        data.ownerUid == request.auth.uid &&
+        (!('teacherEmail' in data) || (data.teacherEmail is string && data.teacherEmail.size() <= 160)) &&
         data.academyName is string && data.academyName.size() >= 1 && data.academyName.size() <= 160 &&
         data.studentsCount is int && data.studentsCount >= 0 && data.studentsCount <= 100000 &&
         data.sessionsCount is int && data.sessionsCount >= 0 && data.sessionsCount <= 1000000 &&
         data.schemaVersion is int && data.schemaVersion == 12 &&
+        (!('payloadJson' in data) || (data.payloadJson is string && data.payloadJson.size() <= 950000)) &&
         data.createdAt is timestamp &&
         data.updatedAt is timestamp;
     }
 
     function isValidStaffRegistrationRecord(data) {
       return data.keys().hasAll(['staffId', 'googleUid', 'name', 'email', 'roleTitle', 'staffRole', 'status', 'assignedCirclesCount', 'motherName', 'grandfatherName', 'grandmotherName', 'uncleName', 'createdAt', 'updatedAt']) &&
-        data.keys().hasOnly(['staffId', 'googleUid', 'name', 'email', 'roleTitle', 'staffRole', 'status', 'assignedCirclesCount', 'motherName', 'grandfatherName', 'grandmotherName', 'uncleName', 'createdAt', 'updatedAt']) &&
+        data.keys().hasOnly(['staffId', 'googleUid', 'name', 'email', 'roleTitle', 'staffRole', 'status', 'assignedCirclesCount', 'motherName', 'grandfatherName', 'grandmotherName', 'uncleName', 'customPermissionsJson', 'createdAt', 'updatedAt']) &&
         data.staffId is string && data.staffId.size() >= 1 && data.staffId.size() <= 128 &&
         data.staffId.matches('^[a-zA-Z0-9_\\-]+$') &&
         data.googleUid is string && data.googleUid.size() <= 128 &&
@@ -102,6 +103,7 @@ service cloud.firestore {
         data.grandfatherName is string && data.grandfatherName.size() <= 120 &&
         data.grandmotherName is string && data.grandmotherName.size() <= 120 &&
         data.uncleName is string && data.uncleName.size() <= 120 &&
+        (!('customPermissionsJson' in data) || (data.customPermissionsJson is string && data.customPermissionsJson.size() <= 4000)) &&
         data.createdAt is timestamp &&
         data.updatedAt is timestamp;
     }
@@ -152,22 +154,19 @@ service cloud.firestore {
     }
 
     match /academy_snapshots/{snapshotId} {
-      allow get: if isSignedIn() && isValidId(snapshotId) && (existing().ownerUid == request.auth.uid || isBootstrappedAdmin());
-      allow list: if isSignedIn() && existing().ownerUid == request.auth.uid;
+      allow get, list: if isSignedIn();
       allow create: if isSignedIn() &&
         isValidId(snapshotId) &&
-        request.auth.uid == snapshotId &&
+        incoming().ownerUid == request.auth.uid &&
         isValidAcademyCloudSnapshot(incoming()) &&
         incoming().createdAt == request.time &&
         incoming().updatedAt == request.time;
       allow update: if isSignedIn() &&
         isValidId(snapshotId) &&
-        request.auth.uid == snapshotId &&
         isValidAcademyCloudSnapshot(incoming()) &&
-        incoming().ownerUid == existing().ownerUid &&
         incoming().createdAt == existing().createdAt &&
         incoming().updatedAt == request.time &&
-        incoming().diff(existing()).affectedKeys().hasOnly(['academyName', 'studentsCount', 'sessionsCount', 'schemaVersion', 'updatedAt']);
+        incoming().diff(existing()).affectedKeys().hasOnly(['ownerUid', 'teacherEmail', 'academyName', 'studentsCount', 'sessionsCount', 'schemaVersion', 'payloadJson', 'updatedAt']);
       allow delete: if false;
     }
 

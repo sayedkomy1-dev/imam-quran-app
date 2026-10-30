@@ -25,14 +25,19 @@ import {
   StudentCustomMutashabih,
   StudentLevel,
   StudentPedagogicalProfile,
+  StudentPrivacyPreference,
+  SupervisorPermissions,
   TaskItem,
   TeacherAccessRecord,
+  TeacherPermissions,
   TeacherRatingRecord,
   TimestampAudioFeedbackPin,
   UserRole,
   WaqfImpactStats,
 } from '../types';
 import {
+  DEFAULT_SUPERVISOR_PERMISSIONS,
+  DEFAULT_TEACHER_PERMISSIONS,
   INITIAL_CIRCLES,
   INITIAL_EXAMS,
   INITIAL_HOME_SUBMISSIONS,
@@ -46,6 +51,7 @@ import {
   getLocalDateString,
 } from '../data/seedData';
 import { normalizePortableBackupPayload } from '../utils/portableBackupNormalizer';
+import { exportDataToJsonBackup } from '../utils/exportService';
 import { SURAHS } from '../data/quranData';
 import {
   UrgentAlertItem,
@@ -61,6 +67,7 @@ import {
 import {
   auth,
   ExtendedFamilyFields,
+  fetchAcademyCloudBackupFromFirestore,
   GoogleAuthResult,
   onAuthStateChanged,
   signInWithGooglePopup,
@@ -76,6 +83,7 @@ import {
 
 export type ActiveTab =
   | 'dashboard'
+  | 'faith_oasis'
   | 'owner_panel'
   | 'students'
   | 'session'
@@ -124,6 +132,8 @@ interface AcademyStore {
   showToast: (text: string, type?: 'success' | 'error' | 'info') => void;
   quickSearchOpen: boolean;
   setQuickSearchOpen: (open: boolean) => void;
+  isFullScreenFocus: boolean;
+  setIsFullScreenFocus: (v: boolean) => void;
 
   // Entities
   students: Student[];
@@ -141,9 +151,15 @@ interface AcademyStore {
   managedTeachers: TeacherAccessRecord[];
   currentStaffTier: StaffHierarchyRole;
   setCurrentStaffTier: (tier: StaffHierarchyRole) => void;
+  activeStaffEmail: string;
+  setActiveStaffEmail: (email: string) => void;
+  currentTeacherPermissions: TeacherPermissions;
   cloudSyncStatus: 'synced' | 'syncing' | 'local_ready';
   lastSyncTimestamp: string;
-  triggerCloudSyncNow: () => void;
+  triggerCloudSyncNow: (manualToast?: boolean) => Promise<void>;
+  restoreFromCloudFirestoreNow: (silent?: boolean, targetEmail?: string) => Promise<boolean>;
+  exportTeacherScopedJsonBackup: (teacherEmail?: string) => void;
+  importTeacherScopedJsonBackup: (data: unknown, teacherEmail?: string) => boolean;
   updateTeacherAccessStatus: (
     teacherId: string,
     status: 'active' | 'blocked' | 'pending'
@@ -176,7 +192,29 @@ interface AcademyStore {
       staffRole?: 'supervisor' | 'teacher';
       roleTitle?: string;
       assignedCirclesCount?: number;
+      assignedCircleNames?: string[];
+      customPermissions?: Partial<SupervisorPermissions>;
+      customTeacherPermissions?: Partial<TeacherPermissions>;
     }
+  ) => void;
+  updateSupervisorPermissions: (
+    permissions: Partial<SupervisorPermissions>,
+    targetSupervisorId?: string
+  ) => void;
+  updateTeacherPermissions: (
+    permissions: Partial<TeacherPermissions>,
+    targetTeacherId?: string
+  ) => void;
+  resetTeacherCustomPermissions: (targetTeacherId: string) => void;
+  updateStudentPrivacyPreference: (
+    studentId: string,
+    preference: StudentPrivacyPreference
+  ) => void;
+  applyBulkStudentPrivacyPreference: (preference: StudentPrivacyPreference) => void;
+  assignStudentToTeacher: (
+    studentId: string,
+    teacherEmail: string,
+    teacherName: string
   ) => void;
   syncAllStaffToFirestoreNow: () => Promise<void>;
   linkStudentGoogleAccount: (
@@ -511,22 +549,15 @@ async function fetchAudioBlobsFromIdbAndLocalStorage(
   return results.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 }
 
-const STORAGE_KEY = 'imam_academy_pwa_store_v1';
+const STORAGE_KEY = 'imam_academy_pwa_store_v13_sanitized';
 
 const AcademyContext = createContext<AcademyStore | null>(null);
 
 export const AcademyProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const restoredContext = useMemo(() => ImamSessionRestore.load(), []);
-  const hasTrustedBoot = useMemo(() => {
-    try {
-      return !!localStorage.getItem(SUPABASE_OFFICIAL_CONFIG.trustStorageKey);
-    } catch {
-      return false;
-    }
-  }, []);
 
   const [isLoggedIn, setIsLoggedIn] = useState<boolean>(
-    () => !!(restoredContext?.isLoggedIn || hasTrustedBoot)
+    () => !!(restoredContext?.isLoggedIn)
   );
   const [userRole, setUserRole] = useState<UserRole>(
     () => (restoredContext?.userRole as UserRole) || 'teacher'
@@ -553,6 +584,7 @@ export const AcademyProvider: React.FC<{ children: React.ReactNode }> = ({ child
     type: 'success' | 'error' | 'info';
   } | null>(null);
   const [quickSearchOpen, setQuickSearchOpen] = useState<boolean>(false);
+  const [isFullScreenFocus, setIsFullScreenFocus] = useState<boolean>(false);
 
   const [sessionReminderPreview, setSessionReminderPreview] = useState<
     '1hour' | '60min' | 'now' | null
@@ -565,46 +597,40 @@ export const AcademyProvider: React.FC<{ children: React.ReactNode }> = ({ child
     new Date().toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' })
   );
 
-  // Load initial state from localStorage or real backup seed
+  // Load initial state from sanitized v13 store or clean seed data
   const loadInitialState = () => {
-    const REAL_BACKUP_MIGRATION_FLAG = 'wlq_real_backup_v12_migrated_2026_10_29_v2';
+    const SANITIZED_MIGRATION_FLAG = 'wlq_sanitized_v13_migrated_2026';
     try {
-      const migratedAlready = localStorage.getItem(REAL_BACKUP_MIGRATION_FLAG) === 'true';
+      const migratedAlready = localStorage.getItem(SANITIZED_MIGRATION_FLAG) === 'true';
       const raw = localStorage.getItem(STORAGE_KEY);
       if (migratedAlready && raw) {
         const parsed = JSON.parse(raw);
-        if (parsed && Array.isArray(parsed.students) && parsed.students.length > 0) {
-          // Check if stored students are the old placeholder st-1..st-8
-          const isOldPlaceholderRoster = parsed.students.every((st: Record<string, unknown>) =>
-            /^st-[1-8]$/.test(String(st.id || ''))
+        if (parsed && Array.isArray(parsed.students)) {
+          const normalized = normalizePortableBackupPayload(
+            parsed,
+            INITIAL_SETTINGS,
+            INITIAL_CIRCLES,
+            getCurrentMonthKey()
           );
-          if (!isOldPlaceholderRoster) {
-            const normalized = normalizePortableBackupPayload(
-              parsed,
-              INITIAL_SETTINGS,
-              INITIAL_CIRCLES,
-              getCurrentMonthKey()
-            );
-            if (normalized && normalized.students.length > 0) {
-              return {
-                students: normalized.students,
-                sessions: normalized.sessions,
-                circles: normalized.circles,
-                exams: (parsed.exams || INITIAL_EXAMS) as ExamRecord[],
-                ijazahs: (parsed.ijazahs || INITIAL_IJAZAHS) as IjazahRecord[],
-                tasks: (parsed.tasks || INITIAL_TASKS) as TaskItem[],
-                settings: normalized.settings,
-                boardStrokes: (parsed.boardStrokes || {}) as Record<string, SmartBoardStroke[]>,
-                teacherRatings: (parsed.teacherRatings || INITIAL_TEACHER_RATINGS) as TeacherRatingRecord[],
-                homeSubmissions: (parsed.homeSubmissions || INITIAL_HOME_SUBMISSIONS) as HomePracticeSubmission[],
-              };
-            }
+          if (normalized) {
+            return {
+              students: normalized.students,
+              sessions: normalized.sessions,
+              circles: normalized.circles,
+              exams: (parsed.exams || INITIAL_EXAMS) as ExamRecord[],
+              ijazahs: (parsed.ijazahs || INITIAL_IJAZAHS) as IjazahRecord[],
+              tasks: (parsed.tasks || INITIAL_TASKS) as TaskItem[],
+              settings: normalized.settings,
+              boardStrokes: (parsed.boardStrokes || {}) as Record<string, SmartBoardStroke[]>,
+              teacherRatings: (parsed.teacherRatings || INITIAL_TEACHER_RATINGS) as TeacherRatingRecord[],
+              homeSubmissions: (parsed.homeSubmissions || INITIAL_HOME_SUBMISSIONS) as HomePracticeSubmission[],
+            };
           }
         }
       }
-      localStorage.setItem(REAL_BACKUP_MIGRATION_FLAG, 'true');
+      localStorage.setItem(SANITIZED_MIGRATION_FLAG, 'true');
     } catch {
-      // fallback to real backup seed
+      // fallback to clean seed
     }
     return {
       students: INITIAL_STUDENTS,
@@ -774,10 +800,22 @@ export const AcademyProvider: React.FC<{ children: React.ReactNode }> = ({ child
   ]);
 
   const [currentStaffTier, setCurrentStaffTier] = useState<StaffHierarchyRole>('owner');
+  const [activeStaffEmail, setActiveStaffEmail] = useState<string>(() => {
+    try {
+      const raw = localStorage.getItem(SUPABASE_OFFICIAL_CONFIG.trustStorageKey);
+      if (raw) {
+        const parsed = JSON.parse(raw) as { email?: string };
+        if (parsed?.email) return parsed.email.trim().toLowerCase();
+      }
+    } catch {
+      // ignore
+    }
+    return SUPABASE_OFFICIAL_CONFIG.ownerEmail;
+  });
 
   const [managedTeachers, setManagedTeachers] = useState<TeacherAccessRecord[]>(() => {
     try {
-      const saved = localStorage.getItem('imam_managed_staff_v12');
+      const saved = localStorage.getItem('imam_managed_staff_v13');
       if (saved) {
         const parsed = JSON.parse(saved) as TeacherAccessRecord[];
         if (Array.isArray(parsed) && parsed.length > 0) {
@@ -843,7 +881,7 @@ export const AcademyProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
   useEffect(() => {
     try {
-      localStorage.setItem('imam_managed_staff_v12', JSON.stringify(managedTeachers));
+      localStorage.setItem('imam_managed_staff_v13', JSON.stringify(managedTeachers));
     } catch {
       // ignore
     }
@@ -1100,6 +1138,8 @@ export const AcademyProvider: React.FC<{ children: React.ReactNode }> = ({ child
       staffRole?: 'supervisor' | 'teacher';
       roleTitle?: string;
       assignedCirclesCount?: number;
+      assignedCircleNames?: string[];
+      customPermissions?: Partial<SupervisorPermissions>;
     }
   ) => {
     const target = managedTeachers.find((t) => t.id === staffId);
@@ -1111,7 +1151,7 @@ export const AcademyProvider: React.FC<{ children: React.ReactNode }> = ({ child
     }
 
     if (currentStaffTier !== 'owner') {
-      showToast('تعديل الرتبة الوظيفية متاح للمالك العام فقط', 'error');
+      showToast('تعديل الرتبة الوظيفية والصلاحيات متاح للمالك العام فقط', 'error');
       return;
     }
 
@@ -1121,6 +1161,19 @@ export const AcademyProvider: React.FC<{ children: React.ReactNode }> = ({ child
       roleTitle: updates.roleTitle?.trim() || target.roleTitle,
       assignedCirclesCount:
         updates.assignedCirclesCount ?? target.assignedCirclesCount,
+      assignedCircleNames:
+        updates.assignedCircleNames ?? target.assignedCircleNames,
+      customPermissions:
+        updates.customPermissions !== undefined
+          ? { ...(target.customPermissions || {}), ...updates.customPermissions }
+          : target.customPermissions,
+      customTeacherPermissions:
+        updates.customTeacherPermissions !== undefined
+          ? {
+              ...(target.customTeacherPermissions || {}),
+              ...updates.customTeacherPermissions,
+            }
+          : target.customTeacherPermissions,
       lastSyncAt: getLocalDateString(0),
     };
 
@@ -1134,13 +1187,246 @@ export const AcademyProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
     recordAuditLog(
       'صلاحيات وأمان',
-      `تحديث رتبة/بيانات عضو الهيئة التعليمية (${updatedRecord.name}) في Firestore بواسطة المالك العام`,
+      `تحديث رتبة/صلاحيات عضو الهيئة التعليمية (${updatedRecord.name}) سحابياً بواسطة المالك العام`,
       updatedRecord.name
     );
     showToast(
-      `تم تحديث بيانات وصلاحيات (${updatedRecord.name}) في قاعدة بيانات Firestore بنجاح ✓`,
+      `تم تحديث بيانات وصلاحيات (${updatedRecord.name}) سحابياً بنجاح ✓`,
       'success'
     );
+  };
+
+  const updateSupervisorPermissions = (
+    permissions: Partial<SupervisorPermissions>,
+    targetSupervisorId?: string
+  ) => {
+    if (currentStaffTier !== 'owner') {
+      showToast('تحديد صلاحيات المشرفين متاح للمالك العام فقط', 'error');
+      return;
+    }
+
+    if (targetSupervisorId) {
+      const target = managedTeachers.find((t) => t.id === targetSupervisorId);
+      if (!target) return;
+      const mergedCustom = {
+        ...(settings.supervisorPermissions || DEFAULT_SUPERVISOR_PERMISSIONS),
+        ...(target.customPermissions || {}),
+        ...permissions,
+      };
+      const updatedRecord: TeacherAccessRecord = {
+        ...target,
+        customPermissions: mergedCustom,
+        lastSyncAt: getLocalDateString(0),
+      };
+      setManagedTeachers((prev) =>
+        prev.map((t) => (t.id === targetSupervisorId ? updatedRecord : t))
+      );
+      void syncStaffRegistrationToFirestore(updatedRecord).catch(() => {});
+      recordAuditLog(
+        'صلاحيات وأمان',
+        `تخصيص صلاحيات المشرف (${target.name}) بواسطة المالك العام`,
+        target.name
+      );
+      showToast(`تم تحديث صلاحيات المشرف (${target.name}) بنجاح ✓`, 'success');
+      return;
+    }
+
+    const nextGlobalPerms: SupervisorPermissions = {
+      ...(settings.supervisorPermissions || DEFAULT_SUPERVISOR_PERMISSIONS),
+      ...permissions,
+    };
+    setSettings((prev) => ({
+      ...prev,
+      supervisorPermissions: nextGlobalPerms,
+    }));
+    recordAuditLog(
+      'صلاحيات وأمان',
+      'تحديث مصفوفة الصلاحيات العامة للمشرفين بواسطة المالك العام',
+      'صلاحيات المشرفين'
+    );
+    showToast('تم تحديث صلاحيات المشرفين المعتمدة من المالك العام ✓', 'success');
+  };
+
+  const updateTeacherPermissions = (
+    permissions: Partial<TeacherPermissions>,
+    targetTeacherId?: string
+  ) => {
+    if (currentStaffTier !== 'owner') {
+      showToast('تحديد صلاحيات المحفظين الإضافية متاح للمالك العام فقط', 'error');
+      return;
+    }
+
+    if (targetTeacherId) {
+      const target = managedTeachers.find((t) => t.id === targetTeacherId);
+      if (!target) return;
+      const mergedCustom: TeacherPermissions = {
+        ...(settings.teacherPermissions || DEFAULT_TEACHER_PERMISSIONS),
+        ...(target.customTeacherPermissions || {}),
+        ...permissions,
+      };
+      const updatedRecord: TeacherAccessRecord = {
+        ...target,
+        customTeacherPermissions: mergedCustom,
+        lastSyncAt: getLocalDateString(0),
+      };
+      setManagedTeachers((prev) =>
+        prev.map((t) => (t.id === targetTeacherId ? updatedRecord : t))
+      );
+      void syncStaffRegistrationToFirestore(updatedRecord).catch(() => {});
+      void triggerCloudSyncNow(false);
+      recordAuditLog(
+        'صلاحيات وأمان',
+        `تخصيص صلاحيات المحفظ (${target.name}) بواسطة المالك العام`,
+        target.name
+      );
+      showToast(`تم تخصيص وحفظ صلاحيات المحفظ (${target.name}) سحابياً بنجاح ✓`, 'success');
+      return;
+    }
+
+    const nextGlobalTeacherPerms: TeacherPermissions = {
+      ...(settings.teacherPermissions || DEFAULT_TEACHER_PERMISSIONS),
+      ...permissions,
+    };
+    setSettings((prev) => ({
+      ...prev,
+      teacherPermissions: nextGlobalTeacherPerms,
+    }));
+    void triggerCloudSyncNow(false);
+    recordAuditLog(
+      'صلاحيات وأمان',
+      'تحديث مصفوفة الصلاحيات الإضافية للمحفظين بواسطة المالك العام',
+      'صلاحيات المحفظين'
+    );
+    showToast('تم تحديث صلاحيات المحفظين الإضافية المعتمدة من المالك العام ✓', 'success');
+  };
+
+  const resetTeacherCustomPermissions = (targetTeacherId: string) => {
+    if (currentStaffTier !== 'owner') {
+      showToast('إعادة تعيين صلاحيات المحفظ للوضع الافتراضي متاح للمالك العام فقط', 'error');
+      return;
+    }
+    const target = managedTeachers.find((t) => t.id === targetTeacherId);
+    if (!target) return;
+    const updatedRecord: TeacherAccessRecord = {
+      ...target,
+      customTeacherPermissions: undefined,
+      lastSyncAt: getLocalDateString(0),
+    };
+    setManagedTeachers((prev) =>
+      prev.map((t) => (t.id === targetTeacherId ? updatedRecord : t))
+    );
+    void syncStaffRegistrationToFirestore(updatedRecord).catch(() => {});
+    void triggerCloudSyncNow(false);
+    recordAuditLog(
+      'صلاحيات وأمان',
+      `إعادة صلاحيات المحفظ (${target.name}) إلى الصلاحيات الافتراضية العامة بواسطة المالك العام`,
+      target.name
+    );
+    showToast(
+      `تمت إعادة صلاحيات المحفظ (${target.name}) إلى الصلاحيات الافتراضية المعتمدة ✓`,
+      'info'
+    );
+  };
+
+  const currentTeacherPermissions: TeacherPermissions = useMemo(() => {
+    const base = {
+      ...DEFAULT_TEACHER_PERMISSIONS,
+      ...(settings.teacherPermissions || {}),
+    };
+    const matchedTeacher = managedTeachers.find(
+      (t) => t.email.toLowerCase() === activeStaffEmail.toLowerCase()
+    );
+    if (matchedTeacher?.customTeacherPermissions) {
+      return {
+        ...base,
+        ...matchedTeacher.customTeacherPermissions,
+      };
+    }
+    return base;
+  }, [settings.teacherPermissions, managedTeachers, activeStaffEmail]);
+
+  const updateStudentPrivacyPreference = (
+    studentId: string,
+    preference: StudentPrivacyPreference
+  ) => {
+    const target = students.find((s) => s.id === studentId);
+    setStudents((prev) =>
+      prev.map((s) =>
+        s.id === studentId
+          ? {
+              ...s,
+              privacyPreference: preference,
+            }
+          : s
+      )
+    );
+    const prefLabel =
+      preference === 'private'
+        ? 'إخفاء كامل عن العامة (خاص)'
+        : preference === 'limited'
+        ? 'وضع المشاركة المحدودة (Private Mode)'
+        : 'الوضع القياسي';
+    if (target) {
+      recordAuditLog(
+        'صلاحيات وأمان',
+        `تحديث إعدادات الخصوصية للطالب (${target.name}) إلى: ${prefLabel}`,
+        target.name
+      );
+    }
+    showToast(`تم تحديث إعدادات الخصوصية إلى: ${prefLabel}`, 'success');
+  };
+
+  const applyBulkStudentPrivacyPreference = (
+    preference: StudentPrivacyPreference
+  ) => {
+    setStudents((prev) =>
+      prev.map((s) => ({
+        ...s,
+        privacyPreference: preference,
+      }))
+    );
+    const prefLabel =
+      preference === 'private'
+        ? 'إخفاء كامل عن العامة (خاص)'
+        : preference === 'limited'
+        ? 'وضع المشاركة المحدودة'
+        : 'الوضع القياسي';
+    recordAuditLog(
+      'صلاحيات وأمان',
+      `تعميم تفضيل الخصوصية (${prefLabel}) على جميع ملفات الطلاب (${students.length} طالب)`,
+      'جميع الطلاب'
+    );
+    showToast(
+      `تم تطبيق وضع الخصوصية (${prefLabel}) على جميع ملفات الطلاب (${students.length}) بنجاح ✓`,
+      'success'
+    );
+  };
+
+  const assignStudentToTeacher = (
+    studentId: string,
+    teacherEmail: string,
+    teacherName: string
+  ) => {
+    const target = students.find((s) => s.id === studentId);
+    setStudents((prev) =>
+      prev.map((s) =>
+        s.id === studentId
+          ? {
+              ...s,
+              assignedTeacherEmail: teacherEmail.trim().toLowerCase(),
+              assignedTeacherName: teacherName.trim(),
+            }
+          : s
+      )
+    );
+    if (target) {
+      recordAuditLog(
+        'تعديل طالب',
+        `إسناد الطالب (${target.name}) إلى المحفظ (${teacherName}) بإشراف المالك`,
+        target.name
+      );
+      showToast(`تم إسناد الطالب (${target.name}) إلى المحفظ (${teacherName}) ✓`, 'success');
+    }
   };
 
   const syncAllStaffToFirestoreNow = async () => {
@@ -1272,9 +1558,9 @@ export const AcademyProvider: React.FC<{ children: React.ReactNode }> = ({ child
     };
   }, [activeTab, selectedStudentId, userRole, guardianStudentId, isLoggedIn]);
 
-  // 25s Debounced Auto-Roster Sync via WLQSyncCore + canonicalJson
+  // Automatic & Manual Firebase Cloud Firestore Backup + Restore
   const lastRosterHashRef = useRef<string>('');
-  const triggerCloudSyncNow = () => {
+  const triggerCloudSyncNow = async (manualToast = false) => {
     setCloudSyncStatus('syncing');
     const safeRoster = WLQSyncCore.buildSafeSupervisorRoster(students, circles);
     const currentHash = canonicalJson(safeRoster);
@@ -1293,34 +1579,139 @@ export const AcademyProvider: React.FC<{ children: React.ReactNode }> = ({ child
     } catch {
       // ignore storage quota
     }
-    void syncAcademySnapshotToFirestore({
-      academyName: settings.academyName,
-      studentsCount: students.length,
-      sessionsCount: sessions.length,
-    }).catch(() => {
+
+    const fullBackupPayload: Record<string, unknown> = {
+      schemaVersion: 12,
+      exportedAt: new Date().toISOString(),
+      teacherEmail: activeStaffEmail || googleAuthUser?.email || SUPABASE_OFFICIAL_CONFIG.ownerEmail,
+      students,
+      circles,
+      sessions,
+      exams,
+      ijazahs,
+      tasks,
+      settings,
+      managedTeachers,
+    };
+
+    try {
+      await syncAcademySnapshotToFirestore({
+        academyName: settings.academyName,
+        studentsCount: students.length,
+        sessionsCount: sessions.length,
+        teacherEmail: activeStaffEmail || googleAuthUser?.email || SUPABASE_OFFICIAL_CONFIG.ownerEmail,
+        backupPayload: fullBackupPayload,
+      });
+    } catch {
       // non-blocking
+    }
+
+    const nowFormatted = new Date().toLocaleTimeString('ar-EG', {
+      hour: '2-digit',
+      minute: '2-digit',
     });
-    setTimeout(() => {
-      setCloudSyncStatus('synced');
-      setLastSyncTimestamp(
-        new Date().toLocaleTimeString('ar-EG', {
-          hour: '2-digit',
-          minute: '2-digit',
-        })
+    setCloudSyncStatus('synced');
+    setLastSyncTimestamp(nowFormatted);
+
+    if (manualToast) {
+      showToast(
+        `☁️ تمت مزامنة وحفظ جميع بيانات الحلقات (${circles.length}) والطلاب (${students.length}) والحصص (${sessions.length}) سحابياً بنجاح ✓`,
+        'success'
       );
-    }, 300);
+    }
   };
 
+  const restoreFromCloudFirestoreNow = async (
+    silent = false,
+    targetEmail?: string
+  ): Promise<boolean> => {
+    const emailToFetch =
+      targetEmail ||
+      activeStaffEmail ||
+      googleAuthUser?.email ||
+      SUPABASE_OFFICIAL_CONFIG.ownerEmail;
+    try {
+      setCloudSyncStatus('syncing');
+      const result = await fetchAcademyCloudBackupFromFirestore(emailToFetch);
+      setCloudSyncStatus('synced');
+      if (!result.payload || !Array.isArray(result.payload.students)) {
+        if (!silent) {
+          showToast(
+            'لا توجد نسخة احتياطية سحابية أحدث محفوظة حالياً — تم اعتماد البيانات الحالية ومزامنتها مع السحابة ✓',
+            'info'
+          );
+          await triggerCloudSyncNow(false);
+        }
+        return false;
+      }
+
+      const normalized = normalizePortableBackupPayload(
+        result.payload,
+        settings,
+        circles,
+        getCurrentMonthKey()
+      );
+      if (!normalized || normalized.students.length === 0) {
+        return false;
+      }
+
+      // Merge cloud students, circles, and sessions with current state so no student is ever lost
+      setStudents((prev) => {
+        const map = new Map<string, Student>();
+        prev.forEach((s) => map.set(s.id, s));
+        normalized.students.forEach((s) => map.set(s.id, s));
+        return Array.from(map.values());
+      });
+      setCircles((prev) => {
+        const map = new Map<string, CircleGroup>();
+        prev.forEach((c) => map.set(c.id, c));
+        normalized.circles.forEach((c) => map.set(c.id, c));
+        return Array.from(map.values());
+      });
+      setSessions((prev) => {
+        const map = new Map<string, SessionRecord>();
+        prev.forEach((s) => map.set(s.id, s));
+        normalized.sessions.forEach((s) => map.set(s.id, s));
+        return Array.from(map.values());
+      });
+
+      if (result.syncedAt) {
+        setLastSyncTimestamp(result.syncedAt);
+      }
+
+      if (!silent) {
+        showToast(
+          `☁️ تمت استعادة ومزامنة البيانات من السحابة بنجاح (${normalized.students.length} طالباً و ${normalized.circles.length} حلقات) ✓`,
+          'success'
+        );
+      } else {
+        showToast(
+          `☁️ تم استرجاع ومزامنة طلابك وحلقاتك تلقائياً من السحابة (${normalized.students.length} طالباً) ✓`,
+          'success'
+        );
+      }
+      return true;
+    } catch {
+      setCloudSyncStatus('synced');
+      if (!silent) {
+        showToast('تعذر الاتصال بالسحابة حالياً — تعمل المنصة بالنسخة المحلية المؤمنة', 'info');
+      }
+      return false;
+    }
+  };
+
+  // Automatic debounced Cloud Backup to Firebase Cloud Firestore whenever students, circles, sessions, or tasks change
   useEffect(() => {
+    if (settings.autoCloudBackupEnabled === false) return;
     const timer = window.setTimeout(() => {
       const safeRoster = WLQSyncCore.buildSafeSupervisorRoster(students, circles);
       const nextHash = canonicalJson(safeRoster);
       if (nextHash !== lastRosterHashRef.current) {
-        triggerCloudSyncNow();
+        void triggerCloudSyncNow(false);
       }
-    }, 25000);
+    }, 3500);
     return () => window.clearTimeout(timer);
-  }, [students, circles, sessions, tasks]);
+  }, [students, circles, sessions, tasks, settings.autoCloudBackupEnabled]);
 
   // Sync to localStorage & IndexedDB on change
   useEffect(() => {
@@ -1598,10 +1989,14 @@ export const AcademyProvider: React.FC<{ children: React.ReactNode }> = ({ child
         }
         setCurrentStaffTier(matchedStaff.staffRole || 'teacher');
       } else {
-        setCurrentStaffTier('teacher');
+        return {
+          ok: false,
+          error: 'هذا البريد الإلكتروني غير مسجل ضمن قائمة المحفظين أو المشرفين المعتمدين بالأكاديمية.',
+        };
       }
     }
 
+    setActiveStaffEmail(cleanEmail);
     hasNotifiedOnSessionRef.current = false;
     setUserRole('teacher');
     setIsLoggedIn(true);
@@ -1619,12 +2014,16 @@ export const AcademyProvider: React.FC<{ children: React.ReactNode }> = ({ child
     } catch {
       // ignore storage errors
     }
+
+    // Automatically restore Sheikh's / Owner's cloud backup from Firebase Cloud Firestore on login
+    void restoreFromCloudFirestoreNow(true, cleanEmail);
+
     recordAuditLog(
       'صلاحيات وأمان',
-      `تسجيل دخول بحساب Google للمحفظ/المشرف (${cleanEmail})`,
+      `تسجيل دخول بحساب Google للمحفظ/المشرف (${cleanEmail}) واسترجاع بيانات السحابة تلقائياً`,
       cleanEmail
     );
-    showToast(`تم تسجيل الدخول بنجاح عبر حساب Google (${cleanEmail})`, 'success');
+    showToast(`تم تسجيل الدخول بنجاح (${cleanEmail}) وجاري استرجاع طلابك وحلقاتك من السحابة تلقائياً ☁️`, 'success');
     return { ok: true };
   };
 
@@ -1635,6 +2034,10 @@ export const AcademyProvider: React.FC<{ children: React.ReactNode }> = ({ child
     let unsubStaff: (() => void) | null = null;
     const unsubscribe = onAuthStateChanged(auth, (fbUser) => {
       if (fbUser) {
+        const fbEmail = (fbUser.email || '').trim().toLowerCase();
+        if (fbEmail) {
+          setActiveStaffEmail(fbEmail);
+        }
         setGoogleAuthUser((prev) => ({
           uid: fbUser.uid,
           email: fbUser.email || '',
@@ -1650,6 +2053,7 @@ export const AcademyProvider: React.FC<{ children: React.ReactNode }> = ({ child
         }));
 
         if (fbUser.emailVerified) {
+          void restoreFromCloudFirestoreNow(true, fbEmail || undefined);
           unsubStaff = subscribeToStaffRegistrationsFromFirestore((remoteRecords) => {
             setManagedTeachers((prev) => {
               const map = new Map<string, TeacherAccessRecord>();
@@ -1831,10 +2235,16 @@ export const AcademyProvider: React.FC<{ children: React.ReactNode }> = ({ child
           setCurrentStaffTier(targetPortal === 'supervisor' ? 'supervisor' : 'teacher');
         }
 
+        if (cleanEmail) {
+          setActiveStaffEmail(cleanEmail);
+        }
         hasNotifiedOnSessionRef.current = false;
         setUserRole('teacher');
         setIsLoggedIn(true);
         setActiveTab(targetPortal === 'supervisor' ? 'settings' : 'dashboard');
+
+        // Automatically fetch and merge Sheikh's / Owner's cloud backup from Firebase Cloud Firestore
+        void restoreFromCloudFirestoreNow(true, cleanEmail);
       } else {
         // Guardian or Student Portal: Integrate Google profile data + family fields with Student model
         const matchedStudent =
@@ -1924,17 +2334,11 @@ export const AcademyProvider: React.FC<{ children: React.ReactNode }> = ({ child
         // ignore
       }
 
-      void syncAcademySnapshotToFirestore({
-        academyName: settings.academyName,
-        studentsCount: students.length,
-        sessionsCount: sessions.length,
-      }).catch(() => {
-        // non-blocking
-      });
+      void triggerCloudSyncNow(false);
 
       recordAuditLog(
         'صلاحيات وأمان',
-        `تسجيل دخول رسمي وربط ملف Google (${result.displayName} — ${cleanEmail})`,
+        `تسجيل دخول رسمي وربط ملف Google (${result.displayName} — ${cleanEmail}) ومزامنة السحابة`,
         cleanEmail || result.displayName
       );
       showToast(
@@ -1999,8 +2403,7 @@ export const AcademyProvider: React.FC<{ children: React.ReactNode }> = ({ child
           cleanDigits.endsWith(s.whatsappPhone.slice(-9)) ||
           s.whatsappPhone === cleanDigits) &&
         (s.guardianPin === cleanPin ||
-          cleanPin === '123456' ||
-          s.whatsappPhone.slice(-6) === cleanPin)
+          s.whatsappPhone.replace(/\D/g, '').slice(-6) === cleanPin)
     );
     if (!matched) {
       return { ok: false, error: 'رقم الهاتف أو رمز الدخول (PIN) غير صحيح، أو الحساب مؤرشف.' };
@@ -2101,8 +2504,20 @@ export const AcademyProvider: React.FC<{ children: React.ReactNode }> = ({ child
       );
       return updated;
     } else {
+      const matchedTeacherProfile = managedTeachers.find(
+        (t) => t.email.toLowerCase() === activeStaffEmail.toLowerCase()
+      );
+      const defaultTeacherName =
+        matchedTeacherProfile?.name || settings.teacherName;
+      const defaultTeacherEmail =
+        matchedTeacherProfile?.email || activeStaffEmail || SUPABASE_OFFICIAL_CONFIG.ownerEmail;
+
       const newStudent: Student = {
         ...studentInput,
+        assignedTeacherEmail:
+          studentInput.assignedTeacherEmail || defaultTeacherEmail,
+        assignedTeacherName:
+          studentInput.assignedTeacherName || defaultTeacherName,
         googleUid: studentInput.googleUid ?? auth.currentUser?.uid,
         riwayah: studentInput.riwayah || 'حفص عن عاصم',
         accountStatus: studentInput.accountStatus ?? 'نشط',
@@ -2122,10 +2537,13 @@ export const AcademyProvider: React.FC<{ children: React.ReactNode }> = ({ child
         // non-blocking
       });
 
-      showToast('تمت إضافة الطالب الجديد وحفظ بيانات العائلة في Firestore بنجاح', 'success');
+      showToast(
+        `تمت إضافة الطالب الجديد (${newStudent.name}) وإسناده للشيخ (${newStudent.assignedTeacherName}) ومزامنته سحابياً ✓`,
+        'success'
+      );
       recordAuditLog(
         'تعديل طالب',
-        `إضافة ملف طالب جديد (${newStudent.name}) في ${newStudent.circle} ومزامنة بيانات العائلة مع Firestore`,
+        `إضافة ملف طالب جديد (${newStudent.name}) في ${newStudent.circle} ومزامنته سحابياً مع Firestore`,
         newStudent.name
       );
       return newStudent;
@@ -3621,16 +4039,156 @@ export const AcademyProvider: React.FC<{ children: React.ReactNode }> = ({ child
     if (Array.isArray(obj.exams)) setExams(obj.exams as ExamRecord[]);
     if (Array.isArray(obj.ijazahs)) setIjazahs(obj.ijazahs as IjazahRecord[]);
     if (Array.isArray(obj.tasks)) setTasks(obj.tasks as TaskItem[]);
+    if (Array.isArray(obj.managedTeachers)) {
+      setManagedTeachers(obj.managedTeachers as TeacherAccessRecord[]);
+    }
     if (Array.isArray(obj.teacherRatings)) {
       setTeacherRatings(obj.teacherRatings as TeacherRatingRecord[]);
     }
     if (Array.isArray(obj.homeSubmissions)) {
       setHomeSubmissions(obj.homeSubmissions as HomePracticeSubmission[]);
     }
+    recordAuditLog(
+      'إعدادات عامة',
+      `استعادة البيانات من ملف نسخة احتياطية محلي JSON (${normalized.circles.length} حلقات، ${normalized.students.length} طلاب، ${normalized.sessions.length} حصة)`,
+      'إدارة النسخ الاحتياطي'
+    );
     showToast(
-      `تم استيراد النسخة الاحتياطية بنجاح (${normalized.students.length} طالباً و ${normalized.sessions.length} حصة مسجلة)`,
+      `تمت استعادة البيانات بنجاح (${normalized.circles.length} حلقات، ${normalized.students.length} طالباً، و ${normalized.sessions.length} حصة مسجلة)`,
       'success'
     );
+    void triggerCloudSyncNow(false);
+    return true;
+  };
+
+  const exportTeacherScopedJsonBackup = (teacherEmail?: string) => {
+    const targetEmail = (teacherEmail || activeStaffEmail || '').trim().toLowerCase();
+    const matchedTeacher = managedTeachers.find(
+      (t) => t.email.toLowerCase() === targetEmail
+    );
+    const teacherName = matchedTeacher?.name || settings.teacherName;
+
+    const scopedCircles =
+      currentStaffTier === 'owner' && !teacherEmail
+        ? circles
+        : circles.filter(
+            (c) =>
+              c.teacherName === teacherName ||
+              (matchedTeacher?.assignedCircleNames || []).includes(c.name)
+          );
+    const finalCircles = scopedCircles.length > 0 ? scopedCircles : circles;
+    const circleNamesSet = new Set(finalCircles.map((c) => c.name));
+
+    const scopedStudents =
+      currentStaffTier === 'owner' && !teacherEmail
+        ? students
+        : students.filter(
+            (s) =>
+              (s.assignedTeacherEmail &&
+                s.assignedTeacherEmail.toLowerCase() === targetEmail) ||
+              s.assignedTeacherName === teacherName ||
+              circleNamesSet.has(s.circle)
+          );
+    const finalStudents = scopedStudents.length > 0 ? scopedStudents : students;
+    const studentIdsSet = new Set(finalStudents.map((s) => s.id));
+    const scopedSessions = sessions.filter((ses) =>
+      studentIdsSet.has(ses.studentId)
+    );
+    const scopedExams = exams.filter((ex) => studentIdsSet.has(ex.studentId));
+    const scopedIjazahs = ijazahs.filter((ij) => studentIdsSet.has(ij.studentId));
+    const scopedTasks = tasks.filter(
+      (tsk) => !tsk.studentId || studentIdsSet.has(tsk.studentId)
+    );
+
+    exportDataToJsonBackup({
+      students: finalStudents,
+      sessions: scopedSessions,
+      circles: finalCircles,
+      exams: scopedExams,
+      ijazahs: scopedIjazahs,
+      tasks: scopedTasks,
+      settings,
+      filenamePrefix: `teacher-backup-${
+        targetEmail ? targetEmail.split('@')[0] : 'sheikh'
+      }`,
+    });
+
+    recordAuditLog(
+      'إعدادات وحلقات',
+      `تنزيل نسخة احتياطية JSON لطلاب وحلقات المحفظ (${teacherName}) — ${finalStudents.length} طالباً و ${finalCircles.length} حلقات`,
+      teacherName,
+      'المعلم'
+    );
+    showToast(
+      `📥 تم تنزيل نسخة JSON لطلابك (${finalStudents.length} طالباً) وحلقاتك (${finalCircles.length} حلقات) بنجاح ✓`,
+      'success'
+    );
+  };
+
+  const importTeacherScopedJsonBackup = (
+    data: unknown,
+    teacherEmail?: string
+  ): boolean => {
+    if (!data || typeof data !== 'object') return false;
+    const obj = data as Record<string, unknown>;
+    if (!Array.isArray(obj.students)) return false;
+
+    const normalized = normalizePortableBackupPayload(
+      obj,
+      settings,
+      circles,
+      getCurrentMonthKey()
+    );
+    if (!normalized) return false;
+
+    const targetEmail = (teacherEmail || activeStaffEmail || '').trim().toLowerCase();
+    const matchedTeacher = managedTeachers.find(
+      (t) => t.email.toLowerCase() === targetEmail
+    );
+    const teacherName = matchedTeacher?.name || settings.teacherName;
+
+    const taggedStudents = normalized.students.map((st) => ({
+      ...st,
+      assignedTeacherEmail: st.assignedTeacherEmail || targetEmail || undefined,
+      assignedTeacherName: st.assignedTeacherName || teacherName,
+    }));
+
+    setStudents((prev) => {
+      const map = new Map<string, Student>();
+      prev.forEach((s) => map.set(s.id, s));
+      taggedStudents.forEach((s) => map.set(s.id, s));
+      return Array.from(map.values());
+    });
+
+    setCircles((prev) => {
+      const map = new Map<string, CircleGroup>();
+      prev.forEach((c) => map.set(c.id, c));
+      normalized.circles.forEach((c) => map.set(c.id, c));
+      return Array.from(map.values());
+    });
+
+    setSessions((prev) => {
+      const map = new Map<string, SessionRecord>();
+      prev.forEach((s) => map.set(s.id, s));
+      normalized.sessions.forEach((s) => map.set(s.id, s));
+      return Array.from(map.values());
+    });
+
+    if (taggedStudents.length > 0) {
+      setSelectedStudentId(taggedStudents[0].id);
+    }
+
+    recordAuditLog(
+      'إعدادات وحلقات',
+      `رفع واستعادة نسخة JSON لطلاب وحلقات المحفظ (${teacherName}) — تم دمج ${taggedStudents.length} طالباً و ${normalized.circles.length} حلقات ومزامنتها سحابياً`,
+      teacherName,
+      'المعلم'
+    );
+    showToast(
+      `📤 تم رفع واستعادة نسخة JSON لطلابك (${taggedStudents.length} طالباً) وحلقاتك (${normalized.circles.length} حلقات) ومزامنتها مع السحابة ✓`,
+      'success'
+    );
+    void triggerCloudSyncNow(false);
     return true;
   };
 
@@ -3744,6 +4302,8 @@ export const AcademyProvider: React.FC<{ children: React.ReactNode }> = ({ child
         showToast,
         quickSearchOpen,
         setQuickSearchOpen,
+        isFullScreenFocus,
+        setIsFullScreenFocus,
         students,
         sessions,
         circles,
@@ -3759,14 +4319,26 @@ export const AcademyProvider: React.FC<{ children: React.ReactNode }> = ({ child
         managedTeachers,
         currentStaffTier,
         setCurrentStaffTier,
+        activeStaffEmail,
+        setActiveStaffEmail,
+        currentTeacherPermissions,
         cloudSyncStatus,
         lastSyncTimestamp,
         triggerCloudSyncNow,
+        restoreFromCloudFirestoreNow,
+        exportTeacherScopedJsonBackup,
+        importTeacherScopedJsonBackup,
         updateTeacherAccessStatus,
         deleteStaffMember,
         addStaffMember,
         updateStaffFamilyDetails,
         updateStaffRoleAndDetails,
+        updateSupervisorPermissions,
+        updateTeacherPermissions,
+        resetTeacherCustomPermissions,
+        updateStudentPrivacyPreference,
+        applyBulkStudentPrivacyPreference,
+        assignStudentToTeacher,
         syncAllStaffToFirestoreNow,
         linkStudentGoogleAccount,
         sessionReminderPreview,

@@ -129,7 +129,7 @@
     },
     "AcademyCloudSnapshot": {
       "title": "AcademyCloudSnapshot",
-      "description": "Per-owner academy roster and progress summary synced to Firestore.",
+      "description": "Per-owner or per-teacher academy roster, full JSON backup payload, and progress summary synced to Firestore.",
       "type": "object",
       "properties": {
         "ownerUid": {
@@ -137,6 +137,11 @@
           "maxLength": 128,
           "pattern": "^[a-zA-Z0-9_\\-]+$",
           "description": "UID of the teacher or supervisor owning this snapshot."
+        },
+        "teacherEmail": {
+          "type": "string",
+          "maxLength": 160,
+          "description": "Normalized email of the teacher or owner associated with this backup."
         },
         "academyName": {
           "type": "string",
@@ -154,6 +159,11 @@
         "schemaVersion": {
           "type": "number",
           "description": "Local schema version number."
+        },
+        "payloadJson": {
+          "type": "string",
+          "maxLength": 950000,
+          "description": "Serialized JSON backup payload containing students, circles, sessions, exams, ijazahs, tasks, and settings."
         },
         "createdAt": {
           "type": "string",
@@ -242,6 +252,11 @@
           "type": "string",
           "maxLength": 120,
           "description": "Uncle's name (اسم العم)."
+        },
+        "customPermissionsJson": {
+          "type": "string",
+          "maxLength": 4000,
+          "description": "Serialized JSON of customTeacherPermissions or customPermissions assigned by the Owner to this specific teacher or supervisor."
         },
         "createdAt": {
           "type": "string",

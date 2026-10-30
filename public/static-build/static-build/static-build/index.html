@@ -58,40 +58,39 @@
           // ignore storage access errors
         }
 
-        // On Vite dev/preview hosts (.run.app / localhost), unregister any stale root service worker
-        // so cached assets/app.js never shadow live source files
-        if (isViteDevHost && 'serviceWorker' in navigator) {
+        // Always unregister any stale root service worker and clear caches
+        // so cached assets/app.js never shadow live source files or updated builds
+        if ('serviceWorker' in navigator) {
           navigator.serviceWorker.getRegistrations().then(function (regs) {
             regs.forEach(function (reg) {
               reg.unregister();
             });
           }).catch(function () {});
-          if (window.caches && typeof window.caches.keys === 'function') {
-            window.caches.keys().then(function (names) {
-              names.forEach(function (name) {
-                if (name.indexOf('workbox-precache') === 0) {
-                  window.caches.delete(name);
-                }
-              });
-            }).catch(function () {});
-          }
+        }
+        if (window.caches && typeof window.caches.keys === 'function') {
+          window.caches.keys().then(function (names) {
+            names.forEach(function (name) {
+              window.caches.delete(name);
+            });
+          }).catch(function () {});
         }
 
         window.__LOAD_STATIC_FALLBACK__ = function () {
           if (isViteDevHost || window.__AL_IMAM_APP_MOUNTED__ || window.__AL_IMAM_FALLBACK_LOADING__) return;
           window.__AL_IMAM_FALLBACK_LOADING__ = true;
 
+          var cacheBuster = '?v=12.6.0';
           var candidates = [
-            { css: './assets/app.css', js: './assets/app.js' },
-            { css: './static-build/app.css', js: './static-build/app.js' },
-            { css: './public/static-build/app.css', js: './public/static-build/app.js' },
-            { css: './dist/assets/app.css', js: './dist/assets/app.js' }
+            { css: './assets/app.css' + cacheBuster, js: './assets/app.js' + cacheBuster },
+            { css: './static-build/app.css' + cacheBuster, js: './static-build/app.js' + cacheBuster },
+            { css: './public/static-build/app.css' + cacheBuster, js: './public/static-build/app.js' + cacheBuster },
+            { css: './dist/assets/app.css' + cacheBuster, js: './dist/assets/app.js' + cacheBuster }
           ];
 
           function tryCandidate(index) {
             if (index >= candidates.length || window.__AL_IMAM_APP_MOUNTED__) return;
             var c = candidates[index];
-            fetch(c.js, { method: 'HEAD' })
+            fetch(c.js, { method: 'HEAD', cache: 'no-store' })
               .then(function (res) {
                 if (res.ok) {
                   var link = document.createElement('link');

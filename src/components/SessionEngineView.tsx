@@ -47,8 +47,10 @@ import {
   Download,
   FileText,
   MapPin,
+  Maximize2,
   Mic,
   MicOff,
+  Minimize2,
   Pause,
   Play,
   Plus,
@@ -140,6 +142,8 @@ export const SessionEngineView: React.FC = () => {
     reviewHomeSubmission,
     updateErrorFollowUpStatus,
     showToast,
+    isFullScreenFocus,
+    setIsFullScreenFocus,
   } = useAcademy();
 
   const currentStudent = useMemo(
@@ -1594,6 +1598,20 @@ export const SessionEngineView: React.FC = () => {
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setIsFullScreenFocus(!isFullScreenFocus)}
+              className={`px-3.5 py-1.5 rounded-xl text-xs font-extrabold border flex items-center gap-1.5 cursor-pointer transition-all ${
+                isFullScreenFocus
+                  ? 'bg-emerald-700 text-white border-emerald-600 shadow-xs'
+                  : 'bg-[#f6f7f2] dark:bg-[#0b1711] border-neutral-300 dark:border-emerald-800 text-[#145a3a] dark:text-[#dfbd69]'
+              }`}
+              title="طي القوائم الجانبية للتركيز الكامل على التسميع والمصحف"
+            >
+              {isFullScreenFocus ? <Minimize2 className="w-3.5 h-3.5 text-[#dfbd69]" /> : <Maximize2 className="w-3.5 h-3.5" />}
+              <span>{isFullScreenFocus ? 'إنهاء وضع التركيز' : 'وضع التركيز الكامل'}</span>
+            </button>
+
             <button
               type="button"
               onClick={() => {

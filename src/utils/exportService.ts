@@ -42,8 +42,20 @@ export function exportDataToJsonBackup(params: {
   ijazahs: IjazahRecord[];
   tasks: TaskItem[];
   settings: AcademySettings;
+  managedTeachers?: unknown[];
+  filenamePrefix?: string;
 }): void {
-  const { students, sessions, circles, exams, ijazahs, tasks, settings } = params;
+  const {
+    students,
+    sessions,
+    circles,
+    exams,
+    ijazahs,
+    tasks,
+    settings,
+    managedTeachers,
+    filenamePrefix,
+  } = params;
   const showHijri = settings.showHijriDates ?? true;
   const todayIso = new Date().toISOString().slice(0, 10);
 
@@ -84,10 +96,12 @@ export function exportDataToJsonBackup(params: {
 
   const backupPayload = {
     app: 'أكاديمية الإمام لتحفيظ القرآن الكريم — بالقرآن نحيا',
-    version: '2.0',
+    version: '12.0.0',
+    schemaVersion: 12,
     exportedAt: new Date().toISOString(),
     exportedDateFormatted: formatGregorianAndHijri(todayIso, showHijri),
     summary: {
+      totalCircles: circles.length,
       totalStudents: students.length,
       totalSessions: sessions.length,
       totalFinancialRecords: financialRecords.length,
@@ -96,21 +110,23 @@ export function exportDataToJsonBackup(params: {
       totalExemptAmount: totalExempt,
       totalMemorizedJuz,
     },
+    circles,
     students,
     sessions,
     financialRecords,
-    circles,
     exams,
     ijazahs,
     tasks,
     settings,
+    ...(Array.isArray(managedTeachers) ? { managedTeachers } : {}),
   };
 
   const jsonString = JSON.stringify(backupPayload, null, 2);
   const blob = new Blob([jsonString], {
     type: 'application/json;charset=utf-8',
   });
-  downloadBlob(blob, `imam-academy-backup-${todayIso}.json`);
+  const prefix = filenamePrefix || 'quran-backup-v12';
+  downloadBlob(blob, `${prefix}-${todayIso}.json`);
 }
 
 /**

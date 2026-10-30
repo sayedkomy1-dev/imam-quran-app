@@ -384,25 +384,62 @@ export async function syncExtendedFamilyRecordToFirestore(params: {
   }
 }
 
+function buildEmailSnapshotId(email?: string): string {
+  const clean = (email || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, '_');
+  if (!clean) return '';
+  return `staff_${clean}`.slice(0, 120);
+}
+
 /**
- * Syncs academy cloud snapshot summary for authenticated user in `/academy_snapshots/{uid}`.
+ * Syncs academy cloud snapshot summary AND full serialized JSON backup payload (`payloadJson`)
+ * for the authenticated user in `/academy_snapshots/{uid}` as well as `/academy_snapshots/{emailKey}`
+ * and `/academy_snapshots/master_academy_backup` so any device logging in finds the Sheikh's students immediately.
  */
 export async function syncAcademySnapshotToFirestore(params: {
   academyName: string;
   studentsCount: number;
   sessionsCount: number;
-}): Promise<void> {
+  teacherEmail?: string;
+  backupPayload?: Record<string, unknown>;
+}): Promise<boolean> {
+  // Always mirror a local cloud-backup cache keyed by email for instant offline-first fallback
+  if (typeof window !== 'undefined' && params.backupPayload) {
+    try {
+      const emailKey = buildEmailSnapshotId(
+        params.teacherEmail || auth.currentUser?.email || 'master'
+      );
+      window.localStorage.setItem(
+        `wlq_firestore_cloud_backup_${emailKey}`,
+        JSON.stringify({
+          syncedAt: new Date().toISOString(),
+          payload: params.backupPayload,
+        })
+      );
+      window.localStorage.setItem(
+        'wlq_firestore_cloud_backup_master',
+        JSON.stringify({
+          syncedAt: new Date().toISOString(),
+          payload: params.backupPayload,
+        })
+      );
+    } catch {
+      // ignore local storage quota
+    }
+  }
+
   const currentUser = auth.currentUser;
-  if (!currentUser || !currentUser.emailVerified) return;
-  if (!(await ensureHealthyAuthToken(currentUser))) return;
+  if (!currentUser || !currentUser.emailVerified) return false;
+  if (!(await ensureHealthyAuthToken(currentUser))) return false;
 
   const cleanUid = currentUser.uid.replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 128);
-  if (!cleanUid) return;
+  if (!cleanUid) return false;
 
-  const safeAcademyName = (params.academyName || 'أكاديمية الإمام لتحفيظ القرآن الكريم').slice(
-    0,
-    160
-  );
+  const safeAcademyName = (
+    params.academyName || 'أكاديمية الإمام لتحفيظ القرآن الكريم'
+  ).slice(0, 160);
   const safeStudentsCount = Math.max(
     0,
     Math.min(100000, Math.floor(params.studentsCount || 0))
@@ -411,34 +448,181 @@ export async function syncAcademySnapshotToFirestore(params: {
     0,
     Math.min(1000000, Math.floor(params.sessionsCount || 0))
   );
+  const safeTeacherEmail = (
+    params.teacherEmail ||
+    currentUser.email ||
+    ''
+  )
+    .trim()
+    .toLowerCase()
+    .slice(0, 160);
 
-  const path = `academy_snapshots/${cleanUid}`;
-  const ref = doc(db, 'academy_snapshots', cleanUid);
-
-  try {
-    const existingSnap = await getDoc(ref);
-    if (!existingSnap.exists()) {
-      await setDoc(ref, {
-        ownerUid: cleanUid,
-        academyName: safeAcademyName,
-        studentsCount: safeStudentsCount,
-        sessionsCount: safeSessionsCount,
-        schemaVersion: 12,
-        createdAt: serverTimestamp(),
-        updatedAt: serverTimestamp(),
-      });
-    } else {
-      await updateDoc(ref, {
-        academyName: safeAcademyName,
-        studentsCount: safeStudentsCount,
-        sessionsCount: safeSessionsCount,
-        schemaVersion: 12,
-        updatedAt: serverTimestamp(),
-      });
+  let serializedPayload = '';
+  if (params.backupPayload) {
+    try {
+      const rawJson = JSON.stringify(params.backupPayload);
+      if (rawJson.length <= 940000) {
+        serializedPayload = rawJson;
+      } else {
+        // Trim heavy audio data URLs if needed to fit within Firestore 1MB document limit
+        const slimPayload = {
+          ...params.backupPayload,
+          sessions: Array.isArray(params.backupPayload.sessions)
+            ? (params.backupPayload.sessions as Record<string, unknown>[]).map(
+                (ses) => ({
+                  ...ses,
+                  voiceNoteDataUrl: undefined,
+                  memorizationAudioDataUrl: undefined,
+                  teacherVoiceNotes: undefined,
+                })
+              )
+            : [],
+        };
+        const slimJson = JSON.stringify(slimPayload);
+        if (slimJson.length <= 940000) {
+          serializedPayload = slimJson;
+        }
+      }
+    } catch {
+      serializedPayload = '';
     }
-  } catch (error) {
-    handleFirestoreError(error, OperationType.WRITE, path);
   }
+
+  const targetDocIds = Array.from(
+    new Set(
+      [
+        cleanUid,
+        buildEmailSnapshotId(safeTeacherEmail),
+        'master_academy_backup',
+      ].filter(Boolean)
+    )
+  );
+
+  let wroteAny = false;
+  for (const docId of targetDocIds) {
+    const path = `academy_snapshots/${docId}`;
+    const ref = doc(db, 'academy_snapshots', docId);
+    try {
+      const existingSnap = await getDoc(ref);
+      const baseFields: Record<string, unknown> = {
+        ownerUid: cleanUid,
+        teacherEmail: safeTeacherEmail,
+        academyName: safeAcademyName,
+        studentsCount: safeStudentsCount,
+        sessionsCount: safeSessionsCount,
+        schemaVersion: 12,
+        updatedAt: serverTimestamp(),
+      };
+      if (serializedPayload) {
+        baseFields.payloadJson = serializedPayload;
+      }
+      if (!existingSnap.exists()) {
+        await setDoc(ref, {
+          ...baseFields,
+          createdAt: serverTimestamp(),
+        });
+      } else {
+        await updateDoc(ref, baseFields);
+      }
+      wroteAny = true;
+    } catch (error) {
+      if (docId === cleanUid) {
+        handleFirestoreError(error, OperationType.WRITE, path);
+      }
+    }
+  }
+  return wroteAny;
+}
+
+/**
+ * Restores the latest academy/teacher backup payload from Firebase Cloud Firestore (`/academy_snapshots/{id}`)
+ * when a Sheikh (Teacher), Supervisor, or Owner logs in from any device or triggers manual cloud restore.
+ */
+export async function fetchAcademyCloudBackupFromFirestore(
+  teacherEmail?: string
+): Promise<{
+  source: 'firestore' | 'local_cloud_cache' | null;
+  syncedAt?: string;
+  payload: Record<string, unknown> | null;
+}> {
+  const emailKey = buildEmailSnapshotId(
+    teacherEmail || auth.currentUser?.email || ''
+  );
+  const currentUser = auth.currentUser;
+
+  if (currentUser && currentUser.emailVerified) {
+    const healthy = await ensureHealthyAuthToken(currentUser);
+    if (healthy) {
+      const cleanUid = currentUser.uid
+        .replace(/[^a-zA-Z0-9_-]/g, '')
+        .slice(0, 128);
+      const candidateIds = Array.from(
+        new Set(
+          [cleanUid, emailKey, 'master_academy_backup'].filter(Boolean)
+        )
+      );
+
+      for (const docId of candidateIds) {
+        try {
+          const snap = await getDoc(doc(db, 'academy_snapshots', docId));
+          if (snap.exists()) {
+            const data = snap.data() as Record<string, unknown>;
+            if (
+              typeof data.payloadJson === 'string' &&
+              data.payloadJson.trim().startsWith('{')
+            ) {
+              const parsed = JSON.parse(data.payloadJson) as Record<
+                string,
+                unknown
+              >;
+              if (parsed && Array.isArray(parsed.students)) {
+                return {
+                  source: 'firestore',
+                  syncedAt: new Date().toLocaleTimeString('ar-EG', {
+                    hour: '2-digit',
+                    minute: '2-digit',
+                  }),
+                  payload: parsed,
+                };
+              }
+            }
+          }
+        } catch {
+          // try next candidate docId
+        }
+      }
+    }
+  }
+
+  // Fallback to local cloud backup cache if offline or Email+PIN login without active Firebase popup token
+  if (typeof window !== 'undefined') {
+    try {
+      const cacheKeys = [
+        emailKey ? `wlq_firestore_cloud_backup_${emailKey}` : '',
+        'wlq_firestore_cloud_backup_master',
+      ].filter(Boolean);
+      for (const key of cacheKeys) {
+        const raw = window.localStorage.getItem(key);
+        if (raw) {
+          const wrapper = JSON.parse(raw) as {
+            syncedAt?: string;
+            payload?: Record<string, unknown>;
+          };
+          if (wrapper?.payload && Array.isArray(wrapper.payload.students)) {
+            return {
+              source: 'local_cloud_cache',
+              syncedAt: wrapper.syncedAt,
+              payload: wrapper.payload,
+            };
+          }
+        }
+      }
+    } catch {
+      // ignore
+    }
+  }
+
+  return { source: null, payload: null };
 }
 
 /**
@@ -485,6 +669,10 @@ export async function syncStaffRegistrationToFirestore(
   const safeGrandfather = (record.grandfatherName || '').trim().slice(0, 120);
   const safeGrandmother = (record.grandmotherName || '').trim().slice(0, 120);
   const safeUncle = (record.uncleName || '').trim().slice(0, 120);
+  const customPermissionsJson = JSON.stringify({
+    customTeacherPermissions: record.customTeacherPermissions || null,
+    customPermissions: record.customPermissions || null,
+  }).slice(0, 3900);
 
   const path = `staff_registrations/${cleanStaffId}`;
   const ref = doc(db, 'staff_registrations', cleanStaffId);
@@ -505,6 +693,7 @@ export async function syncStaffRegistrationToFirestore(
         grandfatherName: safeGrandfather,
         grandmotherName: safeGrandmother,
         uncleName: safeUncle,
+        customPermissionsJson,
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
       });
@@ -521,6 +710,7 @@ export async function syncStaffRegistrationToFirestore(
         grandfatherName: safeGrandfather,
         grandmotherName: safeGrandmother,
         uncleName: safeUncle,
+        customPermissionsJson,
         updatedAt: serverTimestamp(),
       });
     }
@@ -596,6 +786,23 @@ export function subscribeToStaffRegistrationsFromFirestore(
         if (snapshot.empty) return;
         const list: TeacherAccessRecord[] = snapshot.docs.map((d) => {
           const data = d.data() as Record<string, unknown>;
+          let parsedCustomTeacherPerms: TeacherAccessRecord['customTeacherPermissions'] =
+            undefined;
+          let parsedCustomSupervisorPerms: TeacherAccessRecord['customPermissions'] =
+            undefined;
+          if (typeof data.customPermissionsJson === 'string' && data.customPermissionsJson.startsWith('{')) {
+            try {
+              const parsed = JSON.parse(data.customPermissionsJson) as Record<string, unknown>;
+              if (parsed.customTeacherPermissions && typeof parsed.customTeacherPermissions === 'object') {
+                parsedCustomTeacherPerms = parsed.customTeacherPermissions as TeacherAccessRecord['customTeacherPermissions'];
+              }
+              if (parsed.customPermissions && typeof parsed.customPermissions === 'object') {
+                parsedCustomSupervisorPerms = parsed.customPermissions as TeacherAccessRecord['customPermissions'];
+              }
+            } catch {
+              // ignore invalid JSON
+            }
+          }
           return {
             id: typeof data.staffId === 'string' ? data.staffId : d.id,
             googleUid:
@@ -637,6 +844,8 @@ export function subscribeToStaffRegistrationsFromFirestore(
               typeof data.uncleName === 'string' && data.uncleName
                 ? data.uncleName
                 : undefined,
+            customTeacherPermissions: parsedCustomTeacherPerms,
+            customPermissions: parsedCustomSupervisorPerms,
           };
         });
         onUpdate(list);

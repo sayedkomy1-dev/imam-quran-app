@@ -1088,6 +1088,10 @@
     height: calc(var(--spacing) * 36);
   }
 
+  .h-44 {
+    height: calc(var(--spacing) * 44);
+  }
+
   .h-48 {
     height: calc(var(--spacing) * 48);
   }
@@ -3021,6 +3025,10 @@
     background-color: #faf6ec;
   }
 
+  .bg-\[\#fcf9ef\] {
+    background-color: #fcf9ef;
+  }
+
   .bg-\[\#fcfaf2\] {
     background-color: #fcfaf2;
   }
@@ -3350,6 +3358,16 @@
   @supports (color: color-mix(in lab, red, red)) {
     .bg-emerald-50\/40 {
       background-color: color-mix(in oklab, var(--color-emerald-50) 40%, transparent);
+    }
+  }
+
+  .bg-emerald-50\/60 {
+    background-color: #ecfdf599;
+  }
+
+  @supports (color: color-mix(in lab, red, red)) {
+    .bg-emerald-50\/60 {
+      background-color: color-mix(in oklab, var(--color-emerald-50) 60%, transparent);
     }
   }
 
@@ -6328,10 +6346,6 @@
     filter: var(--tw-blur, ) var(--tw-brightness, ) var(--tw-contrast, ) var(--tw-grayscale, ) var(--tw-hue-rotate, ) var(--tw-invert, ) var(--tw-saturate, ) var(--tw-sepia, ) var(--tw-drop-shadow, );
   }
 
-  .filter\! {
-    filter: var(--tw-blur, ) var(--tw-brightness, ) var(--tw-contrast, ) var(--tw-grayscale, ) var(--tw-hue-rotate, ) var(--tw-invert, ) var(--tw-saturate, ) var(--tw-sepia, ) var(--tw-drop-shadow, ) !important;
-  }
-
   .backdrop-blur-\[1px\] {
     --tw-backdrop-blur: blur(1px);
     -webkit-backdrop-filter: var(--tw-backdrop-blur, ) var(--tw-backdrop-brightness, ) var(--tw-backdrop-contrast, ) var(--tw-backdrop-grayscale, ) var(--tw-backdrop-hue-rotate, ) var(--tw-backdrop-invert, ) var(--tw-backdrop-opacity, ) var(--tw-backdrop-saturate, ) var(--tw-backdrop-sepia, );
@@ -7943,6 +7957,16 @@
 
   .dark\:border-\[\#dfbd69\]:where(.dark, .dark *) {
     border-color: #dfbd69;
+  }
+
+  .dark\:border-amber-500\/50:where(.dark, .dark *) {
+    border-color: #f99c0080;
+  }
+
+  @supports (color: color-mix(in lab, red, red)) {
+    .dark\:border-amber-500\/50:where(.dark, .dark *) {
+      border-color: color-mix(in oklab, var(--color-amber-500) 50%, transparent);
+    }
   }
 
   .dark\:border-amber-500\/60:where(.dark, .dark *) {

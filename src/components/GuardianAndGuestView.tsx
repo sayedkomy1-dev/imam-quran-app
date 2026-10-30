@@ -84,6 +84,7 @@ import {
   YAxis,
 } from 'recharts';
 import { WaqfDedicationBannerCard } from './PublicMushafWaqfPortalView';
+import { FaithOasisView } from './FaithOasisView';
 
 const FORTRESS_TASKS: {
   key: FiveFortressTaskKey;
@@ -443,7 +444,7 @@ export const StudentAudioRecorder: React.FC<StudentAudioRecorderProps> = ({
             setAudioDataUrl(dataUrlStr);
             const noteText =
               studentNote.trim() ||
-              `[${wirdSectionType}] تسجيل مباشر عبر MediaRecorder لسورة ${surahName} (${fromAyah}-${toAyah})`;
+              `[${wirdSectionType}] تسجيل صوتي مباشر لسورة ${surahName} (${fromAyah}-${toAyah})`;
             persistLocalStudentDraft(
               dataUrlStr,
               `تسجيل-مباشر-${studentId}.webm`,
@@ -1039,9 +1040,12 @@ export const GuardianAndGuestView: React.FC = () => {
     isStaffPortalPreview,
     setIsStaffPortalPreview,
     publishFamilyGuidanceToGuardian,
+    updateStudentPrivacyPreference,
     showToast,
   } = useAcademy();
   const [familyCertificateModalOpen, setFamilyCertificateModalOpen] =
+    useState<boolean>(false);
+  const [revealGuardianFinanceInPrivateMode, setRevealGuardianFinanceInPrivateMode] =
     useState<boolean>(false);
 
   // Role-based View Persona inside GuardianAndGuestView:
@@ -2232,6 +2236,19 @@ export const GuardianAndGuestView: React.FC = () => {
                   <span>منهج الإمام للتأسيس: المستوى <strong className="font-mono tabular-nums">{student.foundationLevel || 1}/8</strong></span>
                   <span aria-hidden="true" className="opacity-40">·</span>
                   <span>الرواية: {student.riwayah || 'حفص عن عاصم'}</span>
+                  <span aria-hidden="true" className="opacity-40">·</span>
+                  <span className="px-2 py-0.5 rounded-md bg-emerald-500/20 border border-emerald-400/40 text-emerald-100 text-[11px] font-extrabold flex items-center gap-1">
+                    <Shield className="w-3 h-3 text-[#dfbd69]" />
+                    <span>
+                      {(student.privacyPreference || (settings.limitedSharingMode ? 'limited' : 'standard')) === 'private'
+                        ? 'إخفاء كامل عن العامة'
+                        : (student.privacyPreference || (settings.limitedSharingMode ? 'limited' : 'standard')) === 'limited'
+                        ? 'وضع المشاركة المحدودة (Private Mode)'
+                        : settings.hidePersonalDataFromPublic !== false
+                        ? 'محمي من الظهور للعامة'
+                        : 'وضع قياسي'}
+                    </span>
+                  </span>
                 </div>
               )}
             </div>
@@ -2405,6 +2422,41 @@ export const GuardianAndGuestView: React.FC = () => {
                 أ-
               </button>
             </div>
+
+            {/* Quick Privacy & Private Mode Selector for Student / Guardian */}
+            {userRole === 'guardian' && student && (
+              <div className="flex items-center gap-1 bg-black/25 px-2 py-1 rounded-lg border border-[#dfbd69]/40">
+                <Shield className="w-3.5 h-3.5 text-[#dfbd69]" />
+                <span className="text-[11px] font-bold text-[#dfbd69]">الخصوصية:</span>
+                {(
+                  [
+                    { id: 'standard' as const, label: 'قياسي' },
+                    { id: 'limited' as const, label: 'مشاركة محدودة (Private)' },
+                    { id: 'private' as const, label: 'إخفاء كامل' },
+                  ]
+                ).map((privOpt) => {
+                  const activePriv =
+                    student.privacyPreference ||
+                    (settings.limitedSharingMode ? 'limited' : 'standard');
+                  return (
+                    <button
+                      key={privOpt.id}
+                      type="button"
+                      onClick={() =>
+                        updateStudentPrivacyPreference(student.id, privOpt.id)
+                      }
+                      className={`px-2 py-0.5 rounded text-[11px] font-bold transition cursor-pointer ${
+                        activePriv === privOpt.id
+                          ? 'bg-[#c59b27] text-[#14281d] font-extrabold'
+                          : 'text-emerald-100 hover:bg-white/10'
+                      }`}
+                    >
+                      {privOpt.label}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
 
             <div className="flex items-center gap-1 bg-black/20 p-0.5 rounded-lg border border-white/15">
               {(
@@ -3790,87 +3842,171 @@ export const GuardianAndGuestView: React.FC = () => {
               </div>
             </div>
 
-            {portalViewPersona !== 'student' && (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-                {(student.fees.length > 0
-                  ? student.fees
-                  : [
-                      {
-                        month: todayStr.slice(0, 7),
-                        amount: student.monthlyFee || 350,
-                        status: 'مدفوع' as const,
-                        paidAt: todayStr,
-                        method: 'إنستا باي',
-                        receiptNumber: `REC-${todayStr
-                          .slice(0, 7)
-                          .replace('-', '')}-${
-                          student.id.replace(/\D/g, '') || '101'
-                        }`,
-                      },
-                    ]
-                ).map((feeItem) => {
-                  const recNo =
-                    feeItem.receiptNumber ||
-                    `REC-${feeItem.month.replace('-', '')}-${
-                      student.id.replace(/\D/g, '') || '101'
-                    }`;
-                  return (
-                    <div
-                      key={feeItem.month}
-                      className="p-4 rounded-2xl bg-[#fcfaf2] dark:bg-[#0b1711] border border-neutral-200 dark:border-emerald-900/50 flex flex-col justify-between gap-3"
+            {/* Privacy & Protected Contact Info Card inside Smart ID & Documents Tab */}
+            {(() => {
+              const effPriv =
+                student.privacyPreference ||
+                (settings.limitedSharingMode ? 'limited' : 'standard');
+              const isPhoneMasked =
+                Boolean(settings.maskStudentPhoneAndPin) ||
+                Boolean(settings.limitedSharingMode) ||
+                effPriv === 'limited' ||
+                effPriv === 'private';
+              const rawPhone = student.whatsappPhone || '';
+              const displayPhone =
+                isPhoneMasked && !revealGuardianFinanceInPrivateMode
+                  ? rawPhone.length > 6
+                    ? `${rawPhone.slice(0, 4)}•••••${rawPhone.slice(-3)}`
+                    : '••••••••••'
+                  : rawPhone || 'غير مسجل';
+              const displayPin =
+                isPhoneMasked && !revealGuardianFinanceInPrivateMode
+                  ? '••••••'
+                  : student.guardianPin || 'غير محدد';
+
+              return (
+                <div className="p-4 rounded-2xl bg-[#fcfaf2] dark:bg-[#0b1711] border border-emerald-500/30 flex flex-wrap items-center justify-between gap-3 text-xs">
+                  <div className="flex flex-wrap items-center gap-3">
+                    <span className="font-extrabold text-[#145a3a] dark:text-[#dfbd69] flex items-center gap-1.5">
+                      <Shield className="w-4 h-4 text-[#c59b27]" />
+                      <span>بيانات التواصل والخصوصية لملف الطالب:</span>
+                    </span>
+                    <span className="px-2.5 py-1 rounded-lg bg-white dark:bg-[#12231a] border border-neutral-200 dark:border-emerald-900/50 font-mono">
+                      هاتف ولي الأمر: <strong>{displayPhone}</strong>
+                    </span>
+                    <span className="px-2.5 py-1 rounded-lg bg-white dark:bg-[#12231a] border border-neutral-200 dark:border-emerald-900/50 font-mono">
+                      كود البوابة: <strong>{displayPin}</strong>
+                    </span>
+                    {student.assignedTeacherName && (
+                      <span className="px-2.5 py-1 rounded-lg bg-emerald-500/10 text-[#145a3a] dark:text-[#dfbd69] font-extrabold">
+                        المحفظ المشرف: {student.assignedTeacherName}
+                      </span>
+                    )}
+                  </div>
+
+                  {isPhoneMasked && (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setRevealGuardianFinanceInPrivateMode((prev) => !prev)
+                      }
+                      className="px-3 py-1.5 rounded-xl bg-[#145a3a] text-[#dfbd69] text-[11px] font-extrabold flex items-center gap-1.5 cursor-pointer"
                     >
-                      <div className="flex items-center justify-between">
-                        <div>
-                          <span className="text-xs font-extrabold font-mono text-[#145a3a] dark:text-[#dfbd69]">
-                            إيصال شهر {feeItem.month}
-                          </span>
-                          <div className="text-[11px] font-mono text-neutral-500">
-                            رقم الإيصال: {recNo}
-                          </div>
-                        </div>
-                        <span className="text-sm font-extrabold font-mono">
-                          {feeItem.amount} ج.م
-                        </span>
-                      </div>
+                      {revealGuardianFinanceInPrivateMode ? (
+                        <>
+                          <EyeOff className="w-3.5 h-3.5" />
+                          <span>إخفاء البيانات الحساسة (Private Mode)</span>
+                        </>
+                      ) : (
+                        <>
+                          <Eye className="w-3.5 h-3.5" />
+                          <span>إظهار البيانات الكاملة لولي الأمر</span>
+                        </>
+                      )}
+                    </button>
+                  )}
+                </div>
+              );
+            })()}
 
-                      <div className="flex items-center gap-1.5">
-                        <button
-                          type="button"
-                          onClick={() =>
-                            setGuardianActiveReceipt({
-                              ...feeItem,
-                              receiptNumber: recNo,
-                            })
-                          }
-                          className="flex-1 py-1.5 px-2.5 rounded-xl bg-[#145a3a] text-white text-[11px] font-extrabold flex items-center justify-center gap-1 cursor-pointer"
-                        >
-                          <Printer className="w-3.5 h-3.5 text-[#dfbd69]" />
-                          <span>عرض وطباعة الإيصال</span>
-                        </button>
-
-                        <button
-                          type="button"
-                          onClick={() => {
-                            downloadPaymentReceiptPng(
-                              student,
-                              { ...feeItem, receiptNumber: recNo },
-                              settings
-                            );
-                            showToast(
-                              'تم تحميل صورة إيصال السداد بنجاح',
-                              'success'
-                            );
-                          }}
-                          className="py-1.5 px-2.5 rounded-xl bg-[#c59b27] text-[#14281d] text-[11px] font-extrabold flex items-center justify-center gap-1 cursor-pointer"
-                        >
-                          <Download className="w-3.5 h-3.5" />
-                          <span>حفظ الإيصال</span>
-                        </button>
-                      </div>
-                    </div>
-                  );
-                })}
+            {portalViewPersona === 'student' &&
+            settings.hideFinancialDetailsInStudentPortal ? (
+              <div className="p-4 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 text-xs font-bold text-[#145a3a] dark:text-emerald-300 flex items-center gap-2">
+                <Shield className="w-4 h-4 text-[#c59b27] shrink-0" />
+                <span>
+                  تم إخفاء تفاصيل الرسوم الشهرية وإيصالات السداد في «واجهة الطالب» حفاظاً على الخصوصية (تظهر لولي الأمر فقط).
+                </span>
               </div>
+            ) : (
+              portalViewPersona !== 'student' && (
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                  {(student.fees.length > 0
+                    ? student.fees
+                    : [
+                        {
+                          month: todayStr.slice(0, 7),
+                          amount: student.monthlyFee || 350,
+                          status: 'مدفوع' as const,
+                          paidAt: todayStr,
+                          method: 'إنستا باي',
+                          receiptNumber: `REC-${todayStr
+                            .slice(0, 7)
+                            .replace('-', '')}-${
+                            student.id.replace(/\D/g, '') || '101'
+                          }`,
+                        },
+                      ]
+                  ).map((feeItem) => {
+                    const recNo =
+                      feeItem.receiptNumber ||
+                      `REC-${feeItem.month.replace('-', '')}-${
+                        student.id.replace(/\D/g, '') || '101'
+                      }`;
+                    const effPriv =
+                      student.privacyPreference ||
+                      (settings.limitedSharingMode ? 'limited' : 'standard');
+                    const maskAmount =
+                      (effPriv === 'private' ||
+                        Boolean(settings.limitedSharingMode)) &&
+                      !revealGuardianFinanceInPrivateMode;
+                    return (
+                      <div
+                        key={feeItem.month}
+                        className="p-4 rounded-2xl bg-[#fcfaf2] dark:bg-[#0b1711] border border-neutral-200 dark:border-emerald-900/50 flex flex-col justify-between gap-3"
+                      >
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <span className="text-xs font-extrabold font-mono text-[#145a3a] dark:text-[#dfbd69]">
+                              إيصال شهر {feeItem.month}
+                            </span>
+                            <div className="text-[11px] font-mono text-neutral-500">
+                              رقم الإيصال: {recNo}
+                            </div>
+                          </div>
+                          <span className="text-sm font-extrabold font-mono">
+                            {maskAmount ? '••• ج.م' : `${feeItem.amount} ج.م`}
+                          </span>
+                        </div>
+
+                        <div className="flex items-center gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setGuardianActiveReceipt({
+                                ...feeItem,
+                                receiptNumber: recNo,
+                              })
+                            }
+                            className="flex-1 py-1.5 px-2.5 rounded-xl bg-[#145a3a] text-white text-[11px] font-extrabold flex items-center justify-center gap-1 cursor-pointer"
+                          >
+                            <Printer className="w-3.5 h-3.5 text-[#dfbd69]" />
+                            <span>عرض وطباعة الإيصال</span>
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => {
+                              downloadPaymentReceiptPng(
+                                student,
+                                { ...feeItem, receiptNumber: recNo },
+                                settings
+                              );
+                              showToast(
+                                'تم تحميل صورة إيصال السداد بنجاح',
+                                'success'
+                              );
+                            }}
+                            className="py-1.5 px-2.5 rounded-xl bg-[#c59b27] text-[#14281d] text-[11px] font-extrabold flex items-center justify-center gap-1 cursor-pointer"
+                          >
+                            <Download className="w-3.5 h-3.5" />
+                            <span>حفظ الإيصال</span>
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )
             )}
           </div>
           )}
@@ -5334,6 +5470,13 @@ export const GuardianAndGuestView: React.FC = () => {
               ))}
             </div>
           )}
+        </div>
+      )}
+
+      {/* Faith Oasis Embedded View inside Guardian & Student Portal */}
+      {guardianScreenTab === 'family_oasis' && (
+        <div className="pt-2">
+          <FaithOasisView embeddedMode />
         </div>
       )}
 

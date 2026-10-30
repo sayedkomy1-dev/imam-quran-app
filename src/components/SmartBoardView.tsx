@@ -368,6 +368,8 @@ export const SmartBoardView: React.FC = () => {
     awardStudentBadge,
     toggleStudentGoldenCrown,
     showToast,
+    isFullScreenFocus,
+    setIsFullScreenFocus,
   } = useAcademy();
 
   const activeStudent =
@@ -1639,6 +1641,89 @@ export const SmartBoardView: React.FC = () => {
 
   return (
     <div className="space-y-5">
+      {/* شريط المزايا الأربع المطورة للسبورة القرآنية الذكية */}
+      <div className="rounded-2xl bg-[#fcfaf2] dark:bg-[#12231a] p-3.5 border-2 border-[#c59b27]/50 shadow-xs flex flex-wrap items-center justify-between gap-2.5">
+        <div className="flex items-center gap-2 text-xs font-extrabold text-[#145a3a] dark:text-[#dfbd69]">
+          <Sparkles className="w-4 h-4 text-[#c59b27]" />
+          <span>أدوات السبورة القرآنية المطورة:</span>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={() => {
+              setBoardDisplayMode('quran_text');
+              setAutoTajweedColoring(true);
+              setActiveColorCategoryFilter('all');
+              setDrawMode('highlighter');
+              setDrawColor('#dc2626');
+              showToast(
+                'تم تفعيل عرض الآية بالرسم العثماني المكبّر مع التلوين التجويدي الفوري (الأحمر للمدود، الأخضر للغنة، الأزرق للقلقلة)',
+                'success'
+              );
+            }}
+            className={`px-3.5 py-2 min-h-[42px] rounded-xl text-xs font-extrabold flex items-center gap-1.5 transition cursor-pointer ${
+              boardDisplayMode === 'quran_text' && autoTajweedColoring
+                ? 'bg-[#145a3a] text-[#dfbd69] shadow-xs'
+                : 'bg-white dark:bg-[#0b1711] text-[#14281d] dark:text-white border border-neutral-200 dark:border-emerald-900'
+            }`}
+          >
+            <Highlighter className="w-3.5 h-3.5 text-[#c59b27]" />
+            <span>١. الرسم العثماني المكبّر + التلوين التجويدي</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              setShowTajweedAidModal(true);
+              showToast(
+                'تم فتح لوحات مخارج الحروف والصفات الجاهزة (الجوف، الحلق، اللسان، الشفتان، الخيشوم)',
+                'info'
+              );
+            }}
+            className="px-3.5 py-2 min-h-[42px] rounded-xl bg-white dark:bg-[#0b1711] hover:bg-[#145a3a] hover:text-white text-[#14281d] dark:text-white border border-[#c59b27]/40 text-xs font-extrabold flex items-center gap-1.5 transition cursor-pointer"
+          >
+            <Compass className="w-3.5 h-3.5 text-[#c59b27]" />
+            <span>٢. لوحات مخارج الحروف والصفات الجاهزة</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              setBoardDisplayMode('split_view');
+              setShowMutashabihatDrawer(true);
+              showToast(
+                'تم تفعيل وضع المقارنة بين الآيات المتشابهة (Split View) جنباً إلى جنب مع تمييز الكلمة الفارقة',
+                'info'
+              );
+            }}
+            className={`px-3.5 py-2 min-h-[42px] rounded-xl text-xs font-extrabold flex items-center gap-1.5 transition cursor-pointer ${
+              boardDisplayMode === 'split_view'
+                ? 'bg-[#145a3a] text-[#dfbd69] shadow-xs'
+                : 'bg-white dark:bg-[#0b1711] text-[#14281d] dark:text-white border border-[#c59b27]/40'
+            }`}
+          >
+            <GitCompare className="w-3.5 h-3.5 text-[#c59b27]" />
+            <span>٣. مقارنة الآيات المتشابهة (Split View)</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              handleSendEvaluationToStudentProfile();
+              showToast(
+                `تم حفظ بطاقة الدرس المصورة وملاحظات السبورة في ملف الطالب (${activeStudent?.name || ''}) ليرجع إليها قبل الحصة القادمة`,
+                'success'
+              );
+            }}
+            className="px-3.5 py-2 min-h-[42px] rounded-xl bg-[#c59b27] hover:bg-[#b58c1e] text-[#14281d] text-xs font-extrabold flex items-center gap-1.5 shadow-xs transition cursor-pointer"
+          >
+            <Save className="w-3.5 h-3.5" />
+            <span>٤. حفظ الدرس كبطاقة مصورة في ملف الطالب</span>
+          </button>
+        </div>
+      </div>
+
       {/* 1. Online Live Classroom Bar (غرفة التسميع الصوتي والمرئي المدمجة) */}
       <div className="rounded-3xl bg-gradient-to-l from-[#145a3a] to-[#0f452c] text-white p-4 md:p-5 shadow-md border border-[#c59b27]/40 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
         <div className="flex flex-wrap items-center gap-3">
@@ -1679,24 +1764,21 @@ export const SmartBoardView: React.FC = () => {
             <span>📖 النص القرآني والتفسير</span>
           </button>
 
-          {/* Privacy Mode Toggle for Screen Share */}
+          {/* Full Screen Focus Mode */}
           <button
             type="button"
-            onClick={() => setPrivacyScreenShareMode((p) => !p)}
+            onClick={() => setIsFullScreenFocus(!isFullScreenFocus)}
             className={`px-3 py-2 rounded-2xl text-xs font-extrabold flex items-center gap-1.5 border transition-all cursor-pointer ${
-              privacyScreenShareMode
+              isFullScreenFocus
                 ? 'bg-emerald-500 text-white border-emerald-300 shadow-xs'
                 : 'bg-white/10 text-emerald-100 border-white/20 hover:bg-white/20'
             }`}
-            title="إخفاء أرقام الهواتف والرموز السرية والملاحظات الإدارية أثناء مشاركة الشاشة أونلاين"
+            title="طي القوائم الجانبية للتركيز الكامل على السبورة والمصحف"
           >
-            <EyeOff className="w-3.5 h-3.5" />
-            <span>
-              {privacyScreenShareMode
-                ? 'وضع مشاركة الشاشة الآمن (مُفعّل)'
-                : 'وضع مشاركة الشاشة الآمن'}
-            </span>
+            {isFullScreenFocus ? <Minimize2 className="w-3.5 h-3.5 text-[#dfbd69]" /> : <Maximize2 className="w-3.5 h-3.5" />}
+            <span>{isFullScreenFocus ? 'إنهاء وضع التركيز' : 'وضع التركيز الكامل'}</span>
           </button>
+
 
           {/* Interactive Session & Recitation Countdown Timer (المؤقت التفاعلي) */}
           <div

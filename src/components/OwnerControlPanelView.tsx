@@ -8,28 +8,62 @@ import {
   Shield,
   ShieldAlert,
   Trash2,
+  Download,
+  Lock,
+  Upload,
   UserCheck,
   UserPlus,
   UserX,
   Users,
 } from 'lucide-react';
+import {
+  DEFAULT_SUPERVISOR_PERMISSIONS,
+  DEFAULT_TEACHER_PERMISSIONS,
+} from '../data/seedData';
+import { exportDataToJsonBackup } from '../utils/exportService';
 
 export const OwnerControlPanelView: React.FC = () => {
   const {
+    students,
+    sessions,
+    circles,
+    exams,
+    ijazahs,
+    tasks,
+    settings,
     managedTeachers,
     currentStaffTier,
     setCurrentStaffTier,
+    setSelectedStudentId,
+    setActiveTab,
     updateTeacherAccessStatus,
     deleteStaffMember,
     addStaffMember,
     updateStaffFamilyDetails,
     updateStaffRoleAndDetails,
+    updateSupervisorPermissions,
+    updateTeacherPermissions,
+    resetTeacherCustomPermissions,
+    importFullBackup,
+    exportTeacherScopedJsonBackup,
+    importTeacherScopedJsonBackup,
+    triggerCloudSyncNow,
+    restoreFromCloudFirestoreNow,
     syncAllStaffToFirestoreNow,
     googleAuthUser,
     startGoogleOAuthRedirect,
     auditLogs,
     showToast,
   } = useAcademy();
+
+  const supervisorPerms =
+    settings.supervisorPermissions || DEFAULT_SUPERVISOR_PERMISSIONS;
+  const teacherPerms =
+    settings.teacherPermissions || DEFAULT_TEACHER_PERMISSIONS;
+  const canAccessBackups =
+    currentStaffTier === 'owner' ||
+    (currentStaffTier === 'supervisor' &&
+      supervisorPerms.canAccessAndExportBackups);
 
   const [statusFilter, setStatusFilter] = useState<
     'all' | 'pending' | 'active' | 'blocked'
@@ -177,16 +211,26 @@ export const OwnerControlPanelView: React.FC = () => {
               </div>
               <div>
                 <h1 className="text-lg md:text-xl font-extrabold text-[#14281d] dark:text-white">
-                  لوحة تحكم المالك — إدارة المستخدمين وتسجيلات المحفظين والمشرفين (Firestore)
+                  لوحة تحكم المالك — إدارة المحفظين والمشرفين والصلاحيات
                 </h1>
                 <p className="text-xs text-neutral-500 dark:text-neutral-400">
-                  قبول أو إيقاف أو حذف تسجيلات المحفظين والمشرفين الجدد مباشرة في قاعدة بيانات Firestore (/staff_registrations)
+                  قبول أو إيقاف أو حذف حسابات المحفظين والمشرفين مع المزامنة السحابية الفورية
                 </p>
               </div>
             </div>
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
+            <a
+              href="/staff-and-permissions-guide.txt"
+              download="دليل-إدارة-المحفظين-والمشرفين-والصلاحيات.txt"
+              className="px-3.5 py-2 rounded-xl bg-[#c59b27] hover:bg-[#b58c1e] text-[#14281d] text-xs font-extrabold flex items-center gap-1.5 cursor-pointer transition"
+              title="تحميل الملف النصي الإرشادي لكيفية إضافة محفظ أو مشرف وصلاحيات كل دور"
+            >
+              <Download className="w-3.5 h-3.5" />
+              <span>📄 تحميل دليل المحفظين والمشرفين والصلاحيات (.txt)</span>
+            </a>
+
             {/* Role Simulator Switcher */}
             <div className="inline-flex rounded-xl bg-[#f6f7f2] dark:bg-[#0b1711] p-1 border border-neutral-200 dark:border-emerald-900">
               <button
@@ -224,7 +268,7 @@ export const OwnerControlPanelView: React.FC = () => {
                   isSyncingFirestore ? 'animate-spin' : ''
                 }`}
               />
-              <span>مزامنة Firestore الآن</span>
+              <span>☁️ حفظ ومزامنة سحابية الآن</span>
             </button>
 
             <button
@@ -235,31 +279,28 @@ export const OwnerControlPanelView: React.FC = () => {
               <UserPlus className="w-4 h-4 text-[#dfbd69]" />
               <span>
                 {showAddForm
-                  ? 'إغلاق نموذج التسجيل'
-                  : 'إضافة تسجيل محفظ / مشرف جديد'}
+                  ? 'إغلاق نموذج الإضافة'
+                  : 'إضافة محفظ / مشرف جديد'}
               </span>
             </button>
           </div>
         </div>
 
-        {/* Firestore Connection Status Bar */}
+        {/* Cloud Connection Status Bar */}
         <div className="p-3.5 rounded-xl bg-[#f6f7f2] dark:bg-[#0b1711] border border-neutral-200 dark:border-emerald-900/60 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div className="flex items-center gap-2.5 text-xs">
             <Cloud className="w-4 h-4 text-[#145a3a] dark:text-[#dfbd69] shrink-0" />
             <div>
               <span className="font-extrabold text-[#14281d] dark:text-white">
-                قاعدة بيانات Firestore المتصلة:{' '}
-              </span>
-              <span className="font-mono text-[11px] text-[#145a3a] dark:text-[#dfbd69]">
-                /staff_registrations/{'{staffId}'} &amp; /user_profiles/{'{uid}'}
+                حالة النسخ السحابي ومزامنة حسابات الإدارة:{' '}
               </span>
               {googleAuthUser ? (
                 <span className="mr-2 text-emerald-700 dark:text-emerald-400 font-bold">
-                  • متصل بحساب Google ({googleAuthUser.email})
+                  • متصل سحابياً بحساب Google ({googleAuthUser.email}) ✓
                 </span>
               ) : (
                 <span className="mr-2 text-amber-700 dark:text-amber-400 font-bold">
-                  • وضع المعاينة النشط (يمكنك ربط Google للمزامنة السحابية الفورية)
+                  • الحفظ السحابي التلقائي مفعل (يمكنك ربط حساب Google للمالك من هنا)
                 </span>
               )}
             </div>
@@ -271,7 +312,7 @@ export const OwnerControlPanelView: React.FC = () => {
               onClick={() => void startGoogleOAuthRedirect('teacher')}
               className="px-3 py-1.5 rounded-lg bg-[#145a3a] text-white text-xs font-extrabold cursor-pointer self-start sm:self-auto"
             >
-              تسجيل الدخول بحساب Google للمالك
+              ربط حساب Google للمالك
             </button>
           )}
         </div>
@@ -343,10 +384,10 @@ export const OwnerControlPanelView: React.FC = () => {
           >
             <div className="flex items-center justify-between">
               <h2 className="text-sm font-extrabold text-[#145a3a] dark:text-[#dfbd69]">
-                تسجيل محفظ أو مشرف جديد في قاعدة بيانات Firestore (/staff_registrations)
+                إضافة واعتماد محفظ أو مشرف جديد في الأكاديمية
               </h2>
               <span className="text-[11px] text-neutral-500">
-                يتم الحفظ والربط مع بيانات العائلة وحساب Google
+                يتم حفظ الحساب ومزامنته سحابياً فوراً
               </span>
             </div>
 
@@ -367,7 +408,7 @@ export const OwnerControlPanelView: React.FC = () => {
 
               <div>
                 <label className="block text-[11px] font-bold mb-1">
-                  البريد الإلكتروني (حساب Google) *
+                  البريد الإلكتروني المعتمد (Google) *
                 </label>
                 <input
                   type="email"
@@ -400,7 +441,7 @@ export const OwnerControlPanelView: React.FC = () => {
 
               <div>
                 <label className="block text-[11px] font-bold mb-1">
-                  حالة التسجيل المبدئية
+                  حالة الحساب المبدئية
                 </label>
                 <select
                   value={newStatus}
@@ -409,14 +450,14 @@ export const OwnerControlPanelView: React.FC = () => {
                   }
                   className="w-full px-3 py-2 rounded-xl bg-white dark:bg-[#12231a] border border-neutral-300 dark:border-emerald-900 text-xs font-bold"
                 >
-                  <option value="pending">بانتظار قبول المالك (Pending)</option>
-                  <option value="active">مقبول ونشط فوراً (Active)</option>
+                  <option value="active">مقبول ونشط فوراً</option>
+                  <option value="pending">بانتظار مراجعة المالك</option>
                 </select>
               </div>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-3">
-              <div className="lg:col-span-2">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
                 <label className="block text-[11px] font-bold mb-1">
                   المسمى الوظيفي والتخصص
                 </label>
@@ -429,91 +470,391 @@ export const OwnerControlPanelView: React.FC = () => {
                 />
               </div>
 
-              <div>
-                <label className="block text-[11px] font-bold mb-1">
-                  اسم الوالدة
-                </label>
-                <input
-                  type="text"
-                  value={newMother}
-                  onChange={(e) => setNewMother(e.target.value)}
-                  placeholder="اسم الوالدة"
-                  className="w-full px-3 py-2 rounded-xl bg-white dark:bg-[#12231a] border border-neutral-300 dark:border-emerald-900 text-xs font-bold"
-                />
-              </div>
+              <div className="flex items-end justify-between gap-3">
+                <div className="flex items-center gap-2">
+                  <label className="text-xs font-bold">عدد الحلقات المسندة:</label>
+                  <input
+                    type="number"
+                    min={1}
+                    max={20}
+                    value={newCirclesCount}
+                    onChange={(e) =>
+                      setNewCirclesCount(Math.max(1, Number(e.target.value) || 1))
+                    }
+                    className="w-20 px-2.5 py-1.5 rounded-lg bg-white dark:bg-[#12231a] border border-neutral-300 dark:border-emerald-900 text-xs font-mono font-bold"
+                  />
+                </div>
 
-              <div>
-                <label className="block text-[11px] font-bold mb-1">
-                  اسم الجد
-                </label>
-                <input
-                  type="text"
-                  value={newGrandfather}
-                  onChange={(e) => setNewGrandfather(e.target.value)}
-                  placeholder="اسم الجد"
-                  className="w-full px-3 py-2 rounded-xl bg-white dark:bg-[#12231a] border border-neutral-300 dark:border-emerald-900 text-xs font-bold"
-                />
-              </div>
-
-              <div>
-                <label className="block text-[11px] font-bold mb-1">
-                  اسم الجدة
-                </label>
-                <input
-                  type="text"
-                  value={newGrandmother}
-                  onChange={(e) => setNewGrandmother(e.target.value)}
-                  placeholder="اسم الجدة"
-                  className="w-full px-3 py-2 rounded-xl bg-white dark:bg-[#12231a] border border-neutral-300 dark:border-emerald-900 text-xs font-bold"
-                />
-              </div>
-
-              <div>
-                <label className="block text-[11px] font-bold mb-1">
-                  اسم العم
-                </label>
-                <input
-                  type="text"
-                  value={newUncle}
-                  onChange={(e) => setNewUncle(e.target.value)}
-                  placeholder="اسم العم"
-                  className="w-full px-3 py-2 rounded-xl bg-white dark:bg-[#12231a] border border-neutral-300 dark:border-emerald-900 text-xs font-bold"
-                />
-              </div>
-            </div>
-
-            <div className="flex items-center justify-between pt-2">
-              <div className="flex items-center gap-2">
-                <label className="text-xs font-bold">عدد الحلقات المسندة:</label>
-                <input
-                  type="number"
-                  min={1}
-                  max={20}
-                  value={newCirclesCount}
-                  onChange={(e) =>
-                    setNewCirclesCount(Math.max(1, Number(e.target.value) || 1))
-                  }
-                  className="w-20 px-2.5 py-1.5 rounded-lg bg-white dark:bg-[#12231a] border border-neutral-300 dark:border-emerald-900 text-xs font-mono font-bold"
-                />
-              </div>
-
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => setShowAddForm(false)}
-                  className="px-4 py-2 rounded-xl border border-neutral-300 dark:border-emerald-800 text-xs font-bold cursor-pointer"
-                >
-                  إلغاء
-                </button>
-                <button
-                  type="submit"
-                  className="px-5 py-2 rounded-xl bg-[#145a3a] hover:bg-[#0f452c] text-white text-xs font-extrabold cursor-pointer"
-                >
-                  حفظ التسجيل في Firestore
-                </button>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setShowAddForm(false)}
+                    className="px-4 py-2 rounded-xl border border-neutral-300 dark:border-emerald-800 text-xs font-bold cursor-pointer"
+                  >
+                    إلغاء
+                  </button>
+                  <button
+                    type="submit"
+                    className="px-5 py-2 rounded-xl bg-[#145a3a] hover:bg-[#0f452c] text-white text-xs font-extrabold cursor-pointer"
+                  >
+                    حفظ واعتماد الحساب ✓
+                  </button>
+                </div>
               </div>
             </div>
           </form>
+        )}
+      </section>
+
+      {/* Owner Master Data, Backups & Supervisor Permissions Matrix */}
+      <section className="rounded-2xl bg-white dark:bg-[#12231a] p-6 border-2 border-[#145a3a]/40 dark:border-emerald-800 shadow-xs space-y-5">
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 pb-4 border-b border-neutral-100 dark:border-emerald-950">
+          <div>
+            <h2 className="text-base md:text-lg font-extrabold text-[#145a3a] dark:text-[#dfbd69] flex items-center gap-2">
+              <Lock className="w-5 h-5 text-[#c59b27]" />
+              <span>
+                مركز بيانات المالك الشامل: النسخ الاحتياطي، طلاب المحفظين، وتحديد صلاحيات المشرفين
+              </span>
+            </h2>
+            <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-0.5">
+              جميع البيانات والنسخ الاحتياطي والطلاب لدى المحفظين متاحون بالكامل للمالك العام، مع تحكم المالك الفوري في صلاحيات المشرفين
+            </p>
+          </div>
+
+          {canAccessBackups && (
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={() => void triggerCloudSyncNow(true)}
+                className="px-3.5 py-2 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-extrabold flex items-center gap-1.5 cursor-pointer"
+              >
+                <Cloud className="w-4 h-4 text-[#dfbd69]" />
+                <span>☁️ مزامنة السحابة (Firestore) يدوياً الآن</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => void restoreFromCloudFirestoreNow()}
+                className="px-3.5 py-2 rounded-xl bg-[#fcfaf2] dark:bg-[#0b1711] hover:border-emerald-600 border border-emerald-600/60 text-xs font-extrabold text-[#145a3a] dark:text-[#dfbd69] flex items-center gap-1.5 cursor-pointer"
+              >
+                <RefreshCw className="w-3.5 h-3.5" />
+                <span>🔄 استعادة أحدث نسخة من السحابة</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  exportDataToJsonBackup({
+                    students,
+                    sessions,
+                    circles,
+                    exams,
+                    ijazahs,
+                    tasks,
+                    settings,
+                  });
+                  showToast(
+                    'تم تصدير النسخة الاحتياطية الشاملة لجميع بيانات الأكاديمية وطلاب المحفظين (JSON) بنجاح ✓',
+                    'success'
+                  );
+                }}
+                className="px-4 py-2 rounded-xl bg-[#145a3a] hover:bg-[#0f452c] text-white text-xs font-extrabold flex items-center gap-1.5 cursor-pointer"
+              >
+                <Download className="w-4 h-4 text-[#dfbd69]" />
+                <span>تصدير النسخة الاحتياطية الشاملة للمالك (JSON)</span>
+              </button>
+
+              <label className="px-4 py-2 rounded-xl bg-[#fcfaf2] dark:bg-[#0b1711] hover:border-[#145a3a] border border-[#c59b27]/60 text-xs font-extrabold text-[#145a3a] dark:text-[#dfbd69] flex items-center gap-1.5 cursor-pointer">
+                <Upload className="w-4 h-4" />
+                <span>استيراد نسخة احتياطية شاملة (JSON)</span>
+                <input
+                  type="file"
+                  accept=".json"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (!file) return;
+                    const reader = new FileReader();
+                    reader.onload = (ev) => {
+                      try {
+                        const parsed = JSON.parse(String(ev.target?.result || '{}'));
+                        importFullBackup(parsed);
+                      } catch {
+                        showToast('تعذر قراءة ملف النسخة الاحتياطية JSON', 'error');
+                      }
+                    };
+                    reader.readAsText(file);
+                  }}
+                  className="hidden"
+                />
+              </label>
+            </div>
+          )}
+        </div>
+
+        {/* Supervisor Permissions Matrix (Controlled by Owner) */}
+        <div className="space-y-3">
+          <div className="flex items-center justify-between">
+            <h3 className="text-xs sm:text-sm font-extrabold text-[#14281d] dark:text-white">
+              🛡️ مصفوفة صلاحيات المشرفين (يحددها المالك العام فقط):
+            </h3>
+            <span className="text-[11px] font-bold text-[#145a3a] dark:text-[#dfbd69]">
+              {currentStaffTier === 'owner'
+                ? 'اضغط على أي صلاحية لمنحها أو حجبها عن المشرفين'
+                : 'للعرض فقط — التعديل خاص بالمالك العام'}
+            </span>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 text-xs">
+            {(
+              [
+                {
+                  key: 'canViewAllTeachersStudents',
+                  title: 'رؤية طلاب جميع المحفظين',
+                  desc: 'السماح للمشرف بالاطلاع على كافة طلاب وحلقات المحفظين',
+                },
+                {
+                  key: 'canAccessAndExportBackups',
+                  title: 'الوصول للنسخ الاحتياطي وتصدير البيانات',
+                  desc: 'السماح للمشرف بتحميل واستيراد ملفات النسخ الاحتياطي',
+                },
+                {
+                  key: 'canManageTeachers',
+                  title: 'إدارة حسابات المحفظين',
+                  desc: 'السماح للمشرف بقبول أو إيقاف المحفظين',
+                },
+                {
+                  key: 'canManageStudentsAndAdmissions',
+                  title: 'إدارة ملفات الطلاب وطابور القبول',
+                  desc: 'السماح للمشرف بإضافة وتعديل الطلاب وقبول المستجدين',
+                },
+                {
+                  key: 'canViewFinancialRecords',
+                  title: 'الاطلاع على السجلات المالية والرسوم',
+                  desc: 'السماح للمشرف بمراجعة المدفوعات وإيصالات السداد',
+                },
+                {
+                  key: 'canViewSensitiveStudentContact',
+                  title: 'إظهار أرقام الهواتف ورموز PIN الكاملة',
+                  desc: 'السماح للمشرف برؤية أرقام الهواتف بدون تمويه الخصوصية',
+                },
+              ] as const
+            ).map((perm) => {
+              const checked = Boolean(supervisorPerms[perm.key]);
+              return (
+                <label
+                  key={perm.key}
+                  className={`p-3 rounded-xl border flex items-start justify-between gap-2.5 transition ${
+                    checked
+                      ? 'bg-emerald-50/60 dark:bg-emerald-950/30 border-emerald-500/40'
+                      : 'bg-[#f6f7f2] dark:bg-[#0b1711] border-neutral-200 dark:border-emerald-900/50'
+                  } ${
+                    currentStaffTier === 'owner'
+                      ? 'cursor-pointer'
+                      : 'opacity-75 cursor-not-allowed'
+                  }`}
+                >
+                  <div>
+                    <div className="font-extrabold text-[#14281d] dark:text-white">
+                      {perm.title}
+                    </div>
+                    <div className="text-[11px] text-neutral-500 mt-0.5">
+                      {perm.desc}
+                    </div>
+                  </div>
+                  <input
+                    type="checkbox"
+                    disabled={currentStaffTier !== 'owner'}
+                    checked={checked}
+                    onChange={(e) =>
+                      updateSupervisorPermissions({
+                        [perm.key]: e.target.checked,
+                      })
+                    }
+                    className="w-4 h-4 mt-0.5 accent-[#145a3a] shrink-0"
+                  />
+                </label>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Teacher Additional Permissions Matrix (Controlled by Owner) */}
+        <div className="pt-3 border-t border-neutral-100 dark:border-emerald-950 space-y-3">
+          <div className="flex items-center justify-between">
+            <h3 className="text-xs sm:text-sm font-extrabold text-[#14281d] dark:text-white">
+              📖 مصفوفة الصلاحيات الإضافية للمحفظين (يحددها المالك العام):
+            </h3>
+            <span className="text-[11px] font-bold text-[#145a3a] dark:text-[#dfbd69]">
+              {currentStaffTier === 'owner'
+                ? 'تحكم في صلاحيات الشيخ المحفظ (إضافة طلاب، تنزيل ورفع JSON، الحلقات، الاختبارات)'
+                : 'للعرض فقط — التعديل خاص بالمالك العام'}
+            </span>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 text-xs">
+            {(
+              [
+                {
+                  key: 'canAddAndEditStudents',
+                  title: 'إضافة طلاب جدد وتعديل ملفات طلابه',
+                  desc: 'يستطيع المحفظ إضافة طلاب جدد وتحديث بيانات طلاب حلقاته مباشرة',
+                },
+                {
+                  key: 'canExportTeacherJsonBackup',
+                  title: 'تنزيل نسخة JSON من طلابه وحلقاته',
+                  desc: 'يستطيع المحفظ تحميل ملف JSON يحتوي على طلابه وحلقاته وجلساته',
+                },
+                {
+                  key: 'canImportTeacherJsonBackup',
+                  title: 'رفع واستعادة نسخة JSON لطلابه وحلقاته',
+                  desc: 'يستطيع المحفظ رفع ملف JSON لطلابه وحلقاته ودمجه مع السحابة تلقائياً',
+                },
+                {
+                  key: 'canCreateAndEditCircles',
+                  title: 'إنشاء وتعديل الحلقات القرآنية',
+                  desc: 'السماح للمحفظ بإنشاء حلقات جديدة أو تعديل مواعيد حلقاته',
+                },
+                {
+                  key: 'canIssueExamsAndCertificates',
+                  title: 'إجراء الاختبارات وإصدار الشهادات والأوسمة',
+                  desc: 'السماح للمحفظ باعتماد الاختبارات ومنح شهادات التقدير والإجازات',
+                },
+                {
+                  key: 'canManageStudentFees',
+                  title: 'تسجيل سداد الرسوم وإصدار الإيصالات',
+                  desc: 'السماح للمحفظ بتحديث حالة سداد رسوم طلابه وإصدار إيصال رقمي',
+                },
+                {
+                  key: 'canApproveAdmissionRequests',
+                  title: 'قبول الطلاب الجدد من طابور التسجيل',
+                  desc: 'السماح للمحفظ بقبول طلبات الالتحاق الجديدة وإلحاق الطالب بحلقته',
+                },
+              ] as const
+            ).map((perm) => {
+              const checked = Boolean(teacherPerms[perm.key]);
+              return (
+                <label
+                  key={perm.key}
+                  className={`p-3 rounded-xl border flex items-start justify-between gap-2.5 transition ${
+                    checked
+                      ? 'bg-emerald-50/60 dark:bg-emerald-950/30 border-emerald-500/40'
+                      : 'bg-[#f6f7f2] dark:bg-[#0b1711] border-neutral-200 dark:border-emerald-900/50'
+                  } ${
+                    currentStaffTier === 'owner'
+                      ? 'cursor-pointer'
+                      : 'opacity-75 cursor-not-allowed'
+                  }`}
+                >
+                  <div>
+                    <div className="font-extrabold text-[#14281d] dark:text-white">
+                      {perm.title}
+                    </div>
+                    <div className="text-[11px] text-neutral-500 mt-0.5">
+                      {perm.desc}
+                    </div>
+                  </div>
+                  <input
+                    type="checkbox"
+                    disabled={currentStaffTier !== 'owner'}
+                    checked={checked}
+                    onChange={(e) =>
+                      updateTeacherPermissions({
+                        [perm.key]: e.target.checked,
+                      })
+                    }
+                    className="w-4 h-4 mt-0.5 accent-[#145a3a] shrink-0"
+                  />
+                </label>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* All Teachers' Students Overview for Owner */}
+        {(currentStaffTier === 'owner' ||
+          (currentStaffTier === 'supervisor' &&
+            supervisorPerms.canViewAllTeachersStudents)) && (
+          <div className="pt-3 border-t border-neutral-100 dark:border-emerald-950 space-y-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <h3 className="text-xs sm:text-sm font-extrabold text-[#145a3a] dark:text-[#dfbd69]">
+                📖 جميع الطلاب لدى المحفظين ({students.length} طلاب • {sessions.length} حصة مسجلة):
+              </h3>
+              <button
+                type="button"
+                onClick={() => setActiveTab('students')}
+                className="px-3 py-1.5 rounded-xl bg-[#145a3a] text-white text-xs font-extrabold cursor-pointer"
+              >
+                عرض وإدارة جميع الطلاب ←
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+              {managedTeachers
+                .filter((t) => t.staffRole !== 'supervisor')
+                .map((teacher) => {
+                  const teacherStudents = students.filter((st) => {
+                    if (st.assignedTeacherEmail) {
+                      return (
+                        st.assignedTeacherEmail.toLowerCase() ===
+                        teacher.email.toLowerCase()
+                      );
+                    }
+                    if (st.assignedTeacherName) {
+                      return st.assignedTeacherName === teacher.name;
+                    }
+                    const c = circles.find((ci) => ci.name === st.circle);
+                    if (c && c.teacherName === teacher.name) return true;
+                    return teacher.staffRole === 'owner';
+                  });
+
+                  return (
+                    <div
+                      key={teacher.id}
+                      className="p-3.5 rounded-xl bg-[#f6f7f2] dark:bg-[#0b1711] border border-neutral-200 dark:border-emerald-900/50 space-y-2 text-xs"
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="font-extrabold text-[#14281d] dark:text-white">
+                          {teacher.name}
+                        </span>
+                        <div className="flex items-center gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => exportTeacherScopedJsonBackup(teacher.email)}
+                            className="px-2 py-0.5 rounded-lg bg-[#fcfaf2] dark:bg-[#12231a] border border-[#c59b27]/60 text-[10px] font-extrabold text-[#145a3a] dark:text-[#dfbd69] cursor-pointer"
+                            title="تنزيل نسخة JSON لطلاب وحلقات هذا المحفظ"
+                          >
+                            📥 JSON المحفظ
+                          </button>
+                          <span className="px-2 py-0.5 rounded-full bg-[#145a3a] text-[#dfbd69] font-mono text-[10px] font-extrabold">
+                            {teacherStudents.length} طلاب
+                          </span>
+                        </div>
+                      </div>
+                      <div className="max-h-28 overflow-y-auto space-y-1">
+                        {teacherStudents.map((st) => (
+                          <div
+                            key={st.id}
+                            className="flex items-center justify-between py-1 px-2 rounded-lg bg-white dark:bg-[#12231a] border border-neutral-200/60 dark:border-emerald-900/40"
+                          >
+                            <span className="font-bold truncate">{st.name}</span>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setSelectedStudentId(st.id);
+                                setActiveTab('students');
+                              }}
+                              className="text-[10px] font-extrabold text-[#145a3a] dark:text-[#dfbd69] underline cursor-pointer"
+                            >
+                              فتح الملف
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })}
+            </div>
+          </div>
         )}
       </section>
 
@@ -611,7 +952,7 @@ export const OwnerControlPanelView: React.FC = () => {
           <div className="flex items-center gap-2">
             <Users className="w-5 h-5 text-[#145a3a] dark:text-[#dfbd69]" />
             <h2 className="text-base font-extrabold text-[#14281d] dark:text-white">
-              سجل المستخدمين الشامل (المحفظون والمشرفون المسجلون في Firestore)
+              سجل الكادر التعليمي والإشرافي المعتمد (المحفظون والمشرفون)
             </h2>
           </div>
 
@@ -718,10 +1059,8 @@ export const OwnerControlPanelView: React.FC = () => {
                           {member.email}
                         </span>
                       </p>
-                      <div className="text-[11px] font-mono text-neutral-400 mt-1">
-                        Firestore ID: {member.id} • الحلقات المسندة:{' '}
-                        {member.assignedCirclesCount ?? 1}
-                        {member.googleUid ? ` • Google UID: ${member.googleUid}` : ''}
+                      <div className="text-[11px] font-bold text-neutral-500 mt-1">
+                        عدد الحلقات المسندة: {member.assignedCirclesCount ?? 1} حلقة
                       </div>
                     </div>
 
@@ -742,13 +1081,13 @@ export const OwnerControlPanelView: React.FC = () => {
                     </span>
                   </div>
 
-                  {/* Family & Role Details Box */}
+                  {/* Role & Title Details Box */}
                   <div className="p-3 rounded-xl bg-white dark:bg-[#12231a] border border-neutral-200/80 dark:border-emerald-900/40 space-y-2">
                     <div className="flex items-center justify-between">
                       <span className="text-[11px] font-extrabold text-[#145a3a] dark:text-[#dfbd69]">
-                        بيانات العائلة والرتبة المرتبطة بحساب Google في Firestore:
+                        الرتبة الوظيفية والتخصص في الأكاديمية:
                       </span>
-                      {!isTargetOwner && (
+                      {!isTargetOwner && currentStaffTier === 'owner' && (
                         <button
                           type="button"
                           onClick={() => {
@@ -773,7 +1112,7 @@ export const OwnerControlPanelView: React.FC = () => {
                           }}
                           className="text-[11px] font-bold text-[#145a3a] dark:text-[#dfbd69] underline cursor-pointer"
                         >
-                          {isEditing ? 'إغلاق التعديل' : 'تعديل الرتبة والعائلة'}
+                          {isEditing ? 'إغلاق التعديل' : 'تعديل الرتبة والمسمى'}
                         </button>
                       )}
                     </div>
@@ -781,7 +1120,7 @@ export const OwnerControlPanelView: React.FC = () => {
                     {isEditing ? (
                       <div className="space-y-2.5 pt-1">
                         {currentStaffTier === 'owner' && (
-                          <div className="grid grid-cols-2 gap-2">
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                             <select
                               value={editDraft.staffRole}
                               onChange={(e) =>
@@ -812,57 +1151,6 @@ export const OwnerControlPanelView: React.FC = () => {
                           </div>
                         )}
 
-                        <div className="grid grid-cols-2 gap-2">
-                          <input
-                            type="text"
-                            value={editDraft.motherName}
-                            onChange={(e) =>
-                              setEditDraft((prev) => ({
-                                ...prev,
-                                motherName: e.target.value,
-                              }))
-                            }
-                            placeholder="اسم الوالدة"
-                            className="px-2.5 py-1.5 rounded-lg bg-[#f6f7f2] dark:bg-[#0b1711] border border-neutral-300 dark:border-emerald-800 text-xs font-bold"
-                          />
-                          <input
-                            type="text"
-                            value={editDraft.grandfatherName}
-                            onChange={(e) =>
-                              setEditDraft((prev) => ({
-                                ...prev,
-                                grandfatherName: e.target.value,
-                              }))
-                            }
-                            placeholder="اسم الجد"
-                            className="px-2.5 py-1.5 rounded-lg bg-[#f6f7f2] dark:bg-[#0b1711] border border-neutral-300 dark:border-emerald-800 text-xs font-bold"
-                          />
-                          <input
-                            type="text"
-                            value={editDraft.grandmotherName}
-                            onChange={(e) =>
-                              setEditDraft((prev) => ({
-                                ...prev,
-                                grandmotherName: e.target.value,
-                              }))
-                            }
-                            placeholder="اسم الجدة"
-                            className="px-2.5 py-1.5 rounded-lg bg-[#f6f7f2] dark:bg-[#0b1711] border border-neutral-300 dark:border-emerald-800 text-xs font-bold"
-                          />
-                          <input
-                            type="text"
-                            value={editDraft.uncleName}
-                            onChange={(e) =>
-                              setEditDraft((prev) => ({
-                                ...prev,
-                                uncleName: e.target.value,
-                              }))
-                            }
-                            placeholder="اسم العم"
-                            className="px-2.5 py-1.5 rounded-lg bg-[#f6f7f2] dark:bg-[#0b1711] border border-neutral-300 dark:border-emerald-800 text-xs font-bold"
-                          />
-                        </div>
-
                         <div className="flex justify-end gap-2">
                           <button
                             type="button"
@@ -875,35 +1163,119 @@ export const OwnerControlPanelView: React.FC = () => {
                                     editDraft.assignedCirclesCount,
                                 });
                               }
-                              updateStaffFamilyDetails(member.id, {
-                                motherName: editDraft.motherName,
-                                grandfatherName: editDraft.grandfatherName,
-                                grandmotherName: editDraft.grandmotherName,
-                                uncleName: editDraft.uncleName,
-                              });
                               setEditingMemberId(null);
                             }}
                             className="px-3.5 py-1.5 rounded-lg bg-[#145a3a] text-white text-xs font-extrabold cursor-pointer"
                           >
-                            حفظ التعديلات في Firestore
+                            حفظ التعديلات ✓
                           </button>
                         </div>
                       </div>
                     ) : (
-                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-[11px] text-neutral-600 dark:text-neutral-300">
-                        <span>الوالدة: {member.motherName || 'غير مسجل'}</span>
-                        <span>الجد: {member.grandfatherName || 'غير مسجل'}</span>
-                        <span>الجدة: {member.grandmotherName || 'غير مسجل'}</span>
-                        <span>العم: {member.uncleName || 'غير مسجل'}</span>
+                      <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] text-neutral-600 dark:text-neutral-300">
+                        <span>المسمى: {member.roleTitle}</span>
+                        <span>الحلقات المسندة: {member.assignedCirclesCount ?? 1}</span>
                       </div>
                     )}
                   </div>
+
+                  {/* Per-Teacher Custom Permissions Box (تخصيص صلاحيات هذا المحفظ بشكل مستقل) */}
+                  {!isTargetOwner && !isTargetSupervisor && (
+                    <div className="p-3 rounded-xl bg-[#fcfaf2] dark:bg-[#12231a] border border-[#c59b27]/60 space-y-2.5">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <span className="text-[11px] font-extrabold text-[#145a3a] dark:text-[#dfbd69]">
+                          🎯 صلاحيات مخصصة لهذا المحفظ:
+                        </span>
+                        <div className="flex items-center gap-1.5">
+                          {member.customTeacherPermissions &&
+                            Object.keys(member.customTeacherPermissions).length > 0 &&
+                            currentStaffTier === 'owner' && (
+                              <button
+                                type="button"
+                                onClick={() => resetTeacherCustomPermissions(member.id)}
+                                className="px-2 py-0.5 rounded-md bg-amber-100 dark:bg-amber-950 text-amber-900 dark:text-amber-200 text-[10px] font-bold cursor-pointer"
+                              >
+                                إعادة للافتراضي
+                              </button>
+                            )}
+                          <button
+                            type="button"
+                            onClick={() => setActiveTab('settings')}
+                            className="text-[10px] font-extrabold text-[#145a3a] dark:text-[#dfbd69] underline cursor-pointer"
+                          >
+                            شاشة التخصيص الكاملة ←
+                          </button>
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-1.5 text-[11px]">
+                        {(
+                          [
+                            {
+                              key: 'canAddAndEditStudents',
+                              label: 'إضافة وتعديل الطلاب',
+                            },
+                            {
+                              key: 'canExportTeacherJsonBackup',
+                              label: 'تصدير ملفات JSON',
+                            },
+                            {
+                              key: 'canImportTeacherJsonBackup',
+                              label: 'رفع واستعادة JSON',
+                            },
+                            {
+                              key: 'canManageStudentFees',
+                              label: 'السجلات المالية والرسوم',
+                            },
+                          ] as const
+                        ).map((pItem) => {
+                          const effectiveVal = Boolean(
+                            ({
+                              ...DEFAULT_TEACHER_PERMISSIONS,
+                              ...(settings.teacherPermissions || {}),
+                              ...(member.customTeacherPermissions || {}),
+                            } as Record<string, boolean>)[pItem.key]
+                          );
+                          return (
+                            <label
+                              key={pItem.key}
+                              className={`px-2.5 py-1.5 rounded-lg border flex items-center justify-between gap-1.5 ${
+                                effectiveVal
+                                  ? 'bg-emerald-50/70 dark:bg-emerald-950/30 border-emerald-500/40'
+                                  : 'bg-white dark:bg-[#0b1711] border-neutral-200 dark:border-emerald-900/50'
+                              } ${
+                                currentStaffTier === 'owner'
+                                  ? 'cursor-pointer'
+                                  : 'opacity-75 cursor-not-allowed'
+                              }`}
+                            >
+                              <span className="font-bold text-[#14281d] dark:text-white truncate">
+                                {pItem.label}
+                              </span>
+                              <input
+                                type="checkbox"
+                                disabled={currentStaffTier !== 'owner'}
+                                checked={effectiveVal}
+                                onChange={(e) =>
+                                  updateTeacherPermissions(
+                                    { [pItem.key]: e.target.checked },
+                                    member.id
+                                  )
+                                }
+                                className="w-3.5 h-3.5 accent-[#145a3a] shrink-0"
+                              />
+                            </label>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
                 </div>
 
                 {/* Action Controls: Approve (قبول), Suspend (إيقاف), Delete (حذف) */}
                 <div className="pt-3 border-t border-neutral-200/80 dark:border-emerald-900/50 flex flex-wrap items-center justify-between gap-2">
                   <span className="text-[11px] font-mono text-neutral-500">
-                    آخر مزامنة Firestore: {member.lastSyncAt}
+                    آخر مزامنة سحابية: {member.lastSyncAt}
                   </span>
 
                   {isTargetOwner ? (
@@ -997,10 +1369,10 @@ export const OwnerControlPanelView: React.FC = () => {
         </div>
       </section>
 
-      {/* Recent Firestore Security & Staff Audit Log */}
+      {/* Recent Security & Staff Audit Log */}
       <section className="rounded-2xl bg-white dark:bg-[#12231a] p-6 border border-neutral-200 dark:border-emerald-900/50 shadow-xs space-y-3">
         <h2 className="text-sm font-extrabold text-[#14281d] dark:text-white">
-          سجل عمليات المالك والمشرف في قاعدة بيانات Firestore (القبول، الإيقاف، والحذف)
+          سجل عمليات الإدارة والاعتماد (القبول، الإيقاف، وتحديث الصلاحيات)
         </h2>
         <div className="space-y-2">
           {permissionAuditLogs.map((log) => (
