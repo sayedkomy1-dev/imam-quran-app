@@ -173,12 +173,14 @@ export const JUZ_SCOPES = [
 export const DAY_NAMES = ['الأحد', 'الإثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة', 'السبت'];
 
 export const RECITERS = [
-  { id: 'Husary_128kbps', name: 'الحصري مرتل (الشيخ محمود خليل الحصري)' },
-  { id: 'Husary_Muallim_128kbps', name: 'الحصري المصحف المعلم (مع ترديد التلقين)' },
-  { id: 'Minshawy_Murattal_128kbps', name: 'المنشاوي مرتل (الشيخ محمد صديق المنشاوي)' },
-  { id: 'Minshawy_Teacher_128kbps', name: 'المنشاوي المصحف المعلم (تحفيظ وتلقين)' },
-  { id: 'Alafasy_128kbps', name: 'مشاري العفاسي (الشيخ مشاري راشد العفاسي)' },
-  { id: 'MaherAlMuaiqly128kbps', name: 'ماهر المعيقلي (الشيخ ماهر بن حمد المعيقلي)' },
+  { id: 'Husary_128kbps', name: 'الحصري مرتل (الشيخ محمود خليل الحصري)', type: 'everyayah' },
+  { id: 'Husary_Muallim_128kbps', name: 'الحصري المصحف المعلم (ترديد وتكرار 1-5 مرات)', type: 'everyayah' },
+  { id: 'Minshawy_Murattal_128kbps', name: 'المنشاوي مرتل (الشيخ محمد صديق المنشاوي)', type: 'everyayah' },
+  { id: 'Minshawy_Teacher_128kbps', name: 'المنشاوي المصحف المعلم (تحفيظ وتلقين)', type: 'everyayah' },
+  { id: 'Alafasy_128kbps', name: 'مشاري العفاسي (الشيخ مشاري راشد العفاسي)', type: 'everyayah' },
+  { id: 'MaherAlMuaiqly128kbps', name: 'ماهر المعيقلي (الشيخ ماهر بن حمد المعيقلي)', type: 'everyayah' },
+  { id: 'Mohamed_Jibreel_128kbps', name: 'محمد جبريل (الشيخ محمد جبريل)', type: 'everyayah' },
+  { id: 'sufi', name: 'عبد الرشيد صوفي (سور كاملة برواية الدوري/السوسي)', type: 'mp3quran' },
 ] as const;
 
 export interface AyahEntry {
@@ -593,8 +595,30 @@ export const EMBEDDED_SURAH_CONTENT: Record<number, AyahEntry[]> = {
 export function getEveryAyahAudioUrl(reciter: string, surahId: number, ayahNumber: number): string {
   const s = String(surahId).padStart(3, '0');
   const a = String(ayahNumber).padStart(3, '0');
+  if (reciter === 'sufi') {
+    return `https://server16.mp3quran.net/sufi/${s}.mp3`;
+  }
   return `https://everyayah.com/data/${reciter}/${s}${a}.mp3`;
 }
+
+export function getSurahAudioUrl(reciter: string, surahId: number): string {
+  const s = String(surahId).padStart(3, '0');
+  if (reciter === 'sufi') {
+    return `https://server16.mp3quran.net/sufi/${s}.mp3`;
+  }
+  return `https://everyayah.com/data/${reciter}/${s}001.mp3`;
+}
+
+export type QuranEditionMode = 'digital' | 'shamarli' | 'madinah';
+
+export function getQuranPageImageUrl(edition: 'shamarli' | 'madinah', pageNumber: number): string {
+  const ppp = String(Math.max(1, Math.min(604, Math.round(pageNumber || 1)))).padStart(3, '0');
+  if (edition === 'shamarli') {
+    return `https://www.equran.me/quran/shamarli/images/${ppp}.png`;
+  }
+  return `https://everyayah.com/data/images_png/Page${ppp}.png`;
+}
+
 
 export function stripLeadingBasmalah(
   rawText: string,
@@ -701,7 +725,32 @@ export async function loadSurahVerses(
         return fullSurah.filter((v) => v.ayah >= start && v.ayah <= end);
       }
     } catch {
-      // Fallback to embedded content below
+      // Secondary fallback to King Fahad Quran edition CDN
+      try {
+        const fallbackRes = await fetch(
+          `https://cdn.jsdelivr.net/gh/fawazahmed0/quran-api@1/editions/ara-kingfahadquranc.json`
+        );
+        if (fallbackRes.ok) {
+          const fallbackData = await fallbackRes.json();
+          const quranArray = fallbackData?.quran || [];
+          const surahAyahs = quranArray.filter(
+            (item: { chapter: number; verse: number; text: string }) => item.chapter === surahId
+          );
+          if (surahAyahs.length > 0) {
+            const fullSurah: AyahEntry[] = surahAyahs.map(
+              (item: { verse: number; text: string }) => ({
+                ayah: item.verse,
+                text: stripLeadingBasmalah(item.text, surahId, item.verse),
+                tafsir: 'التفسير الميسر المعتمد من مجمع الملك فهد لطباعة المصحف الشريف.',
+                meanings: {},
+              })
+            );
+            return fullSurah.filter((v) => v.ayah >= start && v.ayah <= end);
+          }
+        }
+      } catch {
+        // Fallback to embedded content below
+      }
     }
   }
 
@@ -722,6 +771,36 @@ export async function loadSurahVerses(
     }
   }
   return result;
+}
+
+export interface TajweedToken {
+  text: string;
+  rule?: 'madd' | 'ghunnah_ikhfa' | 'qalqalah' | 'normal';
+  color?: string;
+  label?: string;
+}
+
+export function parseVerseTajweedTokens(text: string): TajweedToken[] {
+  if (!text) return [];
+  const words = text.split(/(\s+)/);
+  return words.map((w) => {
+    if (!w || /^\s+$/.test(w)) {
+      return { text: w, rule: 'normal' };
+    }
+    // Madd: ~ or long vowel markers (Red)
+    if (/[~ٓـٰ]/.test(w) || /(آ|إي|أو)/.test(w)) {
+      return { text: w, rule: 'madd', color: '#e11d48', label: 'مد (أحمر)' };
+    }
+    // Ghunnah & Ikhfa: Noon/Meem with Shaddah, Tanween, or Noon saakinah before Ikhfa letters (Green)
+    if (/[ّ](?=[نم])|[ًٌٍ].*[يكنم]|نْ(?=[صذثكجشقسشطدتبزف])/i.test(w) || /(نّ|مّ)/.test(w)) {
+      return { text: w, rule: 'ghunnah_ikhfa', color: '#16a34a', label: 'غنة وإخفاء (أخضر)' };
+    }
+    // Qalqalah: letters ق ط ب ج د with sukoon or at word ending (Blue)
+    if (/[قطبجد][ْ]/.test(w) || /[قطبجد]$/.test(w.replace(/[\u064B-\u065F\u0670]/g, ''))) {
+      return { text: w, rule: 'qalqalah', color: '#2563eb', label: 'قلقلة (أزرق)' };
+    }
+    return { text: w, rule: 'normal' };
+  });
 }
 
 export function normalizeArabicWordForLookup(word: string): string {

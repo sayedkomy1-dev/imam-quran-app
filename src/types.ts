@@ -44,7 +44,9 @@ export type ReciterId =
   | 'Minshawy_Murattal_128kbps'
   | 'Minshawy_Teacher_128kbps'
   | 'Alafasy_128kbps'
-  | 'MaherAlMuaiqly128kbps';
+  | 'MaherAlMuaiqly128kbps'
+  | 'Mohamed_Jibreel_128kbps'
+  | 'sufi';
 
 export type StudentAccountStatus = 'نشط' | 'متوقف' | 'مؤرشف';
 
@@ -71,6 +73,10 @@ export interface RecitationError {
   category?: ErrorCategoryGroup;
   subType?: string;
   tajweedRule?: string;
+  tajweedExplanation?: string;
+  tajweedLetters?: string;
+  tajweedExample?: string;
+  tajweedPracticeTip?: string;
   correctedInSession?: boolean;
   followUpStatus?: ErrorFollowUpStatus;
   repeatCount?: number;
@@ -281,6 +287,9 @@ export interface AdmissionRequest {
   status: 'جديد' | 'تم تحديد المستوى' | 'تم تحديد الموعد' | 'مقبول بالحلقة' | 'تم القبول' | 'مؤجل';
   createdAt: string;
   notes?: string;
+  fatihaAudioDataUrl?: string;
+  fatihaAudioDurationSec?: number;
+  assignedCircleName?: string;
 }
 
 export interface OwnerAuditLogItem {
@@ -308,7 +317,26 @@ export interface OwnerAuditLogItem {
   targetName?: string;
 }
 
-export type StaffHierarchyRole = 'owner' | 'supervisor' | 'teacher';
+export const MASTER_OWNER_EMAILS = [
+  'sayedkomy1@gmail.com',
+  'sayedkomy2@gmail.com',
+] as const;
+
+export type StaffHierarchyRole =
+  | 'owner'
+  | 'supervisor'
+  | 'teacher'
+  | 'financial_manager';
+
+export type StaffAuthProvider = 'google' | 'microsoft' | 'pin';
+
+export interface CustomFirebaseConfigInput {
+  apiKey: string;
+  authDomain: string;
+  projectId: string;
+  appId: string;
+  firestoreDatabaseId?: string;
+}
 
 export type StudentPrivacyPreference = 'standard' | 'limited' | 'private';
 
@@ -329,6 +357,12 @@ export interface TeacherPermissions {
   canIssueExamsAndCertificates: boolean;
   canManageStudentFees: boolean;
   canApproveAdmissionRequests: boolean;
+  // Granular RBAC Matrix Switches
+  restrictToAssignedCircles?: boolean;
+  canAccessFinanceSection?: boolean;
+  canManageCompetitionsAndQuizzes?: boolean;
+  canDeleteOrEditCoreStudentData?: boolean;
+  canExportDatabaseBackups?: boolean;
 }
 
 export interface TeacherAccessRecord {
@@ -341,6 +375,14 @@ export interface TeacherAccessRecord {
   lastSyncAt: string;
   assignedCirclesCount: number;
   assignedCircleNames?: string[];
+  restrictToAssignedCircles?: boolean;
+  authProvider?: StaffAuthProvider;
+  whatsappPhone?: string;
+  specialization?: string;
+  requestedPosition?: 'محفظ حلقة' | 'مشرف تعليمي' | 'مسؤول مالي / إداري';
+  requestedAt?: string;
+  lastActiveAt?: string;
+  sessionsRecordedCount?: number;
   customPermissions?: Partial<SupervisorPermissions>;
   customTeacherPermissions?: Partial<TeacherPermissions>;
   googleUid?: string;
@@ -697,3 +739,60 @@ export interface PublishedFamilyGuidanceNote {
   teacherName: string;
   targetLetterOrSurah?: string;
 }
+
+export type SmartQuizQuestionCategory =
+  | 'complete_ayah'
+  | 'identify_surah'
+  | 'continue_after_ayah'
+  | 'tajweed_and_madd';
+
+export interface SmartQuizQuestion {
+  id: string;
+  category: SmartQuizQuestionCategory;
+  categoryLabel: string;
+  juz: number;
+  surahName: string;
+  ayahNumber: number;
+  verseSnippet: string;
+  questionPrompt: string;
+  options: string[];
+  correctOptionIndex: number;
+  modelAnswerText: string;
+  tajweedExplanation?: string;
+  points: number;
+}
+
+export interface PeerCompetitionSubmission {
+  id: string;
+  competitionId: string;
+  studentId: string;
+  studentName: string;
+  circleName: string;
+  level: StudentLevel;
+  score: number; // 0 - 100 (Accuracy)
+  correctCount: number;
+  totalQuestions: number;
+  timeSeconds: number; // Speed in seconds
+  compositeRankPoints: number; // Combined Accuracy + Speed Bonus
+  rank?: number;
+  awardedCup?: '🏆 الكأس الذهبي' | '🥈 الكأس الفضي' | '🥉 الكأس البرونزي' | '🎖️ وسام التميز';
+  awardedBadge?: string;
+  completedAt: string;
+}
+
+export interface PeerCompetitionPack {
+  id: string;
+  title: string;
+  description: string;
+  targetLevel: StudentLevel | 'الكل';
+  scopeLabel: string;
+  questions: SmartQuizQuestion[];
+  timeLimitSeconds: number;
+  xpRewardFirst: number;
+  xpRewardParticipant: number;
+  badgeTitle: string;
+  status: 'نشطة' | 'مكتملة';
+  createdAt: string;
+  submissions: PeerCompetitionSubmission[];
+}
+

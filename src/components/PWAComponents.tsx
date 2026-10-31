@@ -127,10 +127,32 @@ export const OfflineIndicator: React.FC = () => {
   const [isOnline, setIsOnline] = useState(
     typeof navigator !== 'undefined' ? navigator.onLine : true
   );
+  const [offlineToast, setOfflineToast] = useState<{ show: boolean; msg: string; type: 'offline' | 'online' }>({
+    show: false,
+    msg: '',
+    type: 'offline',
+  });
 
   useEffect(() => {
-    const handleOnline = () => setIsOnline(true);
-    const handleOffline = () => setIsOnline(false);
+    const handleOnline = () => {
+      setIsOnline(true);
+      setOfflineToast({
+        show: true,
+        msg: 'تمت استعادة الاتصال بالإنترنت بنجاح — جارٍ مزامنة بياناتك سحابياً ✓',
+        type: 'online',
+      });
+      setTimeout(() => setOfflineToast((p) => ({ ...p, show: false })), 4500);
+    };
+
+    const handleOffline = () => {
+      setIsOnline(false);
+      setOfflineToast({
+        show: true,
+        msg: 'انقطع الاتصال بالإنترنت — التطبيق يعمل بالكامل دون اتصال وسيتم مزامنة البيانات تلقائياً فور عودة الاتصال ☁️',
+        type: 'offline',
+      });
+      setTimeout(() => setOfflineToast((p) => ({ ...p, show: false })), 5500);
+    };
 
     window.addEventListener('online', handleOnline);
     window.addEventListener('offline', handleOffline);
@@ -141,12 +163,33 @@ export const OfflineIndicator: React.FC = () => {
     };
   }, []);
 
-  if (isOnline) return null;
-
   return (
-    <div className="fixed bottom-20 lg:bottom-4 left-4 z-50 flex items-center gap-2 rounded-xl bg-amber-600 px-3.5 py-2 text-xs font-bold text-white shadow-lg">
-      <WifiOff className="w-4 h-4 shrink-0" />
-      <span>وضع عدم الاتصال — يتم الحفظ والعمل من الذاكرة المحلية</span>
-    </div>
+    <>
+      {offlineToast.show && (
+        <div
+          role="status"
+          aria-live="polite"
+          className={`fixed top-5 left-1/2 -translate-x-1/2 z-[100] px-5 py-3 rounded-2xl shadow-2xl border text-xs sm:text-sm font-extrabold flex items-center gap-2.5 transition-all duration-300 animate-in slide-in-from-top-4 ${
+            offlineToast.type === 'offline'
+              ? 'bg-amber-600 text-white border-amber-300 ring-2 ring-amber-400/40'
+              : 'bg-emerald-700 text-white border-emerald-300 ring-2 ring-emerald-400/40'
+          }`}
+        >
+          {offlineToast.type === 'offline' ? (
+            <WifiOff className="w-5 h-5 shrink-0 animate-pulse text-amber-200" />
+          ) : (
+            <span className="text-emerald-200 text-base">✓</span>
+          )}
+          <span>{offlineToast.msg}</span>
+        </div>
+      )}
+
+      {!isOnline && (
+        <div className="fixed bottom-20 lg:bottom-4 left-4 z-50 flex items-center gap-2 rounded-xl bg-amber-600 px-3.5 py-2 text-xs font-bold text-white shadow-lg border border-amber-400/50">
+          <WifiOff className="w-4 h-4 shrink-0 animate-pulse" />
+          <span>وضع دون اتصال — الحفظ محلي وتلقائي وسيتم المزامنة لاحقاً</span>
+        </div>
+      )}
+    </>
   );
 };

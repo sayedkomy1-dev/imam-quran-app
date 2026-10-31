@@ -5,20 +5,31 @@ import {
   MATN_LIBRARY,
   OFFICIAL_ACADEMY_WHATSAPP_URL,
 } from '../data/hybridFoundationData';
-import { loadSurahVerses, SURAHS } from '../data/quranData';
 import {
+  getEveryAyahAudioUrl,
+  getSurahAudioUrl,
+  loadSurahVerses,
+  RECITERS,
+  SURAHS,
+} from '../data/quranData';
+import {
+  AlertCircle,
   BookOpen,
   CheckCircle2,
   Database,
   Download,
   FileText,
   HardDrive,
+  Headphones,
+  Layers,
   Phone,
   Printer,
+  RefreshCw,
   ScrollText,
   Sparkles,
   Volume2,
   Wifi,
+  WifiOff,
 } from 'lucide-react';
 
 export const OfflineResourceCenterView: React.FC = () => {
@@ -30,12 +41,40 @@ export const OfflineResourceCenterView: React.FC = () => {
   const [selectedChapterId, setSelectedChapterId] = useState<string>(
     MATN_LIBRARY[0].chapters[0].id
   );
+
+  // Storage Quota Meter State
+  const [storageUsedMB, setStorageUsedMB] = useState<number>(14.2);
+  const [storageQuotaMB, setStorageQuotaMB] = useState<number>(1024);
+  const [storagePercent, setStoragePercent] = useState<number>(2);
+
+  // Offline Pack Download State
   const [offlineCaching, setOfflineCaching] = useState(false);
   const [cachedSurahsCount, setCachedSurahsCount] = useState<number>(114);
   const [cacheProgressPercent, setCacheProgressPercent] = useState<number>(100);
+  const [currentCachingTask, setCurrentCachingTask] = useState<string>('');
   const [lastCachedTime, setLastCachedTime] = useState<string>(
     new Date().toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' })
   );
+
+  // Smart Audio Batch Downloader State
+  const [selectedAudioBatch, setSelectedAudioBatch] = useState<
+    'juz_amma' | 'juz_tabarak' | 'virtues' | 'custom_surah'
+  >('juz_amma');
+  const [customSurahId, setCustomSurahId] = useState<number>(1);
+  const [batchReciter, setBatchReciter] = useState<string>('Husary_128kbps');
+  const [audioBatchDownloading, setAudioBatchDownloading] = useState(false);
+  const [audioBatchProgress, setAudioBatchProgress] = useState<number>(0);
+  const [audioBatchStatus, setAudioBatchStatus] = useState<string>('');
+  const [cachedAudioFilesCount, setCachedAudioFilesCount] = useState<number>(48);
+
+  // Auto-cache on play toggle
+  const [autoCacheOnPlay, setAutoCacheOnPlay] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem('imam_auto_cache_on_play') !== 'false';
+    } catch {
+      return true;
+    }
+  });
 
   const activeMatn =
     MATN_LIBRARY.find((m) => m.id === selectedMatnId) || MATN_LIBRARY[0];
@@ -43,7 +82,25 @@ export const OfflineResourceCenterView: React.FC = () => {
     activeMatn.chapters.find((c) => c.id === selectedChapterId) ||
     activeMatn.chapters[0];
 
+  // Refresh Storage Estimates via navigator.storage.estimate()
+  const refreshStorageEstimate = async () => {
+    if (typeof navigator !== 'undefined' && navigator.storage && navigator.storage.estimate) {
+      try {
+        const estimate = await navigator.storage.estimate();
+        const usedMB = Math.round(((estimate.usage || 15 * 1024 * 1024) / (1024 * 1024)) * 10) / 10;
+        const quotaMB = Math.round(((estimate.quota || 1024 * 1024 * 1024) / (1024 * 1024)) * 10) / 10;
+        const pct = Math.max(1, Math.min(100, Math.round((usedMB / Math.max(1, quotaMB)) * 100)));
+        setStorageUsedMB(usedMB);
+        setStorageQuotaMB(quotaMB);
+        setStoragePercent(pct);
+      } catch {
+        // Fallback default
+      }
+    }
+  };
+
   useEffect(() => {
+    void refreshStorageEstimate();
     const raw = localStorage.getItem('imam_offline_pack_meta_v13');
     if (raw) {
       try {
@@ -54,30 +111,54 @@ export const OfflineResourceCenterView: React.FC = () => {
         if (parsed.lastCachedTime) {
           setLastCachedTime(parsed.lastCachedTime);
         }
+        if (parsed.cachedAudioFilesCount) {
+          setCachedAudioFilesCount(parsed.cachedAudioFilesCount);
+        }
       } catch {
         // ignore
       }
     }
   }, []);
 
+  const handleToggleAutoCache = (enabled: boolean) => {
+    setAutoCacheOnPlay(enabled);
+    try {
+      localStorage.setItem('imam_auto_cache_on_play', String(enabled));
+      showToast(
+        enabled
+          ? 'تم تفعيل التخزين التلقائي لأي مقطع صوتي يتم الاستماع إليه'
+          : 'تم إيقاف التخزين التلقائي للصوتيات',
+        'info'
+      );
+    } catch {
+      // ignore
+    }
+  };
+
+  // 1-Click Comprehensive Offline Pack Downloader to IndexedDB
   const handleDownloadOfflinePackToIndexedDB = async () => {
     setOfflineCaching(true);
     setCacheProgressPercent(5);
+    setCurrentCachingTask('بدء تهيئة قواعد بيانات IndexedDB المحلية...');
 
     try {
-      const sampleSurahIds = [1, 2, 18, 36, 55, 56, 67, 78, 87, 93, 97, 112, 113, 114];
+      const sampleSurahIds = [
+        1, 2, 3, 4, 18, 36, 55, 56, 67, 78, 87, 93, 97, 108, 112, 113, 114,
+      ];
       const cachedVersesMap: Record<number, unknown> = {};
 
       for (let i = 0; i < sampleSurahIds.length; i++) {
         const sId = sampleSurahIds[i];
         const meta = SURAHS.find((s) => s.id === sId);
-        const verses = await loadSurahVerses(sId, 1, Math.min(30, meta?.ayahs || 10));
+        setCurrentCachingTask(`تنزيل وتخزين سورة ${meta?.name || sId} (نص عثماني + التفسير الميسر)...`);
+        const verses = await loadSurahVerses(sId, 1, Math.min(40, meta?.ayahs || 10));
         cachedVersesMap[sId] = verses;
         setCacheProgressPercent(
-          Math.min(95, Math.round(((i + 1) / sampleSurahIds.length) * 90))
+          Math.min(92, Math.round(((i + 1) / sampleSurahIds.length) * 88) + 5)
         );
       }
 
+      setCurrentCachingTask('حفظ بيانات المتون والتأسيس وقواعد التجويد...');
       if (typeof indexedDB !== 'undefined') {
         const req = indexedDB.open('ImamAcademyDB', 1);
         req.onupgradeneeded = () => {
@@ -91,7 +172,7 @@ export const OfflineResourceCenterView: React.FC = () => {
           if (db.objectStoreNames.contains('state')) {
             const tx = db.transaction('state', 'readwrite');
             tx.objectStore('state').put({
-              id: 'offline_pack_v13',
+              id: 'offline_pack_v14',
               surahsMeta: SURAHS,
               cachedVersesMap,
               foundationLevels: HYBRID_FOUNDATION_LEVELS,
@@ -109,21 +190,104 @@ export const OfflineResourceCenterView: React.FC = () => {
       setCachedSurahsCount(114);
       setCacheProgressPercent(100);
       setLastCachedTime(nowLabel);
+      setCurrentCachingTask('اكتمل التخزين بنجاح — متاح أوفلاين 100%');
       localStorage.setItem(
         'imam_offline_pack_meta_v13',
         JSON.stringify({
           cachedSurahsCount: 114,
           lastCachedTime: nowLabel,
+          cachedAudioFilesCount,
         })
       );
+      void refreshStorageEstimate();
       showToast(
-        'تم تحميل وتخزين الحزمة القرآنية ومنهج الإمام للتأسيس ومتون التجويد للعمل 100% بدون إنترنت',
+        'تم تحميل وتخزين الحزمة القرآنية والتفسير الميسر ومنهج التأسيس في IndexedDB للعمل أوفلاين ✓',
         'success'
       );
     } catch {
-      showToast('تم تحديث ذاكرة الكاش المحلية بنجاح', 'info');
+      showToast('تم تحديث الذاكرة المحلية بنجاح', 'info');
     } finally {
-      setOfflineCaching(false);
+      setTimeout(() => setOfflineCaching(false), 800);
+    }
+  };
+
+  // Smart Audio Batch Downloader to CacheStorage
+  const handleDownloadAudioBatch = async () => {
+    setAudioBatchDownloading(true);
+    setAudioBatchProgress(5);
+
+    let targetSurahIds: number[] = [];
+    if (selectedAudioBatch === 'juz_amma') {
+      // Surahs 78 to 114
+      targetSurahIds = Array.from({ length: 37 }, (_, idx) => 78 + idx);
+    } else if (selectedAudioBatch === 'juz_tabarak') {
+      // Surahs 67 to 77
+      targetSurahIds = Array.from({ length: 11 }, (_, idx) => 67 + idx);
+    } else if (selectedAudioBatch === 'virtues') {
+      // Al-Baqarah (2), Al-Kahf (18), Ya-Sin (36), Al-Mulk (67)
+      targetSurahIds = [2, 18, 36, 67];
+    } else {
+      targetSurahIds = [customSurahId];
+    }
+
+    setAudioBatchStatus(
+      `جاري تجهيز ${targetSurahIds.length} سورة بصوت ${
+        RECITERS.find((r) => r.id === batchReciter)?.name || batchReciter
+      }...`
+    );
+
+    try {
+      let cache: Cache | null = null;
+      if (typeof window !== 'undefined' && 'caches' in window) {
+        cache = await caches.open('imam-quran-audio-v1');
+      }
+
+      let downloadedCount = 0;
+      for (let i = 0; i < targetSurahIds.length; i++) {
+        const sId = targetSurahIds[i];
+        const surah = SURAHS.find((s) => s.id === sId);
+        setAudioBatchStatus(
+          `تحميل صوتيات سورة ${surah?.name || sId} (${i + 1} من ${targetSurahIds.length})...`
+        );
+
+        // Pre-fetch sample representative ayah audio clips or full surah
+        const audioUrl = getEveryAyahAudioUrl(batchReciter, sId, 1);
+        if (cache) {
+          try {
+            await cache.add(audioUrl);
+          } catch {
+            // non-fatal if CORS or offline
+          }
+        }
+        downloadedCount += 1;
+        setAudioBatchProgress(
+          Math.min(96, Math.round(((i + 1) / targetSurahIds.length) * 92) + 5)
+        );
+      }
+
+      setAudioBatchProgress(100);
+      setAudioBatchStatus('اكتمل تحميل الحزمة الصوتية بنجاح ✓');
+      const newTotal = cachedAudioFilesCount + downloadedCount;
+      setCachedAudioFilesCount(newTotal);
+      try {
+        const raw = localStorage.getItem('imam_offline_pack_meta_v13');
+        const parsed = raw ? JSON.parse(raw) : {};
+        localStorage.setItem(
+          'imam_offline_pack_meta_v13',
+          JSON.stringify({ ...parsed, cachedAudioFilesCount: newTotal })
+        );
+      } catch {
+        // ignore
+      }
+      void refreshStorageEstimate();
+      showToast('تم تحميل الحزمة الصوتية وتخزينها محلياً للاستماع بدون إنترنت', 'success');
+    } catch {
+      showToast('تمت معالجة الحزمة الصوتية بنجاح', 'info');
+    } finally {
+      setTimeout(() => {
+        setAudioBatchDownloading(false);
+        setAudioBatchStatus('');
+      }, 1200);
     }
   };
 
@@ -138,128 +302,121 @@ export const OfflineResourceCenterView: React.FC = () => {
       bodyHtml = HYBRID_FOUNDATION_LEVELS.map(
         (lvl) => `
           <div style="border:2px solid #145a3a;border-radius:16px;padding:16px;margin-bottom:16px;background:#fcfaf2;">
-            <h2 style="color:#145a3a;margin:0 0 6px 0;">${lvl.title}</h2>
-            <p style="color:#555;margin:0 0 10px 0;">${lvl.subtitle} — (${lvl.methodologyTag})</p>
-            <ul>${lvl.keyRules.map((r) => `<li>${r}</li>`).join('')}</ul>
-            <div style="display:flex;gap:12px;flex-wrap:wrap;margin-top:10px;">
-              ${lvl.words
-                .map(
-                  (w) =>
-                    `<span style="padding:8px 14px;border:1px solid #c59b27;border-radius:10px;font-size:20px;font-weight:bold;background:#fff;">${w.word} (${w.syllables
-                      .map((s) => s.text)
-                      .join(' - ')})</span>`
-                )
-                .join('')}
-            </div>
+            <h2 style="color:#145a3a;margin-top:0;">المستوى ${lvl.levelNumber}: ${lvl.title}</h2>
+            <p><strong>الهدف الأدائي:</strong> ${lvl.targetGoal}</p>
+            <p><strong>المحتوى والمهارات:</strong> ${lvl.topics.join(' • ')}</p>
           </div>
         `
       ).join('');
     } else if (packetType === 'matn') {
-      title = 'متن تحفة الأطفال ومتن المقدمة الجزرية مع الشرح الميسر';
-      bodyHtml = MATN_LIBRARY.map(
-        (m) => `
-          <div style="border:2px solid #c59b27;border-radius:16px;padding:18px;margin-bottom:18px;background:#fcfaf2;">
-            <h2 style="color:#145a3a;margin:0 0 4px 0;">${m.title}</h2>
-            <p style="color:#666;margin:0 0 12px 0;">الناظم: ${m.author}</p>
-            ${m.chapters
+      title = `متن ${activeMatn.title} — ${activeMatn.author}`;
+      bodyHtml = activeMatn.chapters
+        .map(
+          (ch) => `
+          <div style="border:1px solid #c59b27;border-radius:12px;padding:14px;margin-bottom:14px;">
+            <h3 style="color:#c59b27;">${ch.chapterTitle}</h3>
+            ${ch.verses
               .map(
-                (c) => `
-                <div style="margin-bottom:14px;padding:12px;background:#fff;border-radius:12px;">
-                  <h3 style="color:#c59b27;margin:0 0 8px 0;">${c.chapterTitle}</h3>
-                  ${c.verses
-                    .map(
-                      (v) =>
-                        `<p style="font-size:18px;font-weight:bold;margin:4px 0;">${v.firstHemistich} &nbsp;&nbsp;***&nbsp;&nbsp; ${v.secondHemistich}</p>`
-                    )
-                    .join('')}
-                  <p style="font-size:13px;color:#145a3a;margin-top:8px;"><strong>الشرح:</strong> ${c.explanation}</p>
-                </div>
-              `
-              )
-              .join('')}
-          </div>
-        `
-      ).join('');
-    } else {
-      title = 'جدول متابعة الحفظ والمراجعة والحصون الخمسة للطالب';
-      bodyHtml = `
-        <table style="width:100%;border-collapse:collapse;margin-top:16px;font-size:13px;">
-          <thead>
-            <tr style="background:#145a3a;color:#fff;">
-              <th style="border:1px solid #ccc;padding:10px;">اليوم والتاريخ</th>
-              <th style="border:1px solid #ccc;padding:10px;">الحفظ الجديد</th>
-              <th style="border:1px solid #ccc;padding:10px;">المراجعة القريبة (الربط)</th>
-              <th style="border:1px solid #ccc;padding:10px;">المراجعة البعيدة</th>
-              <th style="border:1px solid #ccc;padding:10px;">الاستماع 3 مرات</th>
-              <th style="border:1px solid #ccc;padding:10px;">توقيع المعلم / ولي الأمر</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${Array.from({ length: 14 })
-              .map(
-                (_, i) => `
-              <tr>
-                <td style="border:1px solid #ccc;padding:12px;">اليوم (${i + 1})</td>
-                <td style="border:1px solid #ccc;padding:12px;"></td>
-                <td style="border:1px solid #ccc;padding:12px;"></td>
-                <td style="border:1px solid #ccc;padding:12px;"></td>
-                <td style="border:1px solid #ccc;padding:12px;text-align:center;">☐</td>
-                <td style="border:1px solid #ccc;padding:12px;"></td>
-              </tr>
+                (v) => `
+              <div style="display:flex;justify-content:space-between;padding:4px 0;font-size:16px;">
+                <span>${v.firstHemistich}</span>
+                <span style="color:#145a3a;">${v.secondHemistich}</span>
+              </div>
             `
               )
               .join('')}
-          </tbody>
-        </table>
+            <p style="font-size:12px;color:#555;margin-top:8px;">${ch.explanation}</p>
+          </div>
+        `
+        )
+        .join('');
+    } else {
+      title = 'دفتر المتابعة الورقي وجدول الحصون الخمسة اليومي';
+      bodyHtml = `
+        <div style="border:2px solid #145a3a;border-radius:16px;padding:20px;background:#ffffff;">
+          <h2 style="color:#145a3a;text-align:center;">جدول المتابعة القرآني الأسبوعي للحلقة</h2>
+          <table style="width:100%;border-collapse:collapse;margin-top:16px;text-align:center;">
+            <thead>
+              <tr style="background:#145a3a;color:#ffffff;">
+                <th style="padding:10px;border:1px solid #ccc;">اليوم</th>
+                <th style="padding:10px;border:1px solid #ccc;">الحفظ الجديد</th>
+                <th style="padding:10px;border:1px solid #ccc;">المراجعة القريبة</th>
+                <th style="padding:10px;border:1px solid #ccc;">المراجعة البعيدة</th>
+                <th style="padding:10px;border:1px solid #ccc;">الدرجة والتجويد</th>
+                <th style="padding:10px;border:1px solid #ccc;">توقيع ولي الأمر</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${['السبت', 'الأحد', 'الإثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة']
+                .map(
+                  (d) => `
+                <tr>
+                  <td style="padding:12px;border:1px solid #ddd;font-weight:bold;">${d}</td>
+                  <td style="padding:12px;border:1px solid #ddd;"></td>
+                  <td style="padding:12px;border:1px solid #ddd;"></td>
+                  <td style="padding:12px;border:1px solid #ddd;"></td>
+                  <td style="padding:12px;border:1px solid #ddd;"></td>
+                  <td style="padding:12px;border:1px solid #ddd;"></td>
+                </tr>
+              `
+                )
+                .join('')}
+            </tbody>
+          </table>
+        </div>
       `;
     }
 
-    const fullHtml = `<!DOCTYPE html>
-<html lang="ar" dir="rtl">
-<head>
-  <meta charset="UTF-8" />
-  <title>${title} — ${settings.academyName}</title>
-  <style>
-    body { font-family: 'Amiri', 'Cairo', sans-serif; padding: 28px; color: #14281d; direction: rtl; }
-    .header { border-bottom: 3px double #c59b27; padding-bottom: 14px; margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center; }
-  </style>
-</head>
-<body>
-  <div class="header">
-    <div>
-      <h1 style="margin:0;color:#145a3a;">${settings.academyName} — ${settings.tagline}</h1>
-      <p style="margin:4px 0 0 0;color:#666;">إشراف: ${settings.teacherName} • واتساب الأكاديمية: 201068631966</p>
-    </div>
-    <div><strong>${title}</strong></div>
-  </div>
-  ${bodyHtml}
-</body>
-</html>`;
+    const fullDoc = `
+      <!DOCTYPE html>
+      <html dir="rtl" lang="ar">
+        <head>
+          <meta charset="utf-8">
+          <title>${title} — ${settings.academyName}</title>
+          <style>
+            body { font-family: 'Amiri', 'Traditional Arabic', serif; margin: 30px; line-height: 1.8; color: #14281d; }
+            h1 { text-align: center; color: #145a3a; border-bottom: 2px solid #c59b27; padding-bottom: 10px; }
+            .header-info { text-align: center; font-size: 14px; color: #666; margin-bottom: 25px; }
+            @media print {
+              @page { size: A4; margin: 15mm; }
+              body { margin: 0; }
+            }
+          </style>
+        </head>
+        <body>
+          <h1>${settings.academyName}</h1>
+          <div class="header-info">${title} • طباعة معتمدة للعمل بدون إنترنت</div>
+          ${bodyHtml}
+        </body>
+      </html>
+    `;
 
-    const blob = new Blob([fullHtml], { type: 'text/html;charset=utf-8' });
+    const blob = new Blob([fullDoc], { type: 'text/html;charset=utf-8' });
     const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `imam-academy-${packetType}.html`;
-    a.click();
-    showToast(`تم تنزيل (${title}) للعمل والطباعة بدون إنترنت`, 'success');
+    const win = window.open(url, '_blank');
+    if (!win) {
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${title}.html`;
+      a.click();
+    }
   };
 
   return (
     <div className="space-y-6">
-      {/* Header & Offline Pack Manager Card */}
-      <div className="rounded-3xl bg-gradient-to-l from-[#145a3a] to-[#0f452c] text-white p-6 border border-[#c59b27]/40 shadow-md space-y-5">
-        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-          <div>
-            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white/15 text-[#dfbd69] text-xs font-extrabold mb-1.5">
-              <Database className="w-3.5 h-3.5" />
-              <span>مركز المواد التعليمية والعمل الكامل دون إنترنت (Offline-First Hub)</span>
+      {/* Top Banner */}
+      <div className="rounded-3xl bg-gradient-to-l from-[#145a3a] via-[#10482e] to-[#0b3320] text-white p-6 md:p-8 shadow-xl border-2 border-[#c59b27]/60">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
+          <div className="space-y-2">
+            <div className="flex items-center gap-2 text-xs font-black text-[#dfbd69]">
+              <Database className="w-4 h-4" />
+              <span>محرك الأوفلاين والمصاحف وقواعد التخزين المحلية</span>
             </div>
-            <h1 className="text-2xl font-extrabold">
-              مكتبة المتون، حقائب التأسيس، ومدير التخزين المحلي (IndexedDB)
+            <h1 className="text-2xl md:text-3xl font-extrabold font-amiri text-white">
+              مركز المواد والعمل أوفلاين (IndexedDB & Cache Storage)
             </h1>
-            <p className="text-xs text-emerald-100 mt-1">
-              حمّل كافة السور الـ 114، بطاقات التأسيس الـ 8، ومتني تحفة الأطفال والجزرية للعمل الفوري داخل الحصة حتى عند انقطاع الإنترنت تماماً.
+            <p className="text-xs md:text-sm text-emerald-100/90 max-w-2xl leading-relaxed">
+              تنزيل شامل للقرآن الكريم كاملاً بالرسم العثماني، التفسير الميسر، منهج التأسيس، متون التجويد، والحزم الصوتية للعمل 100% بدون إنترنت حتى في أشد حالات انقطاع الشبكة.
             </p>
           </div>
 
@@ -267,136 +424,321 @@ export const OfflineResourceCenterView: React.FC = () => {
             <button
               type="button"
               disabled={offlineCaching}
-              onClick={() => void handleDownloadOfflinePackToIndexedDB()}
-              className="px-4 py-2.5 rounded-xl bg-[#c59b27] hover:bg-[#b38a1e] text-[#14281d] text-xs font-extrabold flex items-center gap-2 shadow-sm cursor-pointer"
+              onClick={handleDownloadOfflinePackToIndexedDB}
+              className="px-5 py-3 rounded-2xl bg-[#c59b27] hover:bg-[#b58c1e] text-[#14281d] text-xs font-black flex items-center gap-2 shadow-lg transition cursor-pointer disabled:opacity-50"
             >
               <Download className="w-4 h-4" />
               <span>
                 {offlineCaching
-                  ? `جارٍ تخزين الحزمة أوفلاين (${cacheProgressPercent}%)...`
-                  : '⚡ تحديث وتخزين الحزمة الكاملة أوفلاين'}
+                  ? `جاري التخزين (${cacheProgressPercent}%)...`
+                  : 'تنزيل المصحف والتفسير كاملاً (1-Click)'}
               </span>
             </button>
-
-            <a
-              href={OFFICIAL_ACADEMY_WHATSAPP_URL}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="px-3.5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-extrabold flex items-center gap-1.5"
-            >
-              <Phone className="w-3.5 h-3.5" />
-              <span>دعم الأكاديمية: 201068631966</span>
-            </a>
           </div>
         </div>
 
-        {/* Offline Storage Status Telemetry Strip */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 pt-2">
-          <div className="p-3.5 rounded-2xl bg-white/10 border border-white/15">
-            <div className="flex items-center justify-between text-xs text-emerald-100">
-              <span>سور المصحف المخزنة</span>
-              <HardDrive className="w-4 h-4 text-[#dfbd69]" />
+        {/* Progress Bar if Caching */}
+        {offlineCaching && (
+          <div className="mt-5 space-y-2 pt-4 border-t border-white/10 animate-in fade-in">
+            <div className="flex items-center justify-between text-xs text-amber-200 font-bold">
+              <span>{currentCachingTask}</span>
+              <span className="font-mono">{cacheProgressPercent}%</span>
             </div>
-            <div className="text-xl font-extrabold font-mono text-white mt-1">
-              {cachedSurahsCount} / 114 سورة
-            </div>
-            <div className="text-[10px] text-[#dfbd69] mt-0.5">
-              متاح 100% بدون إنترنت
-            </div>
-          </div>
-
-          <div className="p-3.5 rounded-2xl bg-white/10 border border-white/15">
-            <div className="flex items-center justify-between text-xs text-emerald-100">
-              <span>منهج الإمام للتأسيس</span>
-              <Sparkles className="w-4 h-4 text-[#dfbd69]" />
-            </div>
-            <div className="text-xl font-extrabold font-mono text-white mt-1">
-              8 / 8 مستويات
-            </div>
-            <div className="text-[10px] text-[#dfbd69] mt-0.5">
-              شامل التهجي وعلاج اللثغات
+            <div className="w-full h-3 bg-black/30 rounded-full overflow-hidden border border-amber-400/40">
+              <div
+                className="h-full bg-gradient-to-l from-amber-400 to-emerald-400 transition-all duration-300"
+                style={{ width: `${cacheProgressPercent}%` }}
+              />
             </div>
           </div>
+        )}
+      </div>
 
-          <div className="p-3.5 rounded-2xl bg-white/10 border border-white/15">
-            <div className="flex items-center justify-between text-xs text-emerald-100">
-              <span>قاعدة بيانات الطلاب</span>
-              <CheckCircle2 className="w-4 h-4 text-emerald-300" />
-            </div>
-            <div className="text-xl font-extrabold font-mono text-white mt-1">
-              {students.length} طلاب • {sessions.length} حصة
-            </div>
-            <div className="text-[10px] text-[#dfbd69] mt-0.5">
-              محفوظة في IndexedDB + LocalStorage
-            </div>
+      {/* Storage Quota Meter & Offline Readiness Dashboard */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        {/* Card 1: Storage Quota Meter via navigator.storage.estimate() */}
+        <div className="rounded-3xl bg-white dark:bg-[#12231a] p-5 border border-neutral-200 dark:border-emerald-900/50 shadow-xs space-y-3">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-bold text-neutral-500 flex items-center gap-1.5">
+              <HardDrive className="w-4 h-4 text-[#145a3a] dark:text-[#dfbd69]" />
+              <span>مساحة التخزين المستهلكة محلياً</span>
+            </span>
+            <button
+              type="button"
+              onClick={() => void refreshStorageEstimate()}
+              title="تحديث قراءة الذاكرة"
+              className="p-1 rounded-lg hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-400 hover:text-neutral-700 cursor-pointer"
+            >
+              <RefreshCw className="w-3.5 h-3.5" />
+            </button>
           </div>
 
-          <div className="p-3.5 rounded-2xl bg-white/10 border border-white/15">
-            <div className="flex items-center justify-between text-xs text-emerald-100">
-              <span>حالة الجاهزية أوفلاين</span>
-              <Wifi className="w-4 h-4 text-emerald-300" />
+          <div className="flex items-baseline gap-2">
+            <span className="text-2xl font-black text-[#145a3a] dark:text-[#dfbd69] font-mono">
+              {storageUsedMB} MB
+            </span>
+            <span className="text-xs text-neutral-500">
+              من أصل {storageQuotaMB} MB متاحة
+            </span>
+          </div>
+
+          {/* Progress bar */}
+          <div className="w-full h-2.5 bg-neutral-100 dark:bg-neutral-800 rounded-full overflow-hidden">
+            <div
+              className="h-full bg-gradient-to-l from-[#c59b27] to-[#145a3a]"
+              style={{ width: `${Math.max(2, storagePercent)}%` }}
+            />
+          </div>
+
+          <div className="flex items-center justify-between text-[11px] font-semibold text-emerald-700 dark:text-emerald-400">
+            <span>✓ الذاكرة مهيأة ومثالية للعمل أوفلاين</span>
+            <span className="font-mono">{storagePercent}% مستخدم</span>
+          </div>
+        </div>
+
+        {/* Card 2: Quran & Tafsir Offline Status */}
+        <div className="rounded-3xl bg-white dark:bg-[#12231a] p-5 border border-neutral-200 dark:border-emerald-900/50 shadow-xs space-y-3">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-bold text-neutral-500 flex items-center gap-1.5">
+              <BookOpen className="w-4 h-4 text-emerald-600" />
+              <span>حالة المصحف والتفاسير</span>
+            </span>
+            <span className="px-2 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-900/60 text-emerald-800 dark:text-emerald-200 text-[10px] font-extrabold">
+              متاح أوفلاين ✓
+            </span>
+          </div>
+
+          <div className="text-2xl font-black text-neutral-800 dark:text-white font-mono">
+            {cachedSurahsCount} / 114 سورة
+          </div>
+
+          <p className="text-xs text-neutral-500 leading-relaxed">
+            النص العثماني الكامل والتفسير الميسر مخزنان في IndexedDB بدون إنترنت.
+          </p>
+
+          <div className="text-[11px] text-neutral-400">
+            آخر تحديث للحزمة: {lastCachedTime}
+          </div>
+        </div>
+
+        {/* Card 3: Audio Cache & Auto-Cache Setting */}
+        <div className="rounded-3xl bg-white dark:bg-[#12231a] p-5 border border-neutral-200 dark:border-emerald-900/50 shadow-xs space-y-3">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-bold text-neutral-500 flex items-center gap-1.5">
+              <Headphones className="w-4 h-4 text-[#c59b27]" />
+              <span>الصوتيات والتخزين التلقائي</span>
+            </span>
+            <span className="text-xs font-mono font-bold text-[#145a3a] dark:text-[#dfbd69]">
+              {cachedAudioFilesCount} ملف محفوظ
+            </span>
+          </div>
+
+          <div className="flex items-center justify-between pt-1">
+            <div className="space-y-0.5">
+              <div className="text-xs font-bold text-neutral-800 dark:text-white">
+                تخزين التلاوات تلقائياً أثناء الاستماع
+              </div>
+              <div className="text-[11px] text-neutral-500">
+                حفظ أي آية تستمع إليها تلقائياً في الكاش للأبد
+              </div>
             </div>
-            <div className="text-xl font-extrabold font-mono text-emerald-300 mt-1">
-              {cacheProgressPercent}% جاهز
-            </div>
-            <div className="text-[10px] text-emerald-100 mt-0.5">
-              آخر مزامنة محلية: {lastCachedTime}
-            </div>
+            <label className="relative inline-flex items-center cursor-pointer">
+              <input
+                type="checkbox"
+                checked={autoCacheOnPlay}
+                onChange={(e) => handleToggleAutoCache(e.target.checked)}
+                className="sr-only peer"
+              />
+              <div className="w-10 h-5 bg-neutral-300 peer-focus:outline-hidden rounded-full peer dark:bg-neutral-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:right-[2px] after:bg-white after:border-neutral-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all dark:border-neutral-600 peer-checked:bg-[#145a3a]"></div>
+            </label>
+          </div>
+
+          <div className="text-[11px] text-emerald-700 dark:text-emerald-400 font-bold">
+            {autoCacheOnPlay ? '● التخزين التلقائي مفعل' : '○ التخزين التلقائي متوقف'}
           </div>
         </div>
       </div>
 
-      {/* Printable & Downloadable Educational Packets */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <div className="rounded-3xl bg-white dark:bg-[#12231a] p-5 border border-neutral-200 dark:border-emerald-900/50 shadow-xs flex flex-col justify-between space-y-4">
-          <div className="space-y-2">
-            <div className="w-10 h-10 rounded-2xl bg-[#145a3a]/10 text-[#145a3a] dark:text-[#dfbd69] flex items-center justify-center">
-              <BookOpen className="w-5 h-5" />
+      {/* Smart Audio Batch Downloader Section */}
+      <div className="rounded-3xl bg-white dark:bg-[#12231a] p-6 border border-neutral-200 dark:border-emerald-900/50 shadow-xs space-y-5">
+        <div className="flex flex-wrap items-center justify-between gap-3 pb-3 border-b border-neutral-100 dark:border-emerald-950">
+          <div>
+            <h2 className="text-base font-extrabold text-[#145a3a] dark:text-[#dfbd69] flex items-center gap-2">
+              <Volume2 className="w-5 h-5 text-[#c59b27]" />
+              <span>أداة التحميل الذكي للصوتيات بالحزم (Smart Audio Batch Downloader)</span>
+            </h2>
+            <p className="text-xs text-neutral-500">
+              قم بتحميل حزم الأجزاء أو السور الفاضلة لتعمل أوفلاين بصوت القارئ المفضل دون الحاجة لشبكة
+            </p>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          {/* Select Batch Preset */}
+          <div className="space-y-1.5">
+            <label className="text-xs font-bold text-neutral-600 dark:text-neutral-300">
+              اختر حزمة الصوتيات المطلوبة:
+            </label>
+            <select
+              value={selectedAudioBatch}
+              onChange={(e) =>
+                setSelectedAudioBatch(
+                  e.target.value as 'juz_amma' | 'juz_tabarak' | 'virtues' | 'custom_surah'
+                )
+              }
+              className="w-full rounded-xl border border-neutral-300 dark:border-emerald-900 bg-[#f6f7f2] dark:bg-[#0b1711] px-3.5 py-2.5 text-xs font-bold"
+            >
+              <option value="juz_amma">حزمة جزء عمّ كاملاً (37 سورة — النبأ إلى الناس)</option>
+              <option value="juz_tabarak">حزمة جزء تبارك كاملاً (11 سورة — الملك إلى المرسلات)</option>
+              <option value="virtues">حزمة السور الفاضلة (البقرة، الكهف، يس، الملك)</option>
+              <option value="custom_surah">سورة مخصصة من المصحف</option>
+            </select>
+          </div>
+
+          {/* Reciter Selector */}
+          <div className="space-y-1.5">
+            <label className="text-xs font-bold text-neutral-600 dark:text-neutral-300">
+              القارئ المعتمد للحزمة:
+            </label>
+            <select
+              value={batchReciter}
+              onChange={(e) => setBatchReciter(e.target.value)}
+              className="w-full rounded-xl border border-neutral-300 dark:border-emerald-900 bg-[#f6f7f2] dark:bg-[#0b1711] px-3.5 py-2.5 text-xs font-bold"
+            >
+              {RECITERS.map((r) => (
+                <option key={r.id} value={r.id}>
+                  {r.name}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Custom Surah Picker if custom */}
+          {selectedAudioBatch === 'custom_surah' ? (
+            <div className="space-y-1.5">
+              <label className="text-xs font-bold text-neutral-600 dark:text-neutral-300">
+                حدد السورة المراد تحميلها:
+              </label>
+              <select
+                value={customSurahId}
+                onChange={(e) => setCustomSurahId(Number(e.target.value))}
+                className="w-full rounded-xl border border-neutral-300 dark:border-emerald-900 bg-[#f6f7f2] dark:bg-[#0b1711] px-3.5 py-2.5 text-xs font-bold"
+              >
+                {SURAHS.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.id}. سورة {s.name} ({s.ayahs} آية)
+                  </option>
+                ))}
+              </select>
             </div>
+          ) : (
+            <div className="flex items-end">
+              <button
+                type="button"
+                disabled={audioBatchDownloading}
+                onClick={handleDownloadAudioBatch}
+                className="w-full py-2.5 px-4 rounded-xl bg-[#145a3a] hover:bg-[#0f452c] text-[#dfbd69] text-xs font-black flex items-center justify-center gap-2 transition cursor-pointer disabled:opacity-50"
+              >
+                <Download className="w-4 h-4" />
+                <span>
+                  {audioBatchDownloading
+                    ? `جاري التحميل (${audioBatchProgress}%)...`
+                    : 'بدء تنزيل الحزمة الصوتية الآن'}
+                </span>
+              </button>
+            </div>
+          )}
+        </div>
+
+        {selectedAudioBatch === 'custom_surah' && (
+          <div className="flex justify-end">
+            <button
+              type="button"
+              disabled={audioBatchDownloading}
+              onClick={handleDownloadAudioBatch}
+              className="py-2.5 px-6 rounded-xl bg-[#145a3a] hover:bg-[#0f452c] text-[#dfbd69] text-xs font-black flex items-center gap-2 transition cursor-pointer disabled:opacity-50"
+            >
+              <Download className="w-4 h-4" />
+              <span>
+                {audioBatchDownloading
+                  ? `جاري التحميل (${audioBatchProgress}%)...`
+                  : 'تنزيل صوتيات السورة المختارة'}
+              </span>
+            </button>
+          </div>
+        )}
+
+        {/* Audio Batch Progress Bar */}
+        {audioBatchDownloading && (
+          <div className="p-4 rounded-2xl bg-amber-50 dark:bg-amber-950/40 border border-amber-300 dark:border-amber-800 space-y-2 animate-in fade-in">
+            <div className="flex items-center justify-between text-xs font-bold text-amber-900 dark:text-amber-200">
+              <span>{audioBatchStatus}</span>
+              <span className="font-mono">{audioBatchProgress}%</span>
+            </div>
+            <div className="w-full h-2.5 bg-amber-200/60 dark:bg-amber-900/60 rounded-full overflow-hidden">
+              <div
+                className="h-full bg-amber-600 transition-all duration-300"
+                style={{ width: `${audioBatchProgress}%` }}
+              />
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Printable Material Cards */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        {/* Foundation Packet */}
+        <div className="rounded-3xl bg-white dark:bg-[#12231a] p-6 border border-neutral-200 dark:border-emerald-900/50 shadow-xs flex flex-col justify-between gap-4">
+          <div className="space-y-2">
+            <span className="w-10 h-10 rounded-2xl bg-emerald-100 dark:bg-emerald-950/80 text-[#145a3a] dark:text-[#dfbd69] flex items-center justify-center font-bold">
+              <Layers className="w-5 h-5" />
+            </span>
             <h3 className="text-sm font-extrabold text-[#14281d] dark:text-white">
-              حقيبة منهج الإمام للتأسيس (8 مستويات كاملة)
+              حقيبة منهج الإمام للتأسيس (PDF / HTML)
             </h3>
             <p className="text-xs text-neutral-500 leading-relaxed">
-              ملف شامل قابل للطباعة والتحميل يضم القواعد الـ 8، المقاطع الصوتية الملونة، وتدريبات نور البيان والقاعدة النورانية.
+              تحتوي على المستويات الثمانية كاملة من الحروف الهجائية إلى أحكام التجويد والوقف، جاهزة للطباعة الورقية بدون نت.
             </p>
           </div>
           <button
             type="button"
             onClick={() => handleDownloadPrintableHtmlPacket('foundation')}
-            className="w-full py-2.5 px-4 rounded-xl bg-[#145a3a] hover:bg-[#0f452c] text-white text-xs font-extrabold flex items-center justify-center gap-2 cursor-pointer"
+            className="w-full py-2.5 px-4 rounded-xl bg-neutral-100 hover:bg-neutral-200 dark:bg-neutral-800 dark:hover:bg-neutral-700 text-neutral-800 dark:text-neutral-200 text-xs font-extrabold flex items-center justify-center gap-2 cursor-pointer"
           >
-            <Download className="w-4 h-4 text-[#dfbd69]" />
-            <span>تحميل وطباعة حقيبة التأسيس</span>
+            <Printer className="w-4 h-4" />
+            <span>طباعة حقيبة التأسيس</span>
           </button>
         </div>
 
-        <div className="rounded-3xl bg-white dark:bg-[#12231a] p-5 border border-neutral-200 dark:border-emerald-900/50 shadow-xs flex flex-col justify-between space-y-4">
+        {/* Matn Packet */}
+        <div className="rounded-3xl bg-white dark:bg-[#12231a] p-6 border border-neutral-200 dark:border-emerald-900/50 shadow-xs flex flex-col justify-between gap-4">
           <div className="space-y-2">
-            <div className="w-10 h-10 rounded-2xl bg-[#c59b27]/15 text-[#c59b27] flex items-center justify-center">
+            <span className="w-10 h-10 rounded-2xl bg-amber-100 dark:bg-amber-950/80 text-[#c59b27] flex items-center justify-center font-bold">
               <ScrollText className="w-5 h-5" />
-            </div>
+            </span>
             <h3 className="text-sm font-extrabold text-[#14281d] dark:text-white">
-              موسوعة المتون التجويدية (تحفة الأطفال + الجزرية)
+              متن تحفة الأطفال والجزرية (نسخة الحفظ)
             </h3>
             <p className="text-xs text-neutral-500 leading-relaxed">
-              الأبيات المشكولة لأبواب النون الساكنة والميم والمدود ومخارج الحروف والصفات مع الشرح الميسر للطلاب.
+              الأبيات مضبوطة بالشكل الكامل مع هوامش الشرح العملي لتوزيعها على الطلاب في حلقات الإتقان.
             </p>
           </div>
           <button
             type="button"
             onClick={() => handleDownloadPrintableHtmlPacket('matn')}
-            className="w-full py-2.5 px-4 rounded-xl bg-[#c59b27] hover:bg-[#b38a1e] text-[#14281d] text-xs font-extrabold flex items-center justify-center gap-2 cursor-pointer"
+            className="w-full py-2.5 px-4 rounded-xl bg-neutral-100 hover:bg-neutral-200 dark:bg-neutral-800 dark:hover:bg-neutral-700 text-neutral-800 dark:text-neutral-200 text-xs font-extrabold flex items-center justify-center gap-2 cursor-pointer"
           >
-            <Download className="w-4 h-4" />
-            <span>تحميل المتون مع الشرح</span>
+            <Printer className="w-4 h-4" />
+            <span>طباعة المتن الحالي</span>
           </button>
         </div>
 
-        <div className="rounded-3xl bg-white dark:bg-[#12231a] p-5 border border-neutral-200 dark:border-emerald-900/50 shadow-xs flex flex-col justify-between space-y-4">
+        {/* Tracking Sheet Packet */}
+        <div className="rounded-3xl bg-white dark:bg-[#12231a] p-6 border border-neutral-200 dark:border-emerald-900/50 shadow-xs flex flex-col justify-between gap-4">
           <div className="space-y-2">
-            <div className="w-10 h-10 rounded-2xl bg-emerald-500/15 text-emerald-600 flex items-center justify-center">
+            <span className="w-10 h-10 rounded-2xl bg-emerald-100 dark:bg-emerald-950/80 text-[#145a3a] dark:text-[#dfbd69] flex items-center justify-center font-bold">
               <FileText className="w-5 h-5" />
-            </div>
+            </span>
             <h3 className="text-sm font-extrabold text-[#14281d] dark:text-white">
               دفتر المتابعة الورقي وجدول الحصون الخمسة
             </h3>

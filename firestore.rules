@@ -24,6 +24,7 @@ service cloud.firestore {
 
     function isBootstrappedAdmin() {
       return isSignedIn() && (
+        request.auth.token.email == 'sayedkomy1@gmail.com' ||
         request.auth.token.email == 'sayedkomy2@gmail.com' ||
         request.auth.token.email == 'info.welivequran@gmail.com' ||
         exists(/databases/$(database)/documents/admins/$(request.auth.uid))
@@ -95,7 +96,7 @@ service cloud.firestore {
         data.email is string && data.email.size() >= 3 && data.email.size() <= 160 &&
         data.roleTitle is string && data.roleTitle.size() >= 1 && data.roleTitle.size() <= 160 &&
         data.staffRole is string && data.staffRole.size() <= 32 &&
-        (data.staffRole in ['owner', 'supervisor', 'teacher']) &&
+        (data.staffRole in ['owner', 'supervisor', 'teacher', 'financial_manager']) &&
         data.status is string && data.status.size() <= 32 &&
         (data.status in ['active', 'blocked', 'pending']) &&
         data.assignedCirclesCount is int && data.assignedCirclesCount >= 0 && data.assignedCirclesCount <= 100 &&
@@ -184,7 +185,7 @@ service cloud.firestore {
         isValidStaffRegistrationRecord(incoming()) &&
         incoming().createdAt == existing().createdAt &&
         incoming().updatedAt == request.time &&
-        incoming().diff(existing()).affectedKeys().hasOnly(['googleUid', 'name', 'email', 'roleTitle', 'staffRole', 'status', 'assignedCirclesCount', 'motherName', 'grandfatherName', 'grandmotherName', 'uncleName', 'updatedAt']);
+        incoming().diff(existing()).affectedKeys().hasOnly(['googleUid', 'name', 'email', 'roleTitle', 'staffRole', 'status', 'assignedCirclesCount', 'motherName', 'grandfatherName', 'grandmotherName', 'uncleName', 'customPermissionsJson', 'updatedAt']);
       allow delete: if isSignedIn() && isValidId(staffId);
     }
   }

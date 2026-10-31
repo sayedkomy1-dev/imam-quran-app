@@ -498,6 +498,7 @@ interface StudentIdCardModalProps {
   settings: AcademySettings;
   onClose: () => void;
   onShowToast?: (msg: string, type?: 'success' | 'info') => void;
+  onQuickAttendAndStartSession?: (student: Student) => void;
 }
 
 export const StudentIdCardModal: React.FC<StudentIdCardModalProps> = ({
@@ -507,6 +508,7 @@ export const StudentIdCardModal: React.FC<StudentIdCardModalProps> = ({
   settings,
   onClose,
   onShowToast,
+  onQuickAttendAndStartSession,
 }) => {
   const [cardSide, setCardSide] = useState<'front' | 'both'>('both');
 
@@ -715,32 +717,55 @@ export const StudentIdCardModal: React.FC<StudentIdCardModalProps> = ({
               </div>
             </div>
 
-            {/* Offline Deterministic SVG QR Code */}
-            <div className="flex flex-col items-center bg-white p-3.5 rounded-2xl border-3 border-[#c59b27] shrink-0 shadow-lg">
-              <svg
-                viewBox="0 0 21 21"
-                className="w-32 h-32"
-                shapeRendering="crispEdges"
-                aria-label="QR Code الطالب"
+            {/* Offline Deterministic SVG QR Code with Instant Attendance */}
+            <div className="flex flex-col items-center bg-white p-3.5 rounded-2xl border-3 border-[#c59b27] shrink-0 shadow-lg text-center">
+              <div
+                onClick={() => onQuickAttendAndStartSession?.(student)}
+                className={`transition ${
+                  onQuickAttendAndStartSession
+                    ? 'cursor-pointer hover:scale-105 hover:opacity-90'
+                    : ''
+                }`}
+                title={
+                  onQuickAttendAndStartSession
+                    ? 'انقر للمسح السريع وتحضير الطالب وبدء الحصة فوراً'
+                    : 'رمز QR الطالب'
+                }
               >
-                {matrix.map((row, rIdx) =>
-                  row.map((cell, cIdx) =>
-                    cell ? (
-                      <rect
-                        key={`${rIdx}-${cIdx}`}
-                        x={cIdx}
-                        y={rIdx}
-                        width={1}
-                        height={1}
-                        fill="#14281d"
-                      />
-                    ) : null
-                  )
-                )}
-              </svg>
+                <svg
+                  viewBox="0 0 21 21"
+                  className="w-32 h-32"
+                  shapeRendering="crispEdges"
+                  aria-label="QR Code الطالب"
+                >
+                  {matrix.map((row, rIdx) =>
+                    row.map((cell, cIdx) =>
+                      cell ? (
+                        <rect
+                          key={`${rIdx}-${cIdx}`}
+                          x={cIdx}
+                          y={rIdx}
+                          width={1}
+                          height={1}
+                          fill="#14281d"
+                        />
+                      ) : null
+                    )
+                  )}
+                </svg>
+              </div>
               <span className="text-[10px] font-mono font-extrabold text-[#145a3a] mt-1.5">
                 QR OFFLINE • PIN: {student.guardianPin}
               </span>
+              {onQuickAttendAndStartSession && (
+                <button
+                  type="button"
+                  onClick={() => onQuickAttendAndStartSession(student)}
+                  className="mt-2 w-full px-2.5 py-1.5 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white text-[11px] font-extrabold flex items-center justify-center gap-1 cursor-pointer shadow-xs transition"
+                >
+                  <span>⚡ تحضير وبدء الحصة</span>
+                </button>
+              )}
             </div>
           </div>
 

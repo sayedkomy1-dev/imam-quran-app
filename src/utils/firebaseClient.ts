@@ -5,6 +5,7 @@ import {
   inMemoryPersistence,
   browserPopupRedirectResolver,
   GoogleAuthProvider,
+  OAuthProvider,
   signInWithPopup,
   signOut,
   onAuthStateChanged,
@@ -23,8 +24,93 @@ import {
   onSnapshot,
   serverTimestamp,
 } from 'firebase/firestore';
-import firebaseConfig from '../../firebase-applet-config.json';
-import { TeacherAccessRecord } from '../types';
+import defaultFirebaseConfig from '../../firebase-applet-config.json';
+import {
+  CustomFirebaseConfigInput,
+  MASTER_OWNER_EMAILS,
+  StaffAuthProvider,
+  StaffHierarchyRole,
+  TeacherAccessRecord,
+} from '../types';
+
+export { MASTER_OWNER_EMAILS };
+
+export const CUSTOM_FIREBASE_CONFIG_STORAGE_KEY =
+  'imam_custom_firebase_config_v1';
+
+export function isMasterOwnerEmail(email?: string | null): boolean {
+  if (!email) return false;
+  const clean = email.trim().toLowerCase();
+  return (
+    MASTER_OWNER_EMAILS.some((m) => m.toLowerCase() === clean) ||
+    clean === 'info.welivequran@gmail.com'
+  );
+}
+
+export function getEffectiveFirebaseConfig(): CustomFirebaseConfigInput & {
+  firestoreDatabaseId: string;
+  isCustom: boolean;
+} {
+  if (typeof window !== 'undefined') {
+    try {
+      const raw = window.localStorage.getItem(CUSTOM_FIREBASE_CONFIG_STORAGE_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw) as Partial<CustomFirebaseConfigInput>;
+        if (parsed.apiKey && parsed.projectId && parsed.appId) {
+          return {
+            apiKey: parsed.apiKey.trim(),
+            authDomain:
+              (parsed.authDomain || `${parsed.projectId}.firebaseapp.com`).trim(),
+            projectId: parsed.projectId.trim(),
+            appId: parsed.appId.trim(),
+            firestoreDatabaseId:
+              (parsed.firestoreDatabaseId || defaultFirebaseConfig.firestoreDatabaseId || '(default)').trim(),
+            isCustom: true,
+          };
+        }
+      }
+    } catch {
+      // ignore local storage parse errors
+    }
+  }
+  return {
+    apiKey: defaultFirebaseConfig.apiKey,
+    authDomain: defaultFirebaseConfig.authDomain,
+    projectId: defaultFirebaseConfig.projectId,
+    appId: defaultFirebaseConfig.appId,
+    firestoreDatabaseId: defaultFirebaseConfig.firestoreDatabaseId,
+    isCustom: false,
+  };
+}
+
+export function saveCustomFirebaseConfig(config: CustomFirebaseConfigInput): void {
+  if (typeof window === 'undefined') return;
+  try {
+    window.localStorage.setItem(
+      CUSTOM_FIREBASE_CONFIG_STORAGE_KEY,
+      JSON.stringify({
+        apiKey: config.apiKey.trim(),
+        authDomain: config.authDomain.trim(),
+        projectId: config.projectId.trim(),
+        appId: config.appId.trim(),
+        firestoreDatabaseId: config.firestoreDatabaseId?.trim() || '',
+      })
+    );
+  } catch {
+    // ignore storage errors
+  }
+}
+
+export function resetCustomFirebaseConfig(): void {
+  if (typeof window === 'undefined') return;
+  try {
+    window.localStorage.removeItem(CUSTOM_FIREBASE_CONFIG_STORAGE_KEY);
+  } catch {
+    // ignore
+  }
+}
+
+const effectiveConfig = getEffectiveFirebaseConfig();
 
 // Silence internal Firestore WebChannel/token retry console errors
 setLogLevel('silent');
@@ -53,7 +139,13 @@ if (typeof window !== 'undefined') {
   }
 }
 
-const app = initializeApp(firebaseConfig);
+const app = initializeApp({
+  ...defaultFirebaseConfig,
+  apiKey: effectiveConfig.apiKey,
+  authDomain: effectiveConfig.authDomain,
+  projectId: effectiveConfig.projectId,
+  appId: effectiveConfig.appId,
+});
 
 function createCleanAuth() {
   try {
@@ -73,11 +165,16 @@ export const db = initializeFirestore(
   {
     experimentalForceLongPolling: true,
   },
-  firebaseConfig.firestoreDatabaseId
+  effectiveConfig.firestoreDatabaseId || defaultFirebaseConfig.firestoreDatabaseId
 );
 
 export const googleProvider = new GoogleAuthProvider();
 googleProvider.setCustomParameters({
+  prompt: 'select_account',
+});
+
+export const microsoftProvider = new OAuthProvider('microsoft.com');
+microsoftProvider.setCustomParameters({
   prompt: 'select_account',
 });
 
@@ -627,11 +724,27 @@ export async function fetchAcademyCloudBackupFromFirestore(
 
 /**
  * Creates or updates a Teacher/Supervisor registration in `/staff_registrations/{staffId}` in Firestore
+ * (and mirrors to local `staff_users` cache for instant offline/hybrid sync)
  * so the Academy Owner can approve (`active`), suspend (`blocked`), or delete (`deleteDoc`) registrations.
  */
 export async function syncStaffRegistrationToFirestore(
   record: TeacherAccessRecord
 ): Promise<boolean> {
+  // Always mirror into local `staff_users` cache so real-time queue works even offline
+  if (typeof window !== 'undefined') {
+    try {
+      const raw = window.localStorage.getItem('imam_cloud_staff_users_v1');
+      const list: TeacherAccessRecord[] = raw ? JSON.parse(raw) : [];
+      const next = [
+        record,
+        ...list.filter((item) => item.id !== record.id && item.email.toLowerCase() !== record.email.toLowerCase()),
+      ];
+      window.localStorage.setItem('imam_cloud_staff_users_v1', JSON.stringify(next));
+    } catch {
+      // ignore local storage quota
+    }
+  }
+
   const currentUser = auth.currentUser;
   if (!currentUser || !currentUser.emailVerified) return false;
   if (!(await ensureHealthyAuthToken(currentUser))) return false;
@@ -672,6 +785,16 @@ export async function syncStaffRegistrationToFirestore(
   const customPermissionsJson = JSON.stringify({
     customTeacherPermissions: record.customTeacherPermissions || null,
     customPermissions: record.customPermissions || null,
+    effectiveStaffRole: record.staffRole || 'teacher',
+    authProvider: record.authProvider || 'google',
+    whatsappPhone: record.whatsappPhone || '',
+    specialization: record.specialization || '',
+    requestedPosition: record.requestedPosition || '',
+    requestedAt: record.requestedAt || '',
+    lastActiveAt: record.lastActiveAt || '',
+    sessionsRecordedCount: record.sessionsRecordedCount ?? 0,
+    assignedCircleNames: record.assignedCircleNames || [],
+    restrictToAssignedCircles: Boolean(record.restrictToAssignedCircles),
   }).slice(0, 3900);
 
   const path = `staff_registrations/${cleanStaffId}`;
@@ -726,6 +849,21 @@ export async function syncStaffRegistrationToFirestore(
 export async function deleteStaffRegistrationFromFirestore(
   staffId: string
 ): Promise<boolean> {
+  if (typeof window !== 'undefined') {
+    try {
+      const raw = window.localStorage.getItem('imam_cloud_staff_users_v1');
+      if (raw) {
+        const list: TeacherAccessRecord[] = JSON.parse(raw);
+        window.localStorage.setItem(
+          'imam_cloud_staff_users_v1',
+          JSON.stringify(list.filter((item) => item.id !== staffId))
+        );
+      }
+    } catch {
+      // ignore
+    }
+  }
+
   const currentUser = auth.currentUser;
   if (!currentUser || !currentUser.emailVerified) return false;
   if (!(await ensureHealthyAuthToken(currentUser))) return false;
@@ -765,7 +903,7 @@ export async function syncAllStaffRegistrationsToFirestore(
 }
 
 /**
- * Real-time subscription to `/staff_registrations` in Firestore so the Owner Dashboard stays synced.
+ * Real-time subscription (`onSnapshot`) to `/staff_registrations` in Firestore so the Owner Dashboard stays synced.
  */
 export function subscribeToStaffRegistrationsFromFirestore(
   onUpdate: (records: TeacherAccessRecord[]) => void
@@ -790,19 +928,97 @@ export function subscribeToStaffRegistrationsFromFirestore(
             undefined;
           let parsedCustomSupervisorPerms: TeacherAccessRecord['customPermissions'] =
             undefined;
-          if (typeof data.customPermissionsJson === 'string' && data.customPermissionsJson.startsWith('{')) {
+          let parsedEffectiveRole: StaffHierarchyRole | undefined = undefined;
+          let parsedAuthProvider: StaffAuthProvider | undefined = undefined;
+          let parsedWhatsappPhone: string | undefined = undefined;
+          let parsedSpecialization: string | undefined = undefined;
+          let parsedRequestedPosition: TeacherAccessRecord['requestedPosition'] =
+            undefined;
+          let parsedRequestedAt: string | undefined = undefined;
+          let parsedLastActiveAt: string | undefined = undefined;
+          let parsedSessionsRecordedCount: number | undefined = undefined;
+          let parsedAssignedCircleNames: string[] | undefined = undefined;
+          let parsedRestrictToAssignedCircles: boolean | undefined = undefined;
+
+          if (
+            typeof data.customPermissionsJson === 'string' &&
+            data.customPermissionsJson.startsWith('{')
+          ) {
             try {
-              const parsed = JSON.parse(data.customPermissionsJson) as Record<string, unknown>;
-              if (parsed.customTeacherPermissions && typeof parsed.customTeacherPermissions === 'object') {
-                parsedCustomTeacherPerms = parsed.customTeacherPermissions as TeacherAccessRecord['customTeacherPermissions'];
+              const parsed = JSON.parse(data.customPermissionsJson) as Record<
+                string,
+                unknown
+              >;
+              if (
+                parsed.customTeacherPermissions &&
+                typeof parsed.customTeacherPermissions === 'object'
+              ) {
+                parsedCustomTeacherPerms =
+                  parsed.customTeacherPermissions as TeacherAccessRecord['customTeacherPermissions'];
               }
-              if (parsed.customPermissions && typeof parsed.customPermissions === 'object') {
-                parsedCustomSupervisorPerms = parsed.customPermissions as TeacherAccessRecord['customPermissions'];
+              if (
+                parsed.customPermissions &&
+                typeof parsed.customPermissions === 'object'
+              ) {
+                parsedCustomSupervisorPerms =
+                  parsed.customPermissions as TeacherAccessRecord['customPermissions'];
+              }
+              if (
+                parsed.effectiveStaffRole === 'owner' ||
+                parsed.effectiveStaffRole === 'supervisor' ||
+                parsed.effectiveStaffRole === 'teacher' ||
+                parsed.effectiveStaffRole === 'financial_manager'
+              ) {
+                parsedEffectiveRole = parsed.effectiveStaffRole;
+              }
+              if (
+                parsed.authProvider === 'google' ||
+                parsed.authProvider === 'microsoft' ||
+                parsed.authProvider === 'pin'
+              ) {
+                parsedAuthProvider = parsed.authProvider;
+              }
+              if (typeof parsed.whatsappPhone === 'string' && parsed.whatsappPhone) {
+                parsedWhatsappPhone = parsed.whatsappPhone;
+              }
+              if (typeof parsed.specialization === 'string' && parsed.specialization) {
+                parsedSpecialization = parsed.specialization;
+              }
+              if (
+                parsed.requestedPosition === 'محفظ حلقة' ||
+                parsed.requestedPosition === 'مشرف تعليمي' ||
+                parsed.requestedPosition === 'مسؤول مالي / إداري'
+              ) {
+                parsedRequestedPosition = parsed.requestedPosition;
+              }
+              if (typeof parsed.requestedAt === 'string' && parsed.requestedAt) {
+                parsedRequestedAt = parsed.requestedAt;
+              }
+              if (typeof parsed.lastActiveAt === 'string' && parsed.lastActiveAt) {
+                parsedLastActiveAt = parsed.lastActiveAt;
+              }
+              if (typeof parsed.sessionsRecordedCount === 'number') {
+                parsedSessionsRecordedCount = parsed.sessionsRecordedCount;
+              }
+              if (Array.isArray(parsed.assignedCircleNames)) {
+                parsedAssignedCircleNames = parsed.assignedCircleNames.filter(
+                  (c): c is string => typeof c === 'string'
+                );
+              }
+              if (typeof parsed.restrictToAssignedCircles === 'boolean') {
+                parsedRestrictToAssignedCircles = parsed.restrictToAssignedCircles;
               }
             } catch {
               // ignore invalid JSON
             }
           }
+          const rawEmail = typeof data.email === 'string' ? data.email : '';
+          const fallbackRole: StaffHierarchyRole = isMasterOwnerEmail(rawEmail)
+            ? 'owner'
+            : data.staffRole === 'owner' || data.staffRole === 'supervisor'
+            ? data.staffRole
+            : 'teacher';
+
           return {
             id: typeof data.staffId === 'string' ? data.staffId : d.id,
             googleUid:
@@ -810,23 +1026,30 @@ export function subscribeToStaffRegistrationsFromFirestore(
                 ? data.googleUid
                 : undefined,
             name: typeof data.name === 'string' ? data.name : 'محفظ الأكاديمية',
-            email: typeof data.email === 'string' ? data.email : '',
+            email: rawEmail,
             roleTitle:
               typeof data.roleTitle === 'string'
                 ? data.roleTitle
                 : 'محفظ الحلقات القرآنية',
-            staffRole:
-              data.staffRole === 'owner' || data.staffRole === 'supervisor'
-                ? data.staffRole
-                : 'teacher',
-            status:
-              data.status === 'blocked' || data.status === 'pending'
-                ? data.status
-                : 'active',
+            staffRole: parsedEffectiveRole || fallbackRole,
+            status: isMasterOwnerEmail(rawEmail)
+              ? 'active'
+              : data.status === 'blocked' || data.status === 'pending'
+              ? data.status
+              : 'active',
             assignedCirclesCount:
               typeof data.assignedCirclesCount === 'number'
                 ? data.assignedCirclesCount
                 : 1,
+            assignedCircleNames: parsedAssignedCircleNames,
+            restrictToAssignedCircles: parsedRestrictToAssignedCircles,
+            authProvider: parsedAuthProvider || 'google',
+            whatsappPhone: parsedWhatsappPhone,
+            specialization: parsedSpecialization,
+            requestedPosition: parsedRequestedPosition,
+            requestedAt: parsedRequestedAt,
+            lastActiveAt: parsedLastActiveAt,
+            sessionsRecordedCount: parsedSessionsRecordedCount,
             lastSyncAt: new Date().toISOString().slice(0, 10),
             motherName:
               typeof data.motherName === 'string' && data.motherName
@@ -872,7 +1095,7 @@ export function subscribeToStaffRegistrationsFromFirestore(
 export async function signInWithGooglePopup(
   role: 'teacher' | 'supervisor' | 'guardian' | 'student' = 'teacher',
   initialFamily?: ExtendedFamilyFields
-): Promise<GoogleAuthResult> {
+): Promise<GoogleAuthResult & { provider: StaffAuthProvider }> {
   const credential = await signInWithPopup(auth, googleProvider);
   const user = credential.user;
   const uid = user.uid;
@@ -905,6 +1128,54 @@ export async function signInWithGooglePopup(
     displayName,
     photoURL,
     emailVerified,
+    provider: 'google',
+    isFirstGoogleLogin: loadedFamily.isFirstGoogleLogin ?? true,
+    motherName: loadedFamily.motherName,
+    grandfatherName: loadedFamily.grandfatherName,
+    grandmotherName: loadedFamily.grandmotherName,
+    uncleName: loadedFamily.uncleName,
+  };
+}
+
+/**
+ * Launches the official Microsoft Sign-In popup via Firebase Auth (`OAuthProvider('microsoft.com')`).
+ */
+export async function signInWithMicrosoftPopup(
+  role: 'teacher' | 'supervisor' | 'guardian' | 'student' = 'teacher',
+  initialFamily?: ExtendedFamilyFields
+): Promise<GoogleAuthResult & { provider: StaffAuthProvider }> {
+  const credential = await signInWithPopup(auth, microsoftProvider);
+  const user = credential.user;
+  const uid = user.uid;
+  const email = user.email || '';
+  const displayName =
+    user.displayName || email.split('@')[0] || 'مستخدم Microsoft';
+  const photoURL = user.photoURL;
+  const emailVerified = true;
+
+  let loadedFamily: ExtendedFamilyFields & { isFirstGoogleLogin?: boolean } = {
+    motherName: initialFamily?.motherName,
+    grandfatherName: initialFamily?.grandfatherName,
+    grandmotherName: initialFamily?.grandmotherName,
+    uncleName: initialFamily?.uncleName,
+  };
+
+  const tokenHealthy = await ensureHealthyAuthToken(user);
+  if (tokenHealthy) {
+    try {
+      loadedFamily = await syncUserProfileToFirestore(user, role, initialFamily);
+    } catch {
+      // Non-blocking
+    }
+  }
+
+  return {
+    uid,
+    email,
+    displayName,
+    photoURL,
+    emailVerified,
+    provider: 'microsoft',
     isFirstGoogleLogin: loadedFamily.isFirstGoogleLogin ?? true,
     motherName: loadedFamily.motherName,
     grandfatherName: loadedFamily.grandfatherName,

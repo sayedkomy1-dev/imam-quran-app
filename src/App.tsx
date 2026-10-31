@@ -69,10 +69,19 @@ const MainShell: React.FC = () => {
     setPublicMushafPortalOpen,
     isFullScreenFocus,
     setIsFullScreenFocus,
+    pendingOutboxMessages,
+    sendOutboxMessage,
+    sendAllQueuedMessages,
+    deleteOutboxMessage,
+    currentStaffTier,
+    effectiveTeacherPermissions,
+    managedTeachers,
+    googleAuthUser,
   } = useAcademy();
 
   const [mobileMoreOpen, setMobileMoreOpen] = useState(false);
   const [notifPopoverOpen, setNotifPopoverOpen] = useState(false);
+  const [outboxModalOpen, setOutboxModalOpen] = useState(false);
 
   if (publicMushafPortalOpen) {
     return (
@@ -121,7 +130,56 @@ const MainShell: React.FC = () => {
     );
   }
 
-  const navGroups: {
+  const activeStaffMember = googleAuthUser?.email
+    ? managedTeachers.find(
+        (m) => m.email.toLowerCase() === googleAuthUser.email.toLowerCase()
+      )
+    : undefined;
+  const isFinancialManager =
+    activeStaffMember?.staffRole === 'financial_manager';
+  const pendingStaffCount = managedTeachers.filter(
+    (m) => m.status === 'pending'
+  ).length;
+
+  const isTabAllowedForCurrentStaff = (tabId: ActiveTab): boolean => {
+    if (currentStaffTier === 'owner') return true;
+    if (tabId === 'owner_panel') return false;
+
+    if (isFinancialManager) {
+      return [
+        'dashboard',
+        'students',
+        'finance',
+        'tasks',
+        'broadcast',
+        'public_mushaf',
+      ].includes(tabId);
+    }
+
+    if (currentStaffTier === 'supervisor') {
+      if (tabId === 'finance') {
+        return Boolean(settings.supervisorPermissions?.canViewFinancialRecords);
+      }
+      return true;
+    }
+
+    // Circle Teacher (محفظ حلقة)
+    if (tabId === 'finance') {
+      return Boolean(
+        effectiveTeacherPermissions.canAccessFinanceSection ||
+          effectiveTeacherPermissions.canManageStudentFees
+      );
+    }
+    if (tabId === 'exams') {
+      return Boolean(
+        effectiveTeacherPermissions.canIssueExamsAndCertificates ||
+          effectiveTeacherPermissions.canManageCompetitionsAndQuizzes
+      );
+    }
+    return true;
+  };
+
+  const allNavGroups: {
     groupTitle: string;
     items: { id: ActiveTab; label: string; icon: React.ReactNode }[];
   }[] = [
@@ -189,6 +247,11 @@ const MainShell: React.FC = () => {
       groupTitle: 'الإدارة والتواصل',
       items: [
         {
+          id: 'owner_panel',
+          label: '👑 لوحة المالك والصلاحيات',
+          icon: <Shield className="w-4 h-4" />,
+        },
+        {
           id: 'tasks',
           label: 'المهام والمتابعة',
           icon: <CheckSquare className="w-4 h-4" />,
@@ -214,11 +277,6 @@ const MainShell: React.FC = () => {
           icon: <Settings className="w-4 h-4" />,
         },
         {
-          id: 'owner_panel',
-          label: 'لوحة تحكم المالك العام',
-          icon: <Shield className="w-4 h-4" />,
-        },
-        {
           id: 'public_mushaf',
           label: 'مصحف المدينة العام والوقف',
           icon: <BookOpen className="w-4 h-4" />,
@@ -226,6 +284,13 @@ const MainShell: React.FC = () => {
       ],
     },
   ];
+
+  const navGroups = allNavGroups
+    .map((g) => ({
+      ...g,
+      items: g.items.filter((item) => isTabAllowedForCurrentStaff(item.id)),
+    }))
+    .filter((g) => g.items.length > 0);
 
   const navItems = navGroups.flatMap((g) => g.items);
 
@@ -258,7 +323,13 @@ const MainShell: React.FC = () => {
                 أكاديمية الإمام
               </div>
               <div className="text-[11px] text-neutral-500 dark:text-neutral-400 truncate">
-                بالقرآن نحيا
+                {currentStaffTier === 'owner'
+                  ? '👑 مالك الأكاديمية الأعلى'
+                  : currentStaffTier === 'supervisor'
+                  ? '🛡️ مشرف الأكاديمية'
+                  : isFinancialManager
+                  ? '💼 المسؤول المالي'
+                  : '📖 محفظ الحلقات'}
               </div>
             </div>
           </div>
@@ -272,18 +343,40 @@ const MainShell: React.FC = () => {
                 </div>
                 {group.items.map((item) => {
                   const isActive = activeTab === item.id;
+                  const isGoldenOwnerTab = item.id === 'owner_panel';
                   return (
                     <button
                       key={item.id}
                       onClick={() => setActiveTab(item.id)}
-                      className={`w-full flex items-center gap-3 px-3.5 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
-                        isActive
+                      className={`w-full flex items-center justify-between gap-2 px-3.5 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
+                        isGoldenOwnerTab
+                          ? isActive
+                            ? 'bg-gradient-to-l from-[#c59b27] via-amber-400 to-yellow-400 text-[#14281d] font-black shadow-md ring-2 ring-[#c59b27]/50'
+                            : 'bg-amber-400/15 hover:bg-amber-400/25 text-[#14281d] dark:text-[#dfbd69] border border-[#c59b27]/60 font-extrabold'
+                          : isActive
                           ? 'bg-[#145a3a] text-white shadow-xs'
                           : 'text-neutral-600 dark:text-neutral-300 hover:bg-[#f6f7f2] dark:hover:bg-[#0b1711] hover:text-[#145a3a] dark:hover:text-[#dfbd69]'
                       }`}
                     >
-                      <span className={isActive ? 'text-[#dfbd69]' : ''}>{item.icon}</span>
-                      <span>{item.label}</span>
+                      <span className="flex items-center gap-2.5 truncate">
+                        <span
+                          className={
+                            isGoldenOwnerTab
+                              ? 'text-[#14281d] dark:text-[#dfbd69]'
+                              : isActive
+                              ? 'text-[#dfbd69]'
+                              : ''
+                          }
+                        >
+                          {item.icon}
+                        </span>
+                        <span className="truncate">{item.label}</span>
+                      </span>
+                      {isGoldenOwnerTab && pendingStaffCount > 0 && (
+                        <span className="px-1.5 py-0.5 rounded-full bg-red-600 text-white text-[10px] font-mono font-black">
+                          {pendingStaffCount}
+                        </span>
+                      )}
                     </button>
                   );
                 })}
@@ -342,6 +435,22 @@ const MainShell: React.FC = () => {
 
           <div className="flex items-center gap-2 shrink-0 relative">
             <PWAInstallButton />
+
+            {/* Offline WhatsApp Outbox Queue Trigger */}
+            {pendingOutboxMessages.length > 0 && (
+              <button
+                type="button"
+                onClick={() => setOutboxModalOpen(true)}
+                className="relative flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/40 text-amber-800 dark:text-amber-200 text-xs font-bold cursor-pointer transition animate-pulse"
+                title="طابور رسائل واتساب المعلقة للإرسال"
+              >
+                <MessageCircle className="w-4 h-4 text-[#25D366]" />
+                <span className="hidden sm:inline">طابور واتساب</span>
+                <span className="min-w-4 h-4 px-1 rounded-full bg-emerald-700 text-white text-[10px] font-mono font-bold flex items-center justify-center">
+                  {pendingOutboxMessages.length}
+                </span>
+              </button>
+            )}
 
             {/* Local Push Notification Center Button */}
             <div className="relative">
@@ -672,6 +781,121 @@ const MainShell: React.FC = () => {
       {/* Global Modals & Indicators */}
       <QuickSearchModal />
       <OfflineIndicator />
+
+      {/* WhatsApp Offline Outbox Modal */}
+      {outboxModalOpen && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          className="fixed inset-0 z-50 bg-black/70 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setOutboxModalOpen(false);
+          }}
+        >
+          <div
+            className="w-full max-w-xl bg-white dark:bg-slate-900 rounded-3xl shadow-2xl border-2 border-emerald-600/40 overflow-hidden my-auto p-5 md:p-6 space-y-4"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between pb-3 border-b border-neutral-200 dark:border-neutral-800">
+              <div className="flex items-center gap-2.5">
+                <div className="w-10 h-10 rounded-2xl bg-[#25D366]/20 border border-[#25D366]/40 flex items-center justify-center text-[#25D366]">
+                  <MessageCircle className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-extrabold text-[#145a3a] dark:text-[#dfbd69]">
+                    طابور رسائل واتساب المعلقة ({pendingOutboxMessages.length})
+                  </h3>
+                  <p className="text-xs text-neutral-500">
+                    تم حفظ هذه الرسائل أثناء انقطاع الإنترنت، ويمكنك إرسالها الآن مباشرة
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setOutboxModalOpen(false)}
+                className="p-2 rounded-xl bg-neutral-100 dark:bg-neutral-800 text-neutral-500 hover:text-rose-500 cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {pendingOutboxMessages.length === 0 ? (
+              <div className="py-8 text-center text-xs text-neutral-500 space-y-1">
+                <p>طابور رسائل الواتساب فارغ حالياً.</p>
+                <p className="text-[11px] text-emerald-600 font-bold">كافة الرسائل تم إرسالها بنجاح ✓</p>
+              </div>
+            ) : (
+              <div className="max-h-80 overflow-y-auto space-y-3 pl-1">
+                {pendingOutboxMessages.map((msg) => (
+                  <div
+                    key={msg.id}
+                    className="p-3.5 rounded-2xl bg-neutral-50 dark:bg-neutral-800/60 border border-neutral-200 dark:border-neutral-700 space-y-2"
+                  >
+                    <div className="flex items-center justify-between text-xs">
+                      <div className="flex items-center gap-2">
+                        <span className="font-extrabold text-[#145a3a] dark:text-[#dfbd69]">
+                          {msg.recipientName}
+                        </span>
+                        <span className="font-mono text-neutral-500 text-[11px]">
+                          ({msg.recipientPhone})
+                        </span>
+                      </div>
+                      <span className="text-[10px] text-neutral-400 font-mono">
+                        {msg.createdAt}
+                      </span>
+                    </div>
+
+                    <p className="text-xs text-neutral-700 dark:text-neutral-300 bg-white dark:bg-neutral-900 p-2.5 rounded-xl border border-neutral-200/60 dark:border-neutral-800 whitespace-pre-wrap leading-relaxed line-clamp-3">
+                      {msg.text}
+                    </p>
+
+                    <div className="flex items-center justify-end gap-2 pt-1">
+                      <button
+                        type="button"
+                        onClick={() => deleteOutboxMessage(msg.id)}
+                        className="px-2.5 py-1 rounded-lg text-xs font-bold text-neutral-400 hover:text-rose-600 cursor-pointer"
+                      >
+                        حذف
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => sendOutboxMessage(msg.id)}
+                        className="px-3.5 py-1.5 rounded-xl bg-gradient-to-l from-[#25D366] to-[#128C7E] text-white text-xs font-bold flex items-center gap-1.5 cursor-pointer shadow-xs"
+                      >
+                        <MessageCircle className="w-3.5 h-3.5" />
+                        <span>إرسال عبر واتساب</span>
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {pendingOutboxMessages.length > 0 && (
+              <div className="pt-2 border-t border-neutral-200 dark:border-neutral-800 flex items-center justify-between gap-3">
+                <button
+                  type="button"
+                  onClick={() => setOutboxModalOpen(false)}
+                  className="py-2.5 px-4 rounded-xl border border-neutral-300 dark:border-neutral-700 text-xs font-bold text-neutral-600 dark:text-neutral-300 cursor-pointer"
+                >
+                  إغلاق
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    sendAllQueuedMessages();
+                    setOutboxModalOpen(false);
+                  }}
+                  className="py-2.5 px-5 rounded-xl bg-[#145a3a] hover:bg-[#0f452c] text-[#dfbd69] text-xs font-black flex items-center gap-2 cursor-pointer shadow-md"
+                >
+                  <MessageCircle className="w-4 h-4" />
+                  <span>إرسال كافة الرسائل الآن ({pendingOutboxMessages.length})</span>
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {toastMessage && (
         <div className="fixed bottom-20 lg:bottom-6 left-1/2 -translate-x-1/2 z-50 px-5 py-2.5 rounded-2xl bg-[#145a3a] text-white text-xs font-extrabold shadow-xl border border-[#c59b27]">

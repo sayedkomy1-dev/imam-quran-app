@@ -69,6 +69,7 @@ import {
   Square,
   Star,
   TrendingUp,
+  Trophy,
   Upload,
   Users,
   Volume2,
@@ -85,6 +86,7 @@ import {
 } from 'recharts';
 import { WaqfDedicationBannerCard } from './PublicMushafWaqfPortalView';
 import { FaithOasisView } from './FaithOasisView';
+import { SmartQuizAndCompetitionsSection } from './SmartQuizAndCompetitionsSection';
 
 const FORTRESS_TASKS: {
   key: FiveFortressTaskKey;
@@ -1114,6 +1116,7 @@ export const GuardianAndGuestView: React.FC = () => {
     | 'overview'
     | 'schedule_timeline'
     | 'tahfeez_studio'
+    | 'competitions_quiz'
     | 'followup_log'
     | 'family_oasis'
     | 'documents_billing'
@@ -2521,6 +2524,12 @@ export const GuardianAndGuestView: React.FC = () => {
                   badge: 'تلقين وتسجيل',
                 },
                 {
+                  id: 'competitions_quiz' as const,
+                  label: 'المسابقات والاختبارات الذكية',
+                  icon: Trophy,
+                  badge: 'لوحة الشرف 🏆',
+                },
+                {
                   id: 'followup_log' as const,
                   label: 'رسم التقدم وسجل الحصص',
                   icon: TrendingUp,
@@ -3167,6 +3176,34 @@ export const GuardianAndGuestView: React.FC = () => {
                           لتثبيت حفظ الطالب ({student.name}) بيسر ودون إجهاد، ننصح بتشغيل تلاوة «المصحف المعلم للشيخ الحصري أو المنشاوي» لمقرره الحالي بهدوء لمدة ١٠ دقائق، ومراجعة الجدول الزمني للمهام قبل الحلقة.
                         </div>
                       )}
+
+                      {/* بطاقة التوجيه التجويدي للتصحيح المنزلي (Home Tajweed Mastery Card) */}
+                      <div className="p-4 rounded-2xl bg-gradient-to-l from-amber-500/15 via-[#fcfaf2] to-emerald-900/10 dark:from-amber-950/20 dark:via-[#12231a] dark:to-emerald-950/20 border-2 border-[#c59b27]/60 space-y-2.5">
+                        <div className="flex items-center justify-between text-xs font-extrabold text-[#145a3a] dark:text-[#dfbd69]">
+                          <span className="flex items-center gap-1.5">
+                            <span>📜 بطاقة التوجيه التجويدي للتصحيح المنزلي</span>
+                          </span>
+                          <span className="px-2 py-0.5 rounded-full bg-[#145a3a] text-white text-[10px]">
+                            إتقان التلاوة
+                          </span>
+                        </div>
+                        <div className="p-3 rounded-xl bg-white dark:bg-[#0b1711] border border-[#c59b27]/30 text-xs space-y-1.5">
+                          <div className="flex items-center justify-between">
+                            <span className="font-extrabold text-[#14281d] dark:text-white">
+                              قاعدة التجويد الموجهة: أحكام الغنة والإخفاء
+                            </span>
+                            <span className="text-[10px] font-bold text-amber-700 dark:text-amber-300">
+                              حركتان غنة
+                            </span>
+                          </div>
+                          <p className="text-neutral-600 dark:text-neutral-300 text-[11px] leading-relaxed">
+                            توجيه الشيخ: مراعاة إخراج الغنة كاملة من الخيشوم بمقدار حركتين عند النون والميم المشددتين وعند إخفاء النون الساكنة دون استعجال.
+                          </p>
+                          <div className="p-2 rounded-lg bg-emerald-50 dark:bg-emerald-950/40 text-[11px] text-[#145a3a] dark:text-emerald-200 font-serif">
+                            مثال للتمرين المنزلي: ﴿مِن شَرِّ مَا خَلَقَ﴾ • ﴿عَمَّ يَتَسَاءَلُونَ﴾
+                          </div>
+                        </div>
+                      </div>
 
                       {studentSessions[0]?.memorizationAudioDataUrl && (
                         <div className="p-3 rounded-2xl bg-[#f8f9f6] dark:bg-[#0b1510] border border-[#c59b27]/50 space-y-1.5">
@@ -5472,6 +5509,18 @@ export const GuardianAndGuestView: React.FC = () => {
           )}
         </div>
       )}
+
+      {/* Smart Quiz & Peer-to-Peer Competitions Arena inside Guardian & Student Portal */}
+      {student &&
+        (guardianScreenTab === 'competitions_quiz' ||
+          guardianScreenTab === 'family_oasis') && (
+          <div className="pt-2">
+            <SmartQuizAndCompetitionsSection
+              mode="student"
+              activeStudentId={student.id}
+            />
+          </div>
+        )}
 
       {/* Faith Oasis Embedded View inside Guardian & Student Portal */}
       {guardianScreenTab === 'family_oasis' && (

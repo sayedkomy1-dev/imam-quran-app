@@ -1,8 +1,29 @@
 import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
+import fs from 'fs';
 import path from 'path';
 import {defineConfig} from 'vite';
 import {VitePWA} from 'vite-plugin-pwa';
+
+function githubPagesDeployHelperPlugin() {
+  return {
+    name: 'github-pages-deploy-helper',
+    closeBundle() {
+      try {
+        const distDir = path.resolve(__dirname, 'dist');
+        if (fs.existsSync(distDir)) {
+          fs.writeFileSync(path.join(distDir, 'CNAME'), 'welivequranacademy.online\n', 'utf-8');
+          const indexPath = path.join(distDir, 'index.html');
+          if (fs.existsSync(indexPath)) {
+            fs.copyFileSync(indexPath, path.join(distDir, '404.html'));
+          }
+        }
+      } catch {
+        // non-blocking in development
+      }
+    },
+  };
+}
 
 export default defineConfig(() => {
   return {
@@ -24,6 +45,7 @@ export default defineConfig(() => {
     plugins: [
       react(),
       tailwindcss(),
+      githubPagesDeployHelperPlugin(),
       VitePWA({
         registerType: 'autoUpdate',
         includeAssets: [

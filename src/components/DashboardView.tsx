@@ -11,7 +11,9 @@ import {
   PaymentReceiptModal,
   StudentIdCardModal,
 } from './StudentIdAndReceiptModals';
+import { DailyWisdomCard } from './DailyWisdomCard';
 import { OwnerPublicWaqfImpactHub } from './PublicMushafWaqfPortalView';
+import { GamificationDashboard } from './GamificationDashboard';
 import {
   AlertCircle,
   Award,
@@ -804,6 +806,9 @@ export const DashboardView: React.FC = () => {
           </div>
         </div>
       </section>
+
+      {/* Daily Wisdom & Motivational Guidance for Students and Teachers */}
+      <DailyWisdomCard />
 
       {/* Faith Oasis Daily Spiritual Highlight & Live Counter Strip */}
       <section className="rounded-2xl bg-[#fcfaf2] dark:bg-[#12231a] p-4 md:p-5 border-2 border-[#c59b27]/50 shadow-xs flex flex-col lg:flex-row lg:items-center justify-between gap-4">
@@ -2803,6 +2808,9 @@ export const DashboardView: React.FC = () => {
           </div>
         </div>
       </section>
+
+      {/* D3 Gamification Dashboard: Student Competition Rank Shifts & Earned Badges */}
+      <GamificationDashboard mode="teacher" />
 
       {/* Owner Public Waqf & Visitors Impact Hub + Distinguished Readers Encouragement */}
       <OwnerPublicWaqfImpactHub />

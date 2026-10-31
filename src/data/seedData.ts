@@ -41,6 +41,11 @@ export const DEFAULT_TEACHER_PERMISSIONS = {
   canIssueExamsAndCertificates: true,
   canManageStudentFees: false,
   canApproveAdmissionRequests: false,
+  restrictToAssignedCircles: false,
+  canAccessFinanceSection: false,
+  canManageCompetitionsAndQuizzes: true,
+  canDeleteOrEditCoreStudentData: true,
+  canExportDatabaseBackups: true,
 };
 
 const BASE_SETTINGS: AcademySettings = {

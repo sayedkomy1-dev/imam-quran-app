@@ -19,6 +19,7 @@ import {
   normalizeWhatsAppPhone,
 } from '../utils/whatsapp';
 import { formatGregorianAndHijri } from '../utils/dateUtils';
+import { getLocalDateString } from '../data/seedData';
 import {
   HYBRID_FOUNDATION_LEVELS,
   OFFICIAL_ACADEMY_WHATSAPP,
@@ -37,6 +38,7 @@ import {
   FamilyGuidanceGeneratorSection,
   PedagogicalDiagnosticCard,
 } from './PedagogicalAdvisorModal';
+import { GamificationDashboard } from './GamificationDashboard';
 import { ERROR_PEDAGOGICAL_COACHING_MAP } from '../data/pedagogicalAdvisorData';
 import {
   AlertTriangle,
@@ -84,6 +86,7 @@ export const StudentsView: React.FC = () => {
     setActiveTab,
     saveStudent,
     deleteStudent,
+    saveSession,
     setStudentAccountStatus,
     updateStudentPrivacyPreference,
     updateStudentFee,
@@ -103,6 +106,7 @@ export const StudentsView: React.FC = () => {
     cloudSyncStatus,
     lastSyncTimestamp,
     googleAuthUser,
+    peerCompetitions,
     showToast,
   } = useAcademy();
 
@@ -154,6 +158,53 @@ export const StudentsView: React.FC = () => {
   const [formNotes, setFormNotes] = useState('');
   const [phoneError, setPhoneError] = useState('');
   const [showAdmissionDrawer, setShowAdmissionDrawer] = useState(false);
+  const [assignCircleMap, setAssignCircleMap] = useState<Record<string, string>>({});
+  const [khatmahSimulatedPace, setKhatmahSimulatedPace] = useState<number>(1.5);
+
+  const handleQuickAttendAndStartSession = (st: Student) => {
+    setSelectedStudentId(st.id);
+    const todayStr = getLocalDateString(0);
+    saveSession({
+      studentId: st.id,
+      date: todayStr,
+      status: 'حضر',
+      masteryScore: 94,
+      previousEvaluation: {
+        newGrade: 'ممتاز',
+        nearGrade: 'ممتاز',
+        farGrade: 'جيد جداً',
+      },
+      actualRecitation: {
+        enabled: true,
+        surahId: st.currentStop.surahId,
+        surahName: st.currentStop.surahName,
+        isFullSurah: false,
+        fromAyah: st.currentStop.ayah,
+        toAyah: Math.min(st.currentStop.ayah + 10, 50),
+        direction: 'asc',
+        grade: 'ممتاز',
+      },
+      juzReview: {
+        enabled: true,
+        items: [],
+        direction: 'desc',
+      },
+      surahReview: {
+        enabled: true,
+        surahNames: [],
+        direction: 'desc',
+      },
+      parentNotes: 'تم تسجيل الحضور الفوري عبر مسح بطاقة الهوية القرآنية (QR Code)',
+      syncStatus: 'حصة محفوظة',
+      createdAt: new Date().toISOString(),
+    });
+    setStudentIdCardOpen(false);
+    setActiveTab('session');
+    showToast(
+      `⚡ تم تسجيل حضور الطالب (${st.name}) فورياً عبر بطاقة QR وفتح محرك الحصة الخماسي بنجاح ✓`,
+      'success'
+    );
+  };
 
   // Certificate Modal State
   const [certificateOpen, setCertificateOpen] = useState(false);
@@ -655,6 +706,41 @@ export const StudentsView: React.FC = () => {
                     {req.countryOrTimezone}
                   </div>
                 </div>
+                {/* Fatiha Placement Recitation Audio Player */}
+                {req.fatihaAudioDataUrl && (
+                  <div className="p-2.5 rounded-xl bg-amber-500/10 dark:bg-amber-950/30 border border-amber-400/40 space-y-1">
+                    <div className="flex items-center justify-between text-[11px] font-bold text-amber-900 dark:text-amber-200">
+                      <span>🎙️ تلاوة سورة الفاتحة لتحديد المستوى الأولي:</span>
+                      {req.fatihaAudioDurationSec && (
+                        <span className="font-mono text-[10px]">{req.fatihaAudioDurationSec} ثانية</span>
+                      )}
+                    </div>
+                    <audio
+                      controls
+                      src={req.fatihaAudioDataUrl}
+                      className="h-7 w-full max-w-sm"
+                    />
+                  </div>
+                )}
+
+                {/* Circle Assignment Selector */}
+                <div className="flex flex-wrap items-center gap-2 pt-1">
+                  <span className="text-[11px] font-bold text-neutral-500">تسكين في حلقة:</span>
+                  <select
+                    value={assignCircleMap[req.id] || circles[0]?.name || ''}
+                    onChange={(e) =>
+                      setAssignCircleMap((prev) => ({ ...prev, [req.id]: e.target.value }))
+                    }
+                    className="px-2.5 py-1 rounded-xl border border-neutral-300 dark:border-emerald-800 bg-white dark:bg-[#12231a] text-xs font-bold text-[#145a3a] dark:text-[#dfbd69]"
+                  >
+                    {circles.map((c) => (
+                      <option key={c.id} value={c.name}>
+                        {c.name} ({c.level})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
                 <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-neutral-200/70 dark:border-emerald-900/40">
                   {req.status !== 'تم القبول' && (
                     <button
@@ -662,12 +748,12 @@ export const StudentsView: React.FC = () => {
                       onClick={() =>
                         approveAdmissionAsStudent(
                           req.id,
-                          circles[0]?.name || 'حلقة النور والبيان (الناشئة)'
+                          assignCircleMap[req.id] || circles[0]?.name || 'حلقة النور والبيان (الناشئة)'
                         )
                       }
-                      className="px-3 py-1.5 rounded-xl bg-[#145a3a] hover:bg-[#0f452c] text-white font-extrabold cursor-pointer"
+                      className="px-3.5 py-1.5 rounded-xl bg-[#145a3a] hover:bg-[#0f452c] text-white font-extrabold cursor-pointer shadow-xs transition"
                     >
-                      ✅ قبول وإنشاء ملف طالب فوراً
+                      ✅ قبول وتسكين في الحلقة فوراً
                     </button>
                   )}
                   <button
@@ -1215,6 +1301,138 @@ export const StudentsView: React.FC = () => {
                       </div>
                     </div>
 
+                    {/* 2. مُخطط الختمة التنبؤي الذكي (Smart Khatmah Predictor) */}
+                    {(() => {
+                      const totalQuranPages = 604;
+                      const memorizedPages = Math.min(
+                        totalQuranPages,
+                        Math.max(
+                          (activeStudent.memorizedJuz?.length || 0) * 20,
+                          (activeStudent.memorizedSurahs?.length || 0) > 5 ? 20 : 6
+                        )
+                      );
+                      const remainingPages = Math.max(0, totalQuranPages - memorizedPages);
+                      const completionPercent = ((memorizedPages / totalQuranPages) * 100).toFixed(1);
+                      const effectivePace = Math.max(0.2, khatmahSimulatedPace);
+                      const weeksRemaining = Math.ceil(remainingPages / effectivePace);
+                      const projectedDate = new Date(Date.now() + weeksRemaining * 7 * 86400000);
+                      const projectedFormatted = formatGregorianAndHijri(
+                        projectedDate.toISOString().slice(0, 10),
+                        settings.showHijriDates ?? true
+                      );
+
+                      // Next milestone
+                      const milestones = [
+                        { label: 'ربع القرآن الكريم (7.5 أجزاء)', targetPages: 151, juz: '7.5' },
+                        { label: 'نصف القرآن الكريم (15 جزءاً)', targetPages: 302, juz: '15' },
+                        { label: 'ثلاثة أرباع القرآن (22.5 جزءاً)', targetPages: 453, juz: '22.5' },
+                        { label: 'ختمة المصحف الشريف المباركة (30 جزءاً)', targetPages: 604, juz: '30' },
+                      ];
+                      const nextMilestone = milestones.find((m) => m.targetPages > memorizedPages) || milestones[3];
+                      const pagesToNext = Math.max(0, nextMilestone.targetPages - memorizedPages);
+                      const weeksToNext = Math.ceil(pagesToNext / effectivePace);
+
+                      return (
+                        <div className="p-5 rounded-3xl bg-gradient-to-br from-[#145a3a]/15 via-white dark:via-[#12231a] to-[#c59b27]/15 border-2 border-[#c59b27]/60 shadow-md space-y-4">
+                          <div className="flex flex-wrap items-center justify-between gap-3">
+                            <div className="flex items-center gap-3">
+                              <div className="w-11 h-11 rounded-2xl bg-[#145a3a] text-[#dfbd69] flex items-center justify-center font-bold text-lg shadow-sm">
+                                🎯
+                              </div>
+                              <div>
+                                <div className="flex items-center gap-2">
+                                  <h3 className="text-base font-extrabold text-[#14281d] dark:text-white">
+                                    مُخطط الختمة التنبؤي الذكي (Smart Khatmah Predictor)
+                                  </h3>
+                                  <span className="px-2 py-0.5 rounded-full bg-emerald-600 text-white text-[10px] font-extrabold">
+                                    خوارزمية تنبؤ ذكية
+                                  </span>
+                                </div>
+                                <p className="text-xs text-neutral-600 dark:text-neutral-400">
+                                  حساب موعد الختمة المتوقع بناءً على معدل حفظ الطالب الأسبوعي وحضوره الفعلي
+                                </p>
+                              </div>
+                            </div>
+
+                            {/* Pace selector buttons */}
+                            <div className="flex items-center gap-1.5 p-1 rounded-xl bg-white dark:bg-[#0b1711] border border-[#c59b27]/40 text-xs">
+                              <span className="text-[11px] font-bold text-neutral-500 px-1">وتيرة الحفظ:</span>
+                              {[
+                                { pace: 0.5, label: 'نصف ص/أسبوع' },
+                                { pace: 1.0, label: 'صفحة/أسبوع' },
+                                { pace: 1.5, label: '1.5 ص/أسبوع' },
+                                { pace: 2.5, label: 'مكثف (2.5 ص)' },
+                              ].map((item) => (
+                                <button
+                                  key={item.pace}
+                                  type="button"
+                                  onClick={() => setKhatmahSimulatedPace(item.pace)}
+                                  className={`px-2 py-1 rounded-lg font-bold text-[11px] transition cursor-pointer ${
+                                    khatmahSimulatedPace === item.pace
+                                      ? 'bg-[#145a3a] text-white shadow-xs'
+                                      : 'text-neutral-600 dark:text-neutral-400 hover:text-neutral-900'
+                                  }`}
+                                >
+                                  {item.label}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+
+                          {/* Progress toward Khatmah Bar */}
+                          <div className="space-y-1.5">
+                            <div className="flex items-center justify-between text-xs font-bold">
+                              <span className="text-[#145a3a] dark:text-[#dfbd69]">
+                                نسبة الإنجاز نحو الختمة المباركة: {completionPercent}%
+                              </span>
+                              <span className="text-neutral-500 dark:text-neutral-400 font-mono">
+                                {memorizedPages} من أصل {totalQuranPages} صفحة ({remainingPages} صفحة متبقية)
+                              </span>
+                            </div>
+                            <div className="w-full h-3 rounded-full bg-neutral-200 dark:bg-emerald-950/70 overflow-hidden relative border border-neutral-300 dark:border-emerald-800">
+                              <div
+                                className="h-full bg-gradient-to-l from-amber-400 via-emerald-500 to-[#145a3a] rounded-full transition-all duration-500"
+                                style={{ width: `${Math.max(2, Number(completionPercent))}%` }}
+                              />
+                            </div>
+                          </div>
+
+                          {/* Forecast Metrics Cards */}
+                          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-1">
+                            {/* Card 1: Projected Date */}
+                            <div className="p-3.5 rounded-2xl bg-white dark:bg-[#12231a] border border-neutral-200 dark:border-emerald-900/60 text-center space-y-1">
+                              <div className="text-[11px] text-neutral-500 font-bold">تاريخ الختم المتوقع بإذن الله</div>
+                              <div className="text-base font-black text-[#145a3a] dark:text-[#dfbd69]">
+                                {projectedFormatted}
+                              </div>
+                              <div className="text-[10px] text-neutral-400">
+                                قرابة {weeksRemaining} أسبوعاً ({Math.round(weeksRemaining / 4.3)} شهراً)
+                              </div>
+                            </div>
+
+                            {/* Card 2: Next Milestone */}
+                            <div className="p-3.5 rounded-2xl bg-white dark:bg-[#12231a] border border-neutral-200 dark:border-emerald-900/60 text-center space-y-1">
+                              <div className="text-[11px] text-neutral-500 font-bold">المحطة القرآنية القادمة</div>
+                              <div className="text-sm font-extrabold text-[#c59b27]">
+                                {nextMilestone.label}
+                              </div>
+                              <div className="text-[10px] text-neutral-400">
+                                متبقي {pagesToNext} صفحة (خلال ~{weeksToNext} أسبوع)
+                              </div>
+                            </div>
+
+                            {/* Card 3: Spiritual Encouragement */}
+                            <div className="p-3.5 rounded-2xl bg-emerald-900/10 dark:bg-emerald-950/40 border border-emerald-700/30 flex flex-col justify-center items-center text-center space-y-1">
+                              <span className="text-sm">✨</span>
+                              <p className="text-[11px] text-[#145a3a] dark:text-emerald-200 font-bold leading-relaxed">
+                                «يقال لصاحب القرآن: اقرأ وارتقِ ورتل فإن منزلتك عند آخر آية تقرأ بها»
+                              </p>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })()}
+
                     {/* Al-Imam Hybrid Foundation & Live Gamification Progress Card */}
                     <div className="p-5 rounded-2xl bg-gradient-to-l from-[#145a3a]/10 to-[#c59b27]/10 border border-[#c59b27]/40 space-y-3">
                       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -1258,22 +1476,92 @@ export const StudentsView: React.FC = () => {
                         </div>
                       </div>
 
-                      {activeStudent.badges && activeStudent.badges.length > 0 && (
-                        <div className="flex flex-wrap items-center gap-1.5 pt-2 border-t border-[#c59b27]/25">
-                          <span className="text-[11px] font-bold text-neutral-500 ml-1">
-                            الأوسمة المكتسبة:
-                          </span>
-                          {activeStudent.badges.map((badge) => (
-                            <span
-                              key={badge}
-                              className="px-2.5 py-1 rounded-full bg-white dark:bg-[#12231a] border border-[#c59b27]/50 text-[11px] font-extrabold text-[#145a3a] dark:text-[#dfbd69]"
-                            >
-                              🏅 {badge}
-                            </span>
-                          ))}
-                        </div>
-                      )}
+                      {(() => {
+                        const studentCompEntries = (peerCompetitions || []).flatMap((pack) => {
+                          const sortedSubs = [...pack.submissions].sort(
+                            (a, b) => b.compositeRankPoints - a.compositeRankPoints
+                          );
+                          return sortedSubs
+                            .map((sub, idx) => ({ sub, computedRank: sub.rank || idx + 1 }))
+                            .filter((item) => item.sub.studentId === activeStudent.id)
+                            .map(({ sub, computedRank }) => ({
+                              packTitle: pack.title,
+                              rank: computedRank,
+                              score: sub.score,
+                              timeSeconds: sub.timeSeconds,
+                              awardedCup: sub.awardedCup,
+                              awardedBadge: sub.awardedBadge || pack.badgeTitle,
+                            }));
+                        });
+                        const hasBadgesOrCups =
+                          (activeStudent.badges && activeStudent.badges.length > 0) ||
+                          studentCompEntries.length > 0;
+
+                        if (!hasBadgesOrCups) return null;
+
+                        return (
+                          <div className="pt-2.5 border-t border-[#c59b27]/25 space-y-2">
+                            {activeStudent.badges && activeStudent.badges.length > 0 && (
+                              <div className="flex flex-wrap items-center gap-1.5">
+                                <span className="text-[11px] font-bold text-neutral-500 ml-1">
+                                  الأوسمة والكؤوس المكتسبة:
+                                </span>
+                                {activeStudent.badges.map((badge) => {
+                                  const isCup =
+                                    badge.includes('كأس') ||
+                                    badge.includes('🏆') ||
+                                    badge.includes('🥈') ||
+                                    badge.includes('🥉');
+                                  return (
+                                    <span
+                                      key={badge}
+                                      className={`px-2.5 py-1 rounded-full text-[11px] font-extrabold ${
+                                        isCup
+                                          ? 'bg-gradient-to-l from-amber-300/40 to-amber-100 dark:from-amber-900/60 dark:to-amber-950/60 border border-amber-500 text-amber-900 dark:text-amber-200 shadow-2xs'
+                                          : 'bg-white dark:bg-[#12231a] border border-[#c59b27]/50 text-[#145a3a] dark:text-[#dfbd69]'
+                                      }`}
+                                    >
+                                      {isCup ? badge : `🏅 ${badge}`}
+                                    </span>
+                                  );
+                                })}
+                              </div>
+                            )}
+
+                            {studentCompEntries.length > 0 && (
+                              <div className="flex flex-wrap items-center justify-between gap-2 p-2.5 rounded-xl bg-white/80 dark:bg-[#0b1711]/80 border border-[#c59b27]/40">
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <span className="text-[11px] font-black text-[#145a3a] dark:text-[#dfbd69]">
+                                    🏆 سجل المسابقات التنافسية (Live Leaderboard):
+                                  </span>
+                                  {studentCompEntries.map((entry, idx) => (
+                                    <span
+                                      key={`${entry.packTitle}-${idx}`}
+                                      className="px-2.5 py-1 rounded-lg bg-amber-500/15 border border-amber-500/40 text-[11px] font-extrabold text-[#14281d] dark:text-amber-200"
+                                    >
+                                      {entry.awardedCup} — المركز #{entry.rank} في «{entry.packTitle}» (الدقة {entry.score}% • ⏱️ {entry.timeSeconds}ث)
+                                    </span>
+                                  ))}
+                                </div>
+                                <button
+                                  type="button"
+                                  onClick={() => setActiveTab('exams')}
+                                  className="px-2.5 py-1 rounded-lg bg-[#145a3a] text-[#dfbd69] text-[10px] font-extrabold cursor-pointer"
+                                >
+                                  عرض لوحة الشرف والمسابقات ←
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })()}
                     </div>
+
+                    {/* Gamification Dashboard (D3 Rank Shifts & Earned Badges in Student Profile) */}
+                    <GamificationDashboard
+                      student={activeStudent}
+                      mode="teacher"
+                    />
 
                     {/* Pedagogical Advisor & Learning Style Diagnostic Card + Family Guidance Generator */}
                     <div id="pg-profile" className="space-y-4">
@@ -2471,6 +2759,7 @@ export const StudentsView: React.FC = () => {
           settings={settings}
           onClose={() => setStudentIdCardOpen(false)}
           onShowToast={showToast}
+          onQuickAttendAndStartSession={handleQuickAttendAndStartSession}
         />
       )}
 

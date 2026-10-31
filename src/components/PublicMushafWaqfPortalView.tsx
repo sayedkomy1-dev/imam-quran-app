@@ -11,14 +11,17 @@ import {
   EyeOff,
   Flame,
   Heart,
+  Image as ImageIcon,
   Layers,
   Maximize2,
   MessageCircle,
+  Mic,
   Minimize2,
   Moon,
   Pause,
   Play,
   Printer,
+  Repeat,
   Share2,
   Smartphone,
   Sparkles,
@@ -31,6 +34,7 @@ import { useAcademy } from '../context/AcademyContext';
 import {
   AyahEntry,
   JUZ_NAMES,
+  QuranEditionMode,
   RECITERS,
   SURAHS,
   WAQF_DEDICATION_TEXT,
@@ -39,8 +43,10 @@ import {
   getPageNumberForJuz,
   getPageNumberForQuarter,
   getPageNumberForSurahAyah,
+  getQuranPageImageUrl,
   getWordMeaningAndTafsir,
   loadSurahVerses,
+  parseVerseTajweedTokens,
   stripLeadingBasmalah,
 } from '../data/quranData';
 import { PublicBookmarkCategory, ReciterId } from '../types';
@@ -785,6 +791,53 @@ export const PublicMushafWaqfPortalView: React.FC<PublicMushafWaqfPortalViewProp
   const [autoAdvancePages, setAutoAdvancePages] = useState<boolean>(true);
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
+  // 3-Mode Mushaf Edition: 'digital' | 'shamarli' | 'madinah'
+  const [mushafEdition, setMushafEdition] = useState<QuranEditionMode>(() => {
+    try {
+      const saved = localStorage.getItem('imam_mushaf_edition_mode');
+      if (saved === 'shamarli' || saved === 'madinah' || saved === 'digital') return saved;
+    } catch {}
+    return 'digital';
+  });
+
+  // Interactive Tajweed Highlighting
+  const [enableTajweedHighlighting, setEnableTajweedHighlighting] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem('imam_tajweed_highlighting') === 'true';
+    } catch {}
+    return false;
+  });
+
+  // Husary Muallim Repeat Counter (1 to 5)
+  const [muallimRepeatCount, setMuallimRepeatCount] = useState<number>(1);
+  const [currentRepeatCycle, setCurrentRepeatCycle] = useState<number>(0);
+
+  // Offline Recitation Comparator & Voice Recorder State
+  const [showComparatorModal, setShowComparatorModal] = useState<boolean>(false);
+  const [comparatorAyah, setComparatorAyah] = useState<{ surahId: number; surahName: string; ayah: number; text: string } | null>(null);
+  const [isRecordingStudent, setIsRecordingStudent] = useState<boolean>(false);
+  const [studentAudioBlobUrl, setStudentAudioBlobUrl] = useState<string | null>(null);
+  const [recordingSeconds, setRecordingSeconds] = useState<number>(0);
+  const [isPlayingStudentVoice, setIsPlayingStudentVoice] = useState<boolean>(false);
+  const [isPlayingSheikhVoice, setIsPlayingSheikhVoice] = useState<boolean>(false);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const recordedChunksRef = useRef<Blob[]>([]);
+  const recordingTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const studentAudioPlayerRef = useRef<HTMLAudioElement | null>(null);
+  const sheikhAudioPlayerRef = useRef<HTMLAudioElement | null>(null);
+
+  // Pre-load adjacent pages for image editions
+  useEffect(() => {
+    if (mushafEdition !== 'digital') {
+      const prevP = Math.max(1, currentPage - 1);
+      const nextP = Math.min(604, currentPage + 1);
+      const img1 = new Image();
+      img1.src = getQuranPageImageUrl(mushafEdition, prevP);
+      const img2 = new Image();
+      img2.src = getQuranPageImageUrl(mushafEdition, nextP);
+    }
+  }, [currentPage, mushafEdition]);
+
   // Selected Ayah Modal (Tafsir, Word Meanings, Share Card)
   const [selectedAyahDetail, setSelectedAyahDetail] = useState<{
     surahId: number;
@@ -908,6 +961,17 @@ export const PublicMushafWaqfPortalView: React.FC<PublicMushafWaqfPortalViewProp
   }, [isPlaying, selectedReciter, activeAudioSurahId, activeAudioAyah, playbackSpeed]);
 
   const handleAudioEnded = () => {
+    // Check if repeat count is active for Husary Muallim
+    if (selectedReciter === 'Husary_Muallim_128kbps' && currentRepeatCycle + 1 < muallimRepeatCount) {
+      setCurrentRepeatCycle((prev) => prev + 1);
+      if (audioRef.current) {
+        audioRef.current.currentTime = 0;
+        audioRef.current.play().catch(() => {});
+      }
+      return;
+    }
+    setCurrentRepeatCycle(0);
+
     const idx = flatPageAyahs.findIndex(
       (item) =>
         item.surahId === activeAudioSurahId && item.ayahEntry.ayah === activeAudioAyah
@@ -1748,6 +1812,125 @@ export const PublicMushafWaqfPortalView: React.FC<PublicMushafWaqfPortalViewProp
                     </label>
                   </div>
                 </div>
+
+                {/* Row 3: Edition Switcher, Tajweed Highlighting & Pedagogical Tools */}
+                <div className="pt-2 border-t border-slate-200 dark:border-slate-800 flex flex-wrap items-center justify-between gap-3">
+                  {/* 3-Mode Edition Switcher */}
+                  <div className="flex flex-wrap items-center gap-1.5 p-1 rounded-2xl bg-slate-100 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setMushafEdition('digital');
+                        try { localStorage.setItem('imam_mushaf_edition_mode', 'digital'); } catch {}
+                      }}
+                      className={`px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer flex items-center gap-1.5 ${
+                        mushafEdition === 'digital'
+                          ? 'bg-[#145a3a] text-white font-black shadow-xs'
+                          : 'text-slate-600 dark:text-slate-300 hover:bg-white/40'
+                      }`}
+                    >
+                      <BookOpen className="w-3.5 h-3.5 text-[#dfbd69]" />
+                      <span>النص العثماني الرقمي</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setMushafEdition('shamarli');
+                        try { localStorage.setItem('imam_mushaf_edition_mode', 'shamarli'); } catch {}
+                      }}
+                      className={`px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer flex items-center gap-1.5 ${
+                        mushafEdition === 'shamarli'
+                          ? 'bg-[#145a3a] text-white font-black shadow-xs'
+                          : 'text-slate-600 dark:text-slate-300 hover:bg-white/40'
+                      }`}
+                    >
+                      <ImageIcon className="w-3.5 h-3.5 text-[#dfbd69]" />
+                      <span>مصحف الشمرلي (المصري)</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setMushafEdition('madinah');
+                        try { localStorage.setItem('imam_mushaf_edition_mode', 'madinah'); } catch {}
+                      }}
+                      className={`px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer flex items-center gap-1.5 ${
+                        mushafEdition === 'madinah'
+                          ? 'bg-[#145a3a] text-white font-black shadow-xs'
+                          : 'text-slate-600 dark:text-slate-300 hover:bg-white/40'
+                      }`}
+                    >
+                      <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+                      <span>مصحف المدينة المنورة المصور</span>
+                    </button>
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-2">
+                    {/* Tajweed Highlighting Toggle */}
+                    {mushafEdition === 'digital' && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const nextVal = !enableTajweedHighlighting;
+                          setEnableTajweedHighlighting(nextVal);
+                          try { localStorage.setItem('imam_tajweed_highlighting', String(nextVal)); } catch {}
+                          showToast(nextVal ? 'تم تفعيل التلوين التفاعلي لأحكام التجويد' : 'تم إيقاف تلوين التجويد', 'info');
+                        }}
+                        className={`px-3 py-1.5 rounded-xl text-xs font-extrabold flex items-center gap-1.5 border transition cursor-pointer ${
+                          enableTajweedHighlighting
+                            ? 'bg-amber-100 dark:bg-amber-950/80 border-amber-400 text-amber-900 dark:text-amber-200'
+                            : 'bg-slate-50 dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300'
+                        }`}
+                      >
+                        <span>🎨 تلوين أحكام التجويد</span>
+                        <span className="text-[10px] font-mono">
+                          {enableTajweedHighlighting ? '(مفعل ✓)' : '(متوقف)'}
+                        </span>
+                      </button>
+                    )}
+
+                    {/* Husary Muallim Repetition Selector */}
+                    {selectedReciter === 'Husary_Muallim_128kbps' && (
+                      <div className="flex items-center gap-1.5 px-3 py-1 rounded-xl bg-amber-50 dark:bg-amber-950/40 border border-amber-300 dark:border-amber-800 text-xs">
+                        <Repeat className="w-3.5 h-3.5 text-amber-700 dark:text-amber-300" />
+                        <span className="font-bold text-amber-900 dark:text-amber-200">ترديد التلقين:</span>
+                        <select
+                          value={muallimRepeatCount}
+                          onChange={(e) => setMuallimRepeatCount(Number(e.target.value))}
+                          className="rounded-lg border border-amber-300 dark:border-amber-700 bg-white dark:bg-slate-800 px-2 py-0.5 text-xs font-bold"
+                        >
+                          {[1, 2, 3, 4, 5].map((cnt) => (
+                            <option key={cnt} value={cnt}>
+                              تكرار {cnt} {cnt === 1 ? 'مرة' : 'مرات'}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    )}
+
+                    {/* Recitation Comparator Trigger */}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const firstItem = flatPageAyahs[0];
+                        if (firstItem) {
+                          setComparatorAyah({
+                            surahId: firstItem.surahId,
+                            surahName: firstItem.surahName,
+                            ayah: firstItem.ayahEntry.ayah,
+                            text: firstItem.ayahEntry.text,
+                          });
+                        }
+                        setShowComparatorModal(true);
+                      }}
+                      className="px-3.5 py-1.5 rounded-xl bg-gradient-to-l from-emerald-800 to-teal-800 hover:from-emerald-700 hover:to-teal-700 text-amber-200 border border-amber-400/40 text-xs font-extrabold flex items-center gap-1.5 transition cursor-pointer shadow-xs"
+                    >
+                      <Mic className="w-3.5 h-3.5 text-amber-300" />
+                      <span>قارن تلاوتك بالشيخ</span>
+                    </button>
+                  </div>
+                </div>
               </div>
             )}
 
@@ -1775,7 +1958,26 @@ export const PublicMushafWaqfPortalView: React.FC<PublicMushafWaqfPortalViewProp
                   <div>سورة {pageInfo.primarySurahName}</div>
                 </div>
 
-                {loadingPage ? (
+                {mushafEdition !== 'digital' ? (
+                  <div className="flex flex-col items-center justify-center p-2 sm:p-4 bg-white dark:bg-slate-900 rounded-2xl border-2 border-amber-400/40 shadow-inner">
+                    <div className="flex items-center justify-between w-full pb-2 mb-3 border-b border-amber-300/40 text-xs font-bold text-amber-900 dark:text-amber-300">
+                      <span>
+                        {mushafEdition === 'shamarli'
+                          ? 'طبعة مصحف الشمرلي المصرية التراثية (صور عالية الدقة)'
+                          : 'طبعة مصحف المدينة المنورة (مجمع الملك فهد)'}
+                      </span>
+                      <span className="font-mono">صفحة {currentPage} من 604</span>
+                    </div>
+                    <div className="w-full flex justify-center py-2 overflow-hidden">
+                      <img
+                        src={getQuranPageImageUrl(mushafEdition, currentPage)}
+                        alt={`مصحف صفحة ${currentPage}`}
+                        className="max-h-[75vh] sm:max-h-[85vh] w-auto rounded-xl shadow-xl border-2 border-amber-500/50 object-contain hover:scale-[1.01] transition-transform duration-200"
+                        loading="eager"
+                      />
+                    </div>
+                  </div>
+                ) : loadingPage ? (
                   <div className="py-16 text-center space-y-3">
                     <div className="w-10 h-10 border-4 border-emerald-600 border-t-transparent rounded-full animate-spin mx-auto" />
                     <p className="text-sm font-bold text-slate-500">
@@ -1784,6 +1986,22 @@ export const PublicMushafWaqfPortalView: React.FC<PublicMushafWaqfPortalViewProp
                   </div>
                 ) : (
                   <div className="space-y-8">
+                    {enableTajweedHighlighting && (
+                      <div className="p-3 rounded-2xl bg-amber-50/80 dark:bg-amber-950/40 border border-amber-300 dark:border-amber-800 flex flex-wrap items-center justify-around gap-2 text-xs">
+                        <div className="flex items-center gap-1.5 font-bold text-[#e11d48]">
+                          <span className="w-3 h-3 rounded-full bg-[#e11d48]"></span>
+                          <span>أحكام المدود (أحمر)</span>
+                        </div>
+                        <div className="flex items-center gap-1.5 font-bold text-[#16a34a]">
+                          <span className="w-3 h-3 rounded-full bg-[#16a34a]"></span>
+                          <span>الغنة والإخفاء والإدغام (أخضر)</span>
+                        </div>
+                        <div className="flex items-center gap-1.5 font-bold text-[#2563eb]">
+                          <span className="w-3 h-3 rounded-full bg-[#2563eb]"></span>
+                          <span>القلقلة: قطب جد (أزرق)</span>
+                        </div>
+                      </div>
+                    )}
                     {pageSections.map((sec) => (
                       <div key={`${sec.surahId}-${sec.fromAyah}`} className="space-y-4">
                         {/* Surah Ornate Banner */}
@@ -1850,7 +2068,22 @@ export const PublicMushafWaqfPortalView: React.FC<PublicMushafWaqfPortalViewProp
                                     : 'انقر لعرض التفسير الميسر ومعاني الكلمات أو الاستماع والمشاركة'
                                 }
                               >
-                                <span>{cleanVerseText} </span>
+                                {enableTajweedHighlighting ? (
+                                  <span>
+                                    {parseVerseTajweedTokens(cleanVerseText).map((tok, tIdx) => (
+                                      <span
+                                        key={tIdx}
+                                        style={tok.color ? { color: tok.color } : undefined}
+                                        title={tok.label}
+                                        className={tok.color ? 'font-bold' : ''}
+                                      >
+                                        {tok.text}
+                                      </span>
+                                    ))}{' '}
+                                  </span>
+                                ) : (
+                                  <span>{cleanVerseText} </span>
+                                )}
                                 <span className="inline-flex items-center justify-center mx-1 px-2 py-0.5 rounded-full text-sm font-extrabold bg-amber-500/20 text-amber-900 dark:text-amber-300 border border-amber-500/50">
                                   ﴿{v.ayah}﴾
                                 </span>{' '}
@@ -2350,6 +2583,228 @@ export const PublicMushafWaqfPortalView: React.FC<PublicMushafWaqfPortalViewProp
                 <Share2 className="w-3.5 h-3.5" />
                 <span>مشاركة بطاقة الآية والصدقة الجارية</span>
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: Offline Recitation Comparator & Voice Recorder */}
+      {showComparatorModal && (
+        <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
+          <div className="bg-white dark:bg-slate-900 rounded-3xl border-2 border-emerald-500 max-w-xl w-full p-6 shadow-2xl space-y-4 my-auto">
+            <div className="flex items-center justify-between pb-3 border-b border-neutral-200 dark:border-neutral-800">
+              <div className="flex items-center gap-2.5">
+                <div className="w-10 h-10 rounded-2xl bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 flex items-center justify-center">
+                  <Mic className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-extrabold text-[#145a3a] dark:text-[#dfbd69]">
+                    أداة «قارن تلاوتك بالشيخ» (Recitation Comparator)
+                  </h3>
+                  <p className="text-xs text-neutral-500">
+                    سجّل تلاوتك للآية ثم استمع للفرق بين صوتك وتلاوة الشيخ الحصري المتقن
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  if (recordingTimerRef.current) clearInterval(recordingTimerRef.current);
+                  if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
+                    mediaRecorderRef.current.stop();
+                  }
+                  setIsRecordingStudent(false);
+                  setShowComparatorModal(false);
+                }}
+                className="p-2 rounded-xl bg-neutral-100 dark:bg-neutral-800 text-neutral-500 hover:text-rose-600 cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Selected Ayah Selector */}
+            <div className="space-y-1.5">
+              <label className="text-xs font-bold text-neutral-600 dark:text-neutral-400">
+                اختر الآية المراد التسميع والمقارنة عليها:
+              </label>
+              <select
+                value={comparatorAyah ? `${comparatorAyah.surahId}-${comparatorAyah.ayah}` : ''}
+                onChange={(e) => {
+                  const [sIdStr, aStr] = e.target.value.split('-');
+                  const sId = Number(sIdStr);
+                  const a = Number(aStr);
+                  const found = flatPageAyahs.find((item) => item.surahId === sId && item.ayahEntry.ayah === a);
+                  if (found) {
+                    setComparatorAyah({
+                      surahId: found.surahId,
+                      surahName: found.surahName,
+                      ayah: found.ayahEntry.ayah,
+                      text: found.ayahEntry.text,
+                    });
+                    setStudentAudioBlobUrl(null);
+                    setRecordingSeconds(0);
+                  }
+                }}
+                className="w-full rounded-xl border border-neutral-300 dark:border-neutral-700 bg-[#f6f7f2] dark:bg-[#0b1711] px-3.5 py-2 text-xs font-bold"
+              >
+                {flatPageAyahs.map((item) => (
+                  <option key={`${item.surahId}-${item.ayahEntry.ayah}`} value={`${item.surahId}-${item.ayahEntry.ayah}`}>
+                    سورة {item.surahName} — الآية ({item.ayahEntry.ayah})
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* Display Ayah Text */}
+            {comparatorAyah && (
+              <div className="p-4 rounded-2xl bg-amber-50/70 dark:bg-amber-950/30 border border-amber-300 dark:border-amber-800 text-center space-y-1">
+                <span className="text-[11px] font-bold text-amber-800 dark:text-amber-300">
+                  سورة {comparatorAyah.surahName} ﴿{comparatorAyah.ayah}﴾:
+                </span>
+                <p className="font-quran text-lg sm:text-xl font-bold text-neutral-900 dark:text-white leading-loose">
+                  «{comparatorAyah.text}»
+                </p>
+              </div>
+            )}
+
+            {/* Recorder Controls */}
+            <div className="flex flex-col items-center justify-center p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 space-y-3">
+              <button
+                type="button"
+                onClick={async () => {
+                  if (isRecordingStudent) {
+                    // Stop recording
+                    if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
+                      mediaRecorderRef.current.stop();
+                    }
+                    if (recordingTimerRef.current) clearInterval(recordingTimerRef.current);
+                    setIsRecordingStudent(false);
+                  } else {
+                    // Start recording
+                    try {
+                      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+                        showToast('الميكروفون غير متاح في هذا المتصفح', 'error');
+                        return;
+                      }
+                      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                      recordedChunksRef.current = [];
+                      const mr = new MediaRecorder(stream);
+                      mediaRecorderRef.current = mr;
+                      mr.ondataavailable = (e) => {
+                        if (e.data.size > 0) recordedChunksRef.current.push(e.data);
+                      };
+                      mr.onstop = () => {
+                        const blob = new Blob(recordedChunksRef.current, { type: 'audio/webm' });
+                        const blobUrl = URL.createObjectURL(blob);
+                        setStudentAudioBlobUrl(blobUrl);
+                        stream.getTracks().forEach((t) => t.stop());
+                        showToast('تم حفظ تسجيل التلاوة بنجاح ✓ يمكنك الآن المقارنة', 'success');
+                      };
+                      mr.start();
+                      setIsRecordingStudent(true);
+                      setRecordingSeconds(0);
+                      recordingTimerRef.current = setInterval(() => {
+                        setRecordingSeconds((s) => s + 1);
+                      }, 1000);
+                    } catch {
+                      showToast('يرجى منح إذن استخدام الميكروفون للتسجيل', 'error');
+                    }
+                  }
+                }}
+                className={`py-3 px-6 rounded-2xl text-xs sm:text-sm font-black flex items-center gap-2 cursor-pointer transition shadow-md ${
+                  isRecordingStudent
+                    ? 'bg-rose-600 hover:bg-rose-700 text-white animate-pulse'
+                    : 'bg-[#145a3a] hover:bg-[#0f452c] text-[#dfbd69]'
+                }`}
+              >
+                <Mic className="w-4 h-4" />
+                <span>
+                  {isRecordingStudent
+                    ? `جارٍ تسجيل صوتك (${recordingSeconds}ث)... اضغط للإيقاف`
+                    : 'اضغط هنا لبدء تسجيل تلاوتك بصوتك'}
+                </span>
+              </button>
+
+              {studentAudioBlobUrl && (
+                <div className="w-full space-y-3 pt-2">
+                  <div className="text-xs font-bold text-emerald-700 dark:text-emerald-400 text-center">
+                    ✓ تم تجهيز تلاوتك ({recordingSeconds} ثانية) — استمع للمقارنة:
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                    {/* Play Student Recitation */}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (studentAudioPlayerRef.current) {
+                          studentAudioPlayerRef.current.pause();
+                        }
+                        const a = new Audio(studentAudioBlobUrl);
+                        studentAudioPlayerRef.current = a;
+                        setIsPlayingStudentVoice(true);
+                        a.onended = () => setIsPlayingStudentVoice(false);
+                        a.play().catch(() => setIsPlayingStudentVoice(false));
+                      }}
+                      className="py-2.5 px-3 rounded-xl bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-xs font-bold flex items-center justify-center gap-2 cursor-pointer shadow-2xs"
+                    >
+                      <Volume2 className="w-4 h-4 text-emerald-600" />
+                      <span>{isPlayingStudentVoice ? 'جارٍ الاستماع لصوتك...' : '١. استمع لتلاوتك'}</span>
+                    </button>
+
+                    {/* Play Sheikh Husary Recitation for Same Ayah */}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (sheikhAudioPlayerRef.current) {
+                          sheikhAudioPlayerRef.current.pause();
+                        }
+                        const sheikhUrl = getEveryAyahAudioUrl(
+                          'Husary_128kbps',
+                          comparatorAyah?.surahId || 1,
+                          comparatorAyah?.ayah || 1
+                        );
+                        const a = new Audio(sheikhUrl);
+                        sheikhAudioPlayerRef.current = a;
+                        setIsPlayingSheikhVoice(true);
+                        a.onended = () => setIsPlayingSheikhVoice(false);
+                        a.play().catch(() => setIsPlayingSheikhVoice(false));
+                      }}
+                      className="py-2.5 px-3 rounded-xl bg-[#c59b27] hover:bg-[#b58c1e] text-[#14281d] text-xs font-black flex items-center justify-center gap-2 cursor-pointer shadow-2xs"
+                    >
+                      <Volume2 className="w-4 h-4" />
+                      <span>{isPlayingSheikhVoice ? 'جارٍ تلاوة الشيخ...' : '٢. استمع للشيخ الحصري'}</span>
+                    </button>
+                  </div>
+
+                  {/* Sequential Auto-Compare Button */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      showToast('بدء الاستماع المتتالي: تلاوتك أولاً ثم الشيخ الحصري تلقائياً', 'info');
+                      const studentAudio = new Audio(studentAudioBlobUrl);
+                      studentAudioPlayerRef.current = studentAudio;
+                      setIsPlayingStudentVoice(true);
+                      studentAudio.play().catch(() => setIsPlayingStudentVoice(false));
+                      studentAudio.onended = () => {
+                        setIsPlayingStudentVoice(false);
+                        const sheikhUrl = getEveryAyahAudioUrl(
+                          'Husary_128kbps',
+                          comparatorAyah?.surahId || 1,
+                          comparatorAyah?.ayah || 1
+                        );
+                        const sheikhAudio = new Audio(sheikhUrl);
+                        sheikhAudioPlayerRef.current = sheikhAudio;
+                        setIsPlayingSheikhVoice(true);
+                        sheikhAudio.play().catch(() => setIsPlayingSheikhVoice(false));
+                        sheikhAudio.onended = () => setIsPlayingSheikhVoice(false);
+                      };
+                    }}
+                    className="w-full py-2.5 px-4 rounded-xl bg-gradient-to-l from-emerald-800 to-teal-800 hover:from-emerald-700 hover:to-teal-700 text-white text-xs font-black flex items-center justify-center gap-2 cursor-pointer shadow-xs"
+                  >
+                    <span>⚡ تشغيل المقارنة المتتالية التلقائية (صوتك ➔ صوت الشيخ)</span>
+                  </button>
+                </div>
+              )}
             </div>
           </div>
         </div>

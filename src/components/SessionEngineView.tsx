@@ -10,7 +10,7 @@ import {
   SURAHS,
 } from '../data/quranData';
 import { getLocalDateString } from '../data/seedData';
-import { MUTASHABIHAT_DB } from '../data/smartSuiteData';
+import { MUTASHABIHAT_DB, TAJWEED_RULES_GUIDE } from '../data/smartSuiteData';
 import {
   AttendanceStatus,
   ErrorContext,
@@ -396,6 +396,143 @@ export const SessionEngineView: React.FC = () => {
     if (!currentStudent) return [];
     return allTeacherVoiceNotes.filter((n) => n.studentId === currentStudent.id);
   }, [allTeacherVoiceNotes, currentStudent]);
+
+  // Spaced Repetition Engine (SRS) — خوارزمية المراجعة المتباعدة لمنع التفلت
+  const srsDueJuzList = useMemo(() => {
+    if (!currentStudent || !currentStudent.memorizedJuz || currentStudent.memorizedJuz.length === 0) {
+      return [];
+    }
+    const nowMs = Date.now();
+    const list: {
+      juzNumber: number;
+      juzName: string;
+      daysElapsed: number;
+      lastDateStr: string;
+      urgency: 'critical' | 'warning';
+    }[] = [];
+
+    currentStudent.memorizedJuz.forEach((jNum) => {
+      const matching = sessions.filter(
+        (s) =>
+          s.studentId === currentStudent.id &&
+          s.status === 'حضر' &&
+          ((s.juzReview?.enabled && s.juzReview?.items?.some((it) => it.juzNumber === jNum)) ||
+            (s.farReview?.enabled && SURAHS.find((su) => su.id === s.farReview?.surahId)?.juzNumber === jNum) ||
+            (s.sectionPercentages?.juzReview && s.sectionPercentages.juzReview > 0))
+      );
+
+      matching.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+      const latest = matching[0];
+      let days = 999;
+      let lastStr = 'لم يُسجل مسبقاً في الحصص';
+      if (latest && latest.date) {
+        lastStr = latest.date;
+        days = Math.floor((nowMs - new Date(latest.date).getTime()) / (1000 * 60 * 60 * 24));
+      }
+
+      if (days >= 21) {
+        list.push({
+          juzNumber: jNum,
+          juzName: JUZ_NAMES[jNum - 1] || `الجزء ${jNum}`,
+          daysElapsed: days === 999 ? 28 : days,
+          lastDateStr: lastStr,
+          urgency: days >= 30 ? 'critical' : 'warning',
+        });
+      }
+    });
+
+    return list;
+  }, [currentStudent, sessions]);
+
+  const handleApplySrsJuzToFarReview = (juzNumber: number) => {
+    const targetSurah = SURAHS.find((s) => s.juzNumber === juzNumber) || SURAHS[0];
+    setFarRev({
+      enabled: true,
+      surahId: targetSurah.id,
+      surahName: targetSurah.name,
+      isFullSurah: true,
+      fromAyah: 1,
+      toAyah: targetSurah.totalVerses,
+      direction: 'asc',
+      grade: 'جيد جداً',
+    });
+    setJuzEnabled(true);
+    setSelectedJuzNum(juzNumber);
+    setSelectedJuzScope('full');
+    setJuzItems([
+      {
+        id: `jz-srs-${juzNumber}-${Date.now()}`,
+        juzNumber: juzNumber,
+        juzName: JUZ_NAMES[juzNumber - 1] || `الجزء ${juzNumber}`,
+        scope: 'full',
+        label: `${JUZ_NAMES[juzNumber - 1]} (إدراج فوري عبر خوارزمية SRS لمنع التفلت)`,
+      },
+    ]);
+    showToast(
+      `⚡ تم إدراج (${JUZ_NAMES[juzNumber - 1]}) بنجاح في المراجعة البعيدة ومراجعة الأجزاء لتثبيته ومنع تفلته ✓`,
+      'success'
+    );
+  };
+
+  // Tajweed Error Explanatory Cards State — ربط أخطاء التجويد ببطاقات الشرح المبسطة
+  const [tajweedPickerOpen, setTajweedPickerOpen] = useState(false);
+  const [tajweedTargetErrorId, setTajweedTargetErrorId] = useState<string | null>(null);
+  const [viewingTajweedRuleCard, setViewingTajweedRuleCard] = useState<{
+    name: string;
+    letters: string;
+    example: string;
+    explanation: string;
+    durationHarakat?: string;
+    tip?: string;
+  } | null>(null);
+
+  const handleAttachTajweedRuleToError = (rule: any) => {
+    if (tajweedTargetErrorId) {
+      setErrors((prev) =>
+        prev.map((err) =>
+          err.id === tajweedTargetErrorId
+            ? {
+                ...err,
+                tajweedRule: rule.name,
+                tajweedExplanation: rule.explanation,
+                tajweedLetters: rule.letters,
+                tajweedExample: rule.example,
+                tajweedPracticeTip: `توجيه منزلي: تمرن على نطق الكلمة مع مراعاة (${rule.name}) وحكمها: ${rule.explanation}`,
+              }
+            : err
+        )
+      );
+      showToast(`تم ربط الخطأ ببطاقة شرح (${rule.name}) بنجاح ✓`, 'success');
+      setTajweedPickerOpen(false);
+      setTajweedTargetErrorId(null);
+    } else {
+      // Create new error with this rule attached
+      const activeSurah =
+        activeErrorContext === 'الحفظ الجديد'
+          ? newMem.surahName
+          : activeErrorContext === 'المراجعة القريبة'
+          ? nearRev.surahName
+          : activeErrorContext === 'المراجعة البعيدة'
+          ? farRev.surahName
+          : currentStudent?.currentStop.surahName;
+
+      const newError: RecitationError = {
+        id: `err-${Date.now()}-${Math.random().toString(36).slice(2, 5)}`,
+        type: 'تجويد',
+        context: activeErrorContext,
+        surah: activeSurah,
+        timestamp: sessionDate,
+        tajweedRule: rule.name,
+        tajweedExplanation: rule.explanation,
+        tajweedLetters: rule.letters,
+        tajweedExample: rule.example,
+        tajweedPracticeTip: `توجيه منزلي: تمرن على نطق الكلمة مع مراعاة (${rule.name}) وحكمها: ${rule.explanation}`,
+      };
+      setErrors((prev) => [newError, ...prev]);
+      showToast(`تم تسجيل خطأ تجويد وإرفاق بطاقة (${rule.name}) ✓`, 'success');
+      setTajweedPickerOpen(false);
+    }
+  };
 
   useEffect(() => {
     try {
@@ -3266,6 +3403,57 @@ export const SessionEngineView: React.FC = () => {
                 </div>
               </div>
 
+              {/* Spaced Repetition Engine (SRS) Alert Banner — خوارزمية المراجعة المتباعدة لمنع التفلت */}
+              {srsDueJuzList.length > 0 && (
+                <div className="p-4 rounded-2xl bg-amber-500/10 dark:bg-amber-950/25 border-2 border-amber-500/60 space-y-3 animate-in fade-in">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="flex items-center gap-2.5">
+                      <div className="w-10 h-10 rounded-xl bg-amber-500 text-slate-950 flex items-center justify-center font-bold text-lg shadow-sm">
+                        🧠
+                      </div>
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <h4 className="text-xs sm:text-sm font-extrabold text-amber-950 dark:text-amber-200">
+                            تنبيه خوارزمية المراجعة المتباعدة لمنع التفلت (SRS Engine)
+                          </h4>
+                          <span className="px-2 py-0.5 rounded-full bg-red-600 text-white text-[10px] font-extrabold">
+                            {srsDueJuzList.length} جزء مستحق التثبيت العاجل (&gt;21 يوماً)
+                          </span>
+                        </div>
+                        <p className="text-[11px] text-neutral-600 dark:text-neutral-400 mt-0.5">
+                          تتبع ذكي لتاريخ آخر مراجعة: هذه الأجزاء المحفوظة مر عليها أكثر من 21 يوماً دون مراجعة في الحصص. اضغط للإدراج الفوري في المراجعة البعيدة.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5">
+                    {srsDueJuzList.map((item) => (
+                      <div
+                        key={item.juzNumber}
+                        className="p-3 rounded-xl bg-white dark:bg-[#12231a] border border-amber-400/50 flex items-center justify-between gap-2 shadow-xs"
+                      >
+                        <div>
+                          <div className="font-extrabold text-xs text-[#14281d] dark:text-white">
+                            {item.juzName}
+                          </div>
+                          <div className="text-[10px] text-red-600 font-bold mt-0.5">
+                            لم يُراجع منذ {item.daysElapsed} يوماً ({item.lastDateStr})
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => handleApplySrsJuzToFarReview(item.juzNumber)}
+                          className="px-2.5 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-slate-950 text-xs font-black flex items-center gap-1 cursor-pointer shadow-xs transition"
+                        >
+                          <span>إدراج في البعيدة ⚡</span>
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               {/* Open Errors Follow-Up Card across Sessions (بطاقة متابعة أخطاء الطالب عبر الحصص) */}
               <div className="p-4 rounded-2xl bg-rose-50/70 dark:bg-rose-950/20 border border-rose-200 dark:border-rose-800/50 space-y-3">
                 <div className="flex flex-wrap items-center justify-between gap-2">
@@ -3487,9 +3675,21 @@ export const SessionEngineView: React.FC = () => {
             </div>
 
             <div className="lg:col-span-8">
-              <label className="block text-xs font-bold mb-1.5">
-                أزرار تسجيل الأخطاء الفورية (6 تصنيفات):
-              </label>
+              <div className="flex items-center justify-between mb-1.5">
+                <label className="block text-xs font-bold">
+                  أزرار تسجيل الأخطاء الفورية (6 تصنيفات):
+                </label>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setTajweedTargetErrorId(null);
+                    setTajweedPickerOpen(true);
+                  }}
+                  className="px-2.5 py-1 rounded-lg bg-amber-400/20 hover:bg-amber-400/30 border border-amber-400/50 text-amber-800 dark:text-amber-300 text-[11px] font-extrabold flex items-center gap-1 cursor-pointer"
+                >
+                  <span>📜 بطاقات قواعد التجويد والمخارج</span>
+                </button>
+              </div>
               <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
                 {(
                   ['حفظ', 'تردد', 'تلقين', 'تجويد', 'تشكيل', 'نسيان آية'] as ErrorType[]
@@ -3497,8 +3697,19 @@ export const SessionEngineView: React.FC = () => {
                   <button
                     key={errType}
                     type="button"
-                    onClick={() => handleAddError(errType)}
-                    className="py-2.5 px-2 rounded-xl border border-red-200 dark:border-red-900/50 bg-red-50/70 dark:bg-red-950/30 hover:bg-red-600 hover:text-white text-red-700 dark:text-red-300 text-xs font-bold transition-colors cursor-pointer"
+                    onClick={() => {
+                      if (errType === 'تجويد') {
+                        setTajweedTargetErrorId(null);
+                        setTajweedPickerOpen(true);
+                      } else {
+                        handleAddError(errType);
+                      }
+                    }}
+                    className={`py-2.5 px-2 rounded-xl border text-xs font-bold transition-colors cursor-pointer ${
+                      errType === 'تجويد'
+                        ? 'border-amber-300 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/30 text-amber-800 dark:text-amber-200 hover:bg-amber-500 hover:text-slate-950'
+                        : 'border-red-200 dark:border-red-900/50 bg-red-50/70 dark:bg-red-950/30 hover:bg-red-600 hover:text-white text-red-700 dark:text-red-300'
+                    }`}
                   >
                     + {errType}
                   </button>
@@ -3507,7 +3718,7 @@ export const SessionEngineView: React.FC = () => {
             </div>
           </div>
 
-          {/* Recorded Session Errors List */}
+          {/* Recorded Session Errors List with Tajweed Cards */}
           {errors.length > 0 && (
             <div className="flex flex-wrap gap-2 pt-2">
               {errors.map((err) => (
@@ -3518,13 +3729,44 @@ export const SessionEngineView: React.FC = () => {
                   <span>
                     {err.type}
                     {err.subType ? ` (${err.subType})` : ''}
-                    {err.tajweedRule ? ` [${err.tajweedRule}]` : ''}
                     {err.word ? ` ﴿${err.word}﴾` : ''}
                     {err.letter ? ` [حرف: ${err.letter}]` : ''} ({err.context}
                     {err.surah ? ` - ${err.surah}` : ''}
                     {err.ayah ? ` آية ${err.ayah}` : ''})
                     {err.correctedInSession ? ' • صُحح بالحصة ✓' : ''}
                   </span>
+
+                  {/* Interactive Tajweed Card Action */}
+                  {err.tajweedRule ? (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setViewingTajweedRuleCard({
+                          name: err.tajweedRule!,
+                          letters: err.tajweedLetters || '',
+                          example: err.tajweedExample || '',
+                          explanation: err.tajweedExplanation || '',
+                          tip: err.tajweedPracticeTip,
+                        })
+                      }
+                      className="px-2 py-0.5 rounded-md bg-amber-400 text-slate-950 font-black text-[10px] cursor-pointer hover:bg-amber-300 shadow-xs flex items-center gap-1"
+                      title="عرض بطاقة الشرح والتوجيه المنزلي"
+                    >
+                      <span>📖 بطاقة: {err.tajweedRule}</span>
+                    </button>
+                  ) : err.type === 'تجويد' ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setTajweedTargetErrorId(err.id);
+                        setTajweedPickerOpen(true);
+                      }}
+                      className="px-1.5 py-0.5 rounded bg-blue-100 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 text-[10px] underline cursor-pointer"
+                    >
+                      + ربط بقاعدة
+                    </button>
+                  ) : null}
+
                   <button
                     type="button"
                     onClick={() =>
@@ -4661,6 +4903,148 @@ export const SessionEngineView: React.FC = () => {
                 </div>
               )}
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* 1. Modal: Tajweed Rules Picker Drawer / Dialog */}
+      {tajweedPickerOpen && (
+        <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto animate-in fade-in">
+          <div className="w-full max-w-2xl bg-white dark:bg-[#12231a] rounded-3xl border-2 border-[#c59b27] shadow-2xl overflow-hidden my-auto space-y-4">
+            <div className="p-4 bg-gradient-to-l from-[#145a3a] to-[#0f452c] text-white flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <span className="text-xl">📜</span>
+                <div>
+                  <h3 className="text-sm sm:text-base font-extrabold text-white">
+                    بطاقات وقواعد التجويد والمخارج الميسرة
+                  </h3>
+                  <p className="text-[11px] text-emerald-200">
+                    اختر القاعدة التجويدية لربطها بخطأ الطالب وإرسال بطاقة توجيه منزلي لولي الأمر
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setTajweedPickerOpen(false);
+                  setTajweedTargetErrorId(null);
+                }}
+                className="p-1.5 rounded-xl bg-white/15 hover:bg-white/25 text-white cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="p-4 max-h-[70vh] overflow-y-auto space-y-4">
+              {TAJWEED_RULES_GUIDE.map((cat) => (
+                <div key={cat.id} className="space-y-2">
+                  <div className="border-b border-neutral-200 dark:border-emerald-900 pb-1">
+                    <h4 className="text-xs font-black text-[#145a3a] dark:text-[#dfbd69]">
+                      {cat.title}
+                    </h4>
+                    <p className="text-[10px] text-neutral-500">{cat.subtitle}</p>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    {cat.rules.map((rule) => (
+                      <div
+                        key={rule.name}
+                        onClick={() => handleAttachTajweedRuleToError(rule)}
+                        className="p-3 rounded-2xl border border-neutral-200 dark:border-emerald-900/60 bg-[#fcfaf2] dark:bg-[#0b1711] hover:border-[#145a3a] hover:bg-emerald-50 dark:hover:bg-emerald-950/40 cursor-pointer transition shadow-xs space-y-1"
+                      >
+                        <div className="flex items-center justify-between">
+                          <span className="font-extrabold text-xs text-[#14281d] dark:text-white">
+                            {rule.name}
+                          </span>
+                          <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-[#145a3a]/10 text-[#145a3a] dark:text-[#dfbd69]">
+                            {rule.durationHarakat}
+                          </span>
+                        </div>
+                        <div className="text-[11px] text-neutral-600 dark:text-neutral-300">
+                          حروفه: <strong>{rule.letters}</strong>
+                        </div>
+                        <div className="text-[11px] text-emerald-800 dark:text-emerald-300 font-serif">
+                          مثال: {rule.example}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 2. Modal: Viewing Tajweed Rule Card for Home Practice */}
+      {viewingTajweedRuleCard && (
+        <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto animate-in fade-in">
+          <div className="w-full max-w-lg bg-gradient-to-br from-white via-[#fcfaf2] to-[#f6f7f2] dark:from-[#12231a] dark:via-[#0b1711] dark:to-[#12231a] rounded-3xl border-3 border-[#c59b27] shadow-2xl p-6 space-y-4 my-auto">
+            <div className="flex items-center justify-between border-b border-[#c59b27]/30 pb-3">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2.5 rounded-2xl bg-[#145a3a] text-[#dfbd69] text-lg font-bold">
+                  📜
+                </div>
+                <div>
+                  <h3 className="text-base font-extrabold text-[#145a3a] dark:text-[#dfbd69]">
+                    بطاقة التوجيه التجويدي: {viewingTajweedRuleCard.name}
+                  </h3>
+                  <p className="text-[11px] text-neutral-500">
+                    دليل الطالب وولي الأمر للإتقان والتصحيح المنزلي
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setViewingTajweedRuleCard(null)}
+                className="p-1.5 rounded-xl border border-neutral-300 dark:border-emerald-800 text-neutral-500 cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="p-4 rounded-2xl bg-[#145a3a]/10 dark:bg-emerald-950/40 border border-[#c59b27]/40 space-y-2.5 text-xs">
+              <div>
+                <span className="font-extrabold text-[#145a3a] dark:text-[#dfbd69] block mb-0.5">
+                  بيان الحكم والتطبيق:
+                </span>
+                <p className="text-neutral-700 dark:text-neutral-200 leading-relaxed">
+                  {viewingTajweedRuleCard.explanation}
+                </p>
+              </div>
+
+              {viewingTajweedRuleCard.letters && (
+                <div>
+                  <span className="font-bold text-neutral-500 block">حروف الحكم:</span>
+                  <p className="font-semibold text-neutral-800 dark:text-neutral-100">
+                    {viewingTajweedRuleCard.letters}
+                  </p>
+                </div>
+              )}
+
+              {viewingTajweedRuleCard.example && (
+                <div>
+                  <span className="font-bold text-neutral-500 block">شواهد من القرآن الكريم:</span>
+                  <p className="font-serif text-emerald-800 dark:text-[#dfbd69] text-sm">
+                    {viewingTajweedRuleCard.example}
+                  </p>
+                </div>
+              )}
+
+              {viewingTajweedRuleCard.tip && (
+                <div className="p-2.5 rounded-xl bg-amber-400/20 border border-amber-500/40 text-amber-900 dark:text-amber-200">
+                  <span className="font-bold">💡 نصيحة التدريب المنزلي:</span>
+                  <p className="mt-0.5">{viewingTajweedRuleCard.tip}</p>
+                </div>
+              )}
+            </div>
+
+            <button
+              type="button"
+              onClick={() => setViewingTajweedRuleCard(null)}
+              className="w-full py-2.5 rounded-xl bg-[#145a3a] hover:bg-[#0f452c] text-white font-extrabold text-xs cursor-pointer shadow-xs"
+            >
+              إغلاق البطاقة ✓
+            </button>
           </div>
         </div>
       )}

@@ -11,6 +11,8 @@ import {
   IjazahRecord,
   OwnerAuditLogItem,
   OwnerEncouragementItem,
+  PeerCompetitionPack,
+  PeerCompetitionSubmission,
   PublicBookmarkCategory,
   PublicMushafBookmark,
   PublicVisitorWirdRecord,
@@ -18,6 +20,8 @@ import {
   QuranRiwayah,
   SessionRecord,
   SmartBoardStroke,
+  SmartQuizQuestion,
+  StaffAuthProvider,
   StaffHierarchyRole,
   Student,
   StudentAccessibilityMode,
@@ -35,6 +39,7 @@ import {
   UserRole,
   WaqfImpactStats,
 } from '../types';
+import { buildInitialPeerCompetitions } from '../data/smartQuizEngineData';
 import {
   DEFAULT_SUPERVISOR_PERMISSIONS,
   DEFAULT_TEACHER_PERMISSIONS,
@@ -69,8 +74,11 @@ import {
   ExtendedFamilyFields,
   fetchAcademyCloudBackupFromFirestore,
   GoogleAuthResult,
+  isMasterOwnerEmail,
+  MASTER_OWNER_EMAILS,
   onAuthStateChanged,
   signInWithGooglePopup,
+  signInWithMicrosoftPopup,
   signOutFromFirebase,
   syncAcademySnapshotToFirestore,
   syncExtendedFamilyRecordToFirestore,
@@ -80,6 +88,16 @@ import {
   deleteStaffRegistrationFromFirestore,
   subscribeToStaffRegistrationsFromFirestore,
 } from '../utils/firebaseClient';
+
+export interface OutboxMessage {
+  id: string;
+  recipientPhone: string;
+  recipientName: string;
+  text: string;
+  type: 'session_report' | 'absence_alert' | 'credentials' | 'monthly_harvest' | 'circle_reminder';
+  createdAt: string;
+  status: 'queued' | 'sent';
+}
 
 export type ActiveTab =
   | 'dashboard'
@@ -108,11 +126,63 @@ interface AcademyStore {
   guardianSiblings: Student[];
   googleAuthUser: GoogleAuthResult | null;
   loginAsTeacher: () => void;
-  loginWithGoogleEmail: (email: string, pin?: string) => { ok: boolean; error?: string };
+  loginWithGoogleEmail: (
+    email: string,
+    pin?: string,
+    provider?: StaffAuthProvider
+  ) => {
+    ok: boolean;
+    error?: string;
+    requiresOnboardingCard?: boolean;
+    requiresPendingScreen?: boolean;
+    staffRecord?: TeacherAccessRecord;
+  };
   startGoogleOAuthRedirect: (
     targetPortal?: 'teacher' | 'supervisor' | 'guardian' | 'student',
     initialFamily?: ExtendedFamilyFields
-  ) => Promise<{ ok: boolean; error?: string; isFirstGoogleLogin?: boolean }>;
+  ) => Promise<{
+    ok: boolean;
+    error?: string;
+    isFirstGoogleLogin?: boolean;
+    requiresOnboardingCard?: boolean;
+    requiresPendingScreen?: boolean;
+    ssoCandidate?: {
+      email: string;
+      displayName: string;
+      provider: StaffAuthProvider;
+      uid?: string;
+      photoURL?: string | null;
+    };
+    staffRecord?: TeacherAccessRecord;
+  }>;
+  startMicrosoftOAuthRedirect: (
+    targetPortal?: 'teacher' | 'supervisor' | 'guardian' | 'student',
+    initialFamily?: ExtendedFamilyFields
+  ) => Promise<{
+    ok: boolean;
+    error?: string;
+    isFirstGoogleLogin?: boolean;
+    requiresOnboardingCard?: boolean;
+    requiresPendingScreen?: boolean;
+    ssoCandidate?: {
+      email: string;
+      displayName: string;
+      provider: StaffAuthProvider;
+      uid?: string;
+      photoURL?: string | null;
+    };
+    staffRecord?: TeacherAccessRecord;
+  }>;
+  submitNewStaffJoinRequest: (input: {
+    fullName: string;
+    email: string;
+    whatsappPhone: string;
+    specialization: string;
+    requestedPosition: 'محفظ حلقة' | 'مشرف تعليمي' | 'مسؤول مالي / إداري';
+    provider: StaffAuthProvider;
+    uid?: string;
+    photoURL?: string | null;
+  }) => TeacherAccessRecord;
   saveCurrentUserFamilyProfileToFirestore: (
     family: ExtendedFamilyFields
   ) => Promise<void>;
@@ -169,8 +239,13 @@ interface AcademyStore {
     name: string;
     email: string;
     roleTitle: string;
-    staffRole: 'supervisor' | 'teacher';
+    staffRole: StaffHierarchyRole;
     assignedCirclesCount?: number;
+    assignedCircleNames?: string[];
+    restrictToAssignedCircles?: boolean;
+    authProvider?: StaffAuthProvider;
+    whatsappPhone?: string;
+    specialization?: string;
     status?: 'active' | 'pending';
     motherName?: string;
     grandfatherName?: string;
@@ -189,10 +264,14 @@ interface AcademyStore {
   updateStaffRoleAndDetails: (
     staffId: string,
     updates: {
-      staffRole?: 'supervisor' | 'teacher';
+      staffRole?: StaffHierarchyRole;
       roleTitle?: string;
       assignedCirclesCount?: number;
       assignedCircleNames?: string[];
+      restrictToAssignedCircles?: boolean;
+      whatsappPhone?: string;
+      specialization?: string;
+      status?: 'active' | 'blocked' | 'pending';
       customPermissions?: Partial<SupervisorPermissions>;
       customTeacherPermissions?: Partial<TeacherPermissions>;
     }
@@ -415,6 +494,35 @@ interface AcademyStore {
   resetToSeedData: () => void;
   clearAllStudentsAndStartEmpty: () => void;
   importFullBackup: (data: unknown) => boolean;
+
+  // WhatsApp Offline Outbox Queue
+  pendingOutboxMessages: OutboxMessage[];
+  queueOutboxMessage: (msg: Omit<OutboxMessage, 'id' | 'createdAt' | 'status'>) => void;
+  sendOutboxMessage: (id: string) => void;
+  sendAllQueuedMessages: () => void;
+  deleteOutboxMessage: (id: string) => void;
+
+  // Smart Quiz & Peer-to-Peer Competitions Engine
+  peerCompetitions: PeerCompetitionPack[];
+  createPeerCompetitionPack: (pack: {
+    title: string;
+    description: string;
+    targetLevel: StudentLevel | 'الكل';
+    scopeLabel: string;
+    questions: SmartQuizQuestion[];
+    timeLimitSeconds: number;
+    xpRewardFirst: number;
+    xpRewardParticipant: number;
+    badgeTitle: string;
+  }) => PeerCompetitionPack;
+  submitPeerCompetitionResult: (params: {
+    competitionId: string;
+    studentId: string;
+    correctCount: number;
+    totalQuestions: number;
+    timeSeconds: number;
+  }) => PeerCompetitionSubmission | null;
+  deletePeerCompetitionPack: (id: string) => void;
 }
 
 export interface StudentAudioBlobRecord {
@@ -814,28 +922,67 @@ export const AcademyProvider: React.FC<{ children: React.ReactNode }> = ({ child
   });
 
   const [managedTeachers, setManagedTeachers] = useState<TeacherAccessRecord[]>(() => {
+    const defaultMasterOwners: TeacherAccessRecord[] = [
+      {
+        id: 'tch-owner-sayed1',
+        name: 'الشيخ سيد الكومي — مالك الأكاديمية (١)',
+        email: 'sayedkomy1@gmail.com',
+        roleTitle: '👑 مالك الأكاديمية (Super Admin / Owner)',
+        staffRole: 'owner',
+        status: 'active',
+        authProvider: 'google',
+        whatsappPhone: '201000000001',
+        specialization: 'المالك العام والمشرف الأعلى للحلقات القرآنية بالسند المتصل',
+        lastSyncAt: getLocalDateString(0),
+        lastActiveAt: `${getLocalDateString(0)} 10:00`,
+        sessionsRecordedCount: 48,
+        assignedCirclesCount: 3,
+      },
+      {
+        id: 'tch-owner-sayed2',
+        name: 'الشيخ سيد الكومي — مالك الأكاديمية (٢)',
+        email: 'sayedkomy2@gmail.com',
+        roleTitle: '👑 مالك الأكاديمية (Super Admin / Owner)',
+        staffRole: 'owner',
+        status: 'active',
+        authProvider: 'google',
+        whatsappPhone: '201000000002',
+        specialization: 'المالك العام والمشرف الأعلى للحلقات القرآنية بالسند المتصل',
+        lastSyncAt: getLocalDateString(0),
+        lastActiveAt: `${getLocalDateString(0)} 11:30`,
+        sessionsRecordedCount: 62,
+        assignedCirclesCount: 3,
+      },
+    ];
+
     try {
       const saved = localStorage.getItem('imam_managed_staff_v13');
       if (saved) {
         const parsed = JSON.parse(saved) as TeacherAccessRecord[];
         if (Array.isArray(parsed) && parsed.length > 0) {
-          return parsed;
+          const map = new Map<string, TeacherAccessRecord>();
+          defaultMasterOwners.forEach((o) => map.set(o.email.toLowerCase(), o));
+          parsed.forEach((item) => {
+            const key = item.email.trim().toLowerCase();
+            if (isMasterOwnerEmail(key)) {
+              map.set(key, {
+                ...item,
+                staffRole: 'owner',
+                status: 'active',
+                roleTitle: '👑 مالك الأكاديمية (Super Admin / Owner)',
+              });
+            } else {
+              map.set(key, item);
+            }
+          });
+          return Array.from(map.values());
         }
       }
     } catch {
       // ignore
     }
     return [
-      {
-        id: 'tch-owner-1',
-        name: initial.settings.teacherName || 'المالك والمشرف العام',
-        email: SUPABASE_OFFICIAL_CONFIG.ownerEmail,
-        roleTitle: 'المالك العام للأكاديمية',
-        staffRole: 'owner',
-        status: 'active',
-        lastSyncAt: getLocalDateString(0),
-        assignedCirclesCount: 3,
-      },
+      ...defaultMasterOwners,
       {
         id: 'sup-1',
         name: 'المشرف الأكاديمي الأول',
@@ -843,17 +990,29 @@ export const AcademyProvider: React.FC<{ children: React.ReactNode }> = ({ child
         roleTitle: 'مشرف عام الحلقات والمتابعة',
         staffRole: 'supervisor',
         status: 'active',
+        authProvider: 'google',
+        whatsappPhone: '201011223344',
+        specialization: 'إجازة برواية حفص وشعبة ومتابعة جودة الحلقات',
+        requestedPosition: 'مشرف تعليمي',
+        requestedAt: getLocalDateString(-10),
+        lastActiveAt: `${getLocalDateString(0)} 09:15`,
+        sessionsRecordedCount: 19,
         lastSyncAt: getLocalDateString(0),
         assignedCirclesCount: 3,
       },
       {
         id: 'sup-2',
-        name: 'مشرف الجودة والاختبارات',
-        email: 'supervisor2@welivequran.com',
-        roleTitle: 'مشرف الاختبارات والإجازات',
+        name: 'الشيخ محمود الشافعي',
+        email: 'mahmoud.supervisor@outlook.com',
+        roleTitle: 'مشرف تعليمي ومجاز بالقراءات',
         staffRole: 'supervisor',
         status: 'pending',
-        lastSyncAt: getLocalDateString(-1),
+        authProvider: 'microsoft',
+        whatsappPhone: '201099887766',
+        specialization: 'مجاز بالقراءات السبع من طريق الشاطبية',
+        requestedPosition: 'مشرف تعليمي',
+        requestedAt: getLocalDateString(0),
+        lastSyncAt: getLocalDateString(0),
         assignedCirclesCount: 2,
       },
       {
@@ -863,18 +1022,32 @@ export const AcademyProvider: React.FC<{ children: React.ReactNode }> = ({ child
         roleTitle: 'محفظ حلقات الحفظ والمراجعة',
         staffRole: 'teacher',
         status: 'active',
+        authProvider: 'google',
+        whatsappPhone: '201022334455',
+        specialization: 'إجازة برواية حفص عن عاصم وخبرة 5 سنوات',
+        requestedPosition: 'محفظ حلقة',
+        requestedAt: getLocalDateString(-14),
+        lastActiveAt: `${getLocalDateString(0)} 08:45`,
+        sessionsRecordedCount: 34,
         lastSyncAt: getLocalDateString(0),
         assignedCirclesCount: 2,
+        assignedCircleNames: ['حلقة المستوى المتقدم', 'حلقة المستوى المتوسط'],
       },
       {
         id: 'tch-3',
-        name: 'معلم حلقات التأسيس',
-        email: 'foundation@welivequran.com',
+        name: 'الشيخ عبد الرحمن الأنصاري',
+        email: 'abdulrahman.quran@gmail.com',
         roleTitle: 'محفظ منهج الإمام للتأسيس الهجين',
         staffRole: 'teacher',
         status: 'pending',
-        lastSyncAt: getLocalDateString(-1),
+        authProvider: 'google',
+        whatsappPhone: '966554433221',
+        specialization: 'إجازة برواية حفص وورش وتأسيس الأطفال نور البيان',
+        requestedPosition: 'محفظ حلقة',
+        requestedAt: getLocalDateString(0),
+        lastSyncAt: getLocalDateString(0),
         assignedCirclesCount: 1,
+        assignedCircleNames: ['حلقة التأسيس والناشئة'],
       },
     ];
   });
@@ -1000,8 +1173,13 @@ export const AcademyProvider: React.FC<{ children: React.ReactNode }> = ({ child
     name: string;
     email: string;
     roleTitle: string;
-    staffRole: 'supervisor' | 'teacher';
+    staffRole: StaffHierarchyRole;
     assignedCirclesCount?: number;
+    assignedCircleNames?: string[];
+    restrictToAssignedCircles?: boolean;
+    authProvider?: StaffAuthProvider;
+    whatsappPhone?: string;
+    specialization?: string;
     status?: 'active' | 'pending';
     motherName?: string;
     grandfatherName?: string;
@@ -1010,12 +1188,17 @@ export const AcademyProvider: React.FC<{ children: React.ReactNode }> = ({ child
   }) => {
     const cleanEmail = input.email.trim().toLowerCase();
     if (!cleanEmail || !cleanEmail.includes('@')) {
-      showToast('يرجى إدخال بريد Google صحيح', 'error');
+      showToast('يرجى إدخال بريد إلكتروني صحيح', 'error');
       return;
     }
 
-    if (input.staffRole === 'supervisor' && currentStaffTier !== 'owner') {
-      showToast('إضافة مشرف جديد متاحة للمالك العام فقط', 'error');
+    if (
+      (input.staffRole === 'supervisor' ||
+        input.staffRole === 'owner' ||
+        input.staffRole === 'financial_manager') &&
+      currentStaffTier !== 'owner'
+    ) {
+      showToast('إضافة مشرف أو مسؤول مالي متاحة لمالك الأكاديمية فقط', 'error');
       return;
     }
 
@@ -1027,19 +1210,41 @@ export const AcademyProvider: React.FC<{ children: React.ReactNode }> = ({ child
       return;
     }
 
+    const isOwner = isMasterOwnerEmail(cleanEmail) || input.staffRole === 'owner';
+
     const newRecord: TeacherAccessRecord = {
       id: `${input.staffRole === 'supervisor' ? 'sup' : 'tch'}-${Date.now()}`,
       name: input.name.trim() || cleanEmail.split('@')[0],
       email: cleanEmail,
       roleTitle:
         input.roleTitle.trim() ||
-        (input.staffRole === 'supervisor'
-          ? 'مشرف الحلقات والمتابعة'
+        (isOwner
+          ? '👑 مالك الأكاديمية (Super Admin / Owner)'
+          : input.staffRole === 'supervisor'
+          ? 'مشرف عام الحلقات والمتابعة'
+          : input.staffRole === 'financial_manager'
+          ? 'مسؤول مالي وإداري'
           : 'محفظ الحلقات القرآنية'),
-      staffRole: input.staffRole,
-      status: input.status || 'active',
+      staffRole: isOwner ? 'owner' : input.staffRole,
+      status: isOwner ? 'active' : input.status || 'active',
       lastSyncAt: getLocalDateString(0),
-      assignedCirclesCount: input.assignedCirclesCount ?? 1,
+      requestedAt: getLocalDateString(0),
+      assignedCirclesCount:
+        input.assignedCircleNames && input.assignedCircleNames.length > 0
+          ? input.assignedCircleNames.length
+          : input.assignedCirclesCount ?? 1,
+      assignedCircleNames: input.assignedCircleNames,
+      restrictToAssignedCircles: input.restrictToAssignedCircles ?? false,
+      authProvider:
+        input.authProvider ||
+        (cleanEmail.includes('outlook') ||
+        cleanEmail.includes('hotmail') ||
+        cleanEmail.includes('live') ||
+        cleanEmail.includes('microsoft')
+          ? 'microsoft'
+          : 'google'),
+      whatsappPhone: input.whatsappPhone?.trim() || undefined,
+      specialization: input.specialization?.trim() || undefined,
       googleUid: auth.currentUser?.uid,
       motherName: input.motherName?.trim() || undefined,
       grandfatherName: input.grandfatherName?.trim() || undefined,
@@ -1055,7 +1260,7 @@ export const AcademyProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
     void syncExtendedFamilyRecordToFirestore({
       recordId: newRecord.id,
-      entityType: input.staffRole,
+      entityType: input.staffRole === 'supervisor' ? 'supervisor' : 'teacher',
       personName: newRecord.name,
       motherName: newRecord.motherName,
       grandfatherName: newRecord.grandfatherName,
@@ -1065,13 +1270,21 @@ export const AcademyProvider: React.FC<{ children: React.ReactNode }> = ({ child
       // non-blocking if not signed into Firebase yet
     });
 
-    const roleLabel = input.staffRole === 'supervisor' ? 'مشرف' : 'محفظ';
+    const roleLabel =
+      input.staffRole === 'supervisor'
+        ? 'مشرف عام'
+        : input.staffRole === 'financial_manager'
+        ? 'مسؤول مالي'
+        : 'محفظ حلقة';
     recordAuditLog(
       'صلاحيات وأمان',
-      `إضافة واعتماد ${roleLabel} جديد بحساب Google (${newRecord.name} — ${newRecord.email}) وحفظه في Firestore`,
+      `إضافة واعتماد ${roleLabel} جديد (${newRecord.name} — ${newRecord.email}) وحفظه في Firestore`,
       newRecord.name
     );
-    showToast(`تمت إضافة ${roleLabel} جديد (${newRecord.name}) وحفظ تسجيله في Firestore بنجاح`, 'success');
+    showToast(
+      `تمت إضافة ${roleLabel} جديد (${newRecord.name}) وحفظ تسجيله في Firestore بنجاح`,
+      'success'
+    );
   };
 
   const updateStaffFamilyDetails = (
@@ -1135,34 +1348,54 @@ export const AcademyProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const updateStaffRoleAndDetails = (
     staffId: string,
     updates: {
-      staffRole?: 'supervisor' | 'teacher';
+      staffRole?: StaffHierarchyRole;
       roleTitle?: string;
       assignedCirclesCount?: number;
       assignedCircleNames?: string[];
+      restrictToAssignedCircles?: boolean;
+      whatsappPhone?: string;
+      specialization?: string;
+      status?: 'active' | 'blocked' | 'pending';
       customPermissions?: Partial<SupervisorPermissions>;
+      customTeacherPermissions?: Partial<TeacherPermissions>;
     }
   ) => {
     const target = managedTeachers.find((t) => t.id === staffId);
     if (!target) return;
 
-    if (target.staffRole === 'owner') {
-      showToast('لا يمكن تغيير رتبة المالك العام للأكاديمية', 'error');
+    if (isMasterOwnerEmail(target.email) || target.staffRole === 'owner') {
+      showToast('لا يمكن تعديل أو تقييد حساب المالك الرسمي للأكاديمية', 'error');
       return;
     }
 
     if (currentStaffTier !== 'owner') {
-      showToast('تعديل الرتبة الوظيفية والصلاحيات متاح للمالك العام فقط', 'error');
+      showToast('تعديل الرتبة الوظيفية والصلاحيات متاح لمالك الأكاديمية فقط', 'error');
       return;
     }
+
+    const updatedCircleNames =
+      updates.assignedCircleNames ?? target.assignedCircleNames;
 
     const updatedRecord: TeacherAccessRecord = {
       ...target,
       staffRole: updates.staffRole ?? target.staffRole,
+      status: updates.status ?? target.status,
       roleTitle: updates.roleTitle?.trim() || target.roleTitle,
       assignedCirclesCount:
-        updates.assignedCirclesCount ?? target.assignedCirclesCount,
-      assignedCircleNames:
-        updates.assignedCircleNames ?? target.assignedCircleNames,
+        updatedCircleNames && updatedCircleNames.length > 0
+          ? updatedCircleNames.length
+          : updates.assignedCirclesCount ?? target.assignedCirclesCount,
+      assignedCircleNames: updatedCircleNames,
+      restrictToAssignedCircles:
+        updates.restrictToAssignedCircles ?? target.restrictToAssignedCircles,
+      whatsappPhone:
+        updates.whatsappPhone !== undefined
+          ? updates.whatsappPhone.trim()
+          : target.whatsappPhone,
+      specialization:
+        updates.specialization !== undefined
+          ? updates.specialization.trim()
+          : target.specialization,
       customPermissions:
         updates.customPermissions !== undefined
           ? { ...(target.customPermissions || {}), ...updates.customPermissions }
@@ -1187,11 +1420,11 @@ export const AcademyProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
     recordAuditLog(
       'صلاحيات وأمان',
-      `تحديث رتبة/صلاحيات عضو الهيئة التعليمية (${updatedRecord.name}) سحابياً بواسطة المالك العام`,
+      `تحديث الدور والصلاحيات والحلقات المسندة لـ (${updatedRecord.name}) سحابياً بواسطة مالك الأكاديمية`,
       updatedRecord.name
     );
     showToast(
-      `تم تحديث بيانات وصلاحيات (${updatedRecord.name}) سحابياً بنجاح ✓`,
+      `تم تحديث الدور والصلاحيات والحلقات لـ (${updatedRecord.name}) ومزامنتها سحابياً بنجاح ✓`,
       'success'
     );
   };
@@ -1947,67 +2180,208 @@ export const AcademyProvider: React.FC<{ children: React.ReactNode }> = ({ child
   };
 
   const isOwnerEmail = (email: string) => {
-    const lower = email.trim().toLowerCase();
-    return (
-      lower === SUPABASE_OFFICIAL_CONFIG.ownerEmail.toLowerCase() ||
-      lower === 'sayedkomy2@gmail.com'
-    );
+    return isMasterOwnerEmail(email);
   };
 
-  const loginWithGoogleEmail = (email: string, pin?: string): { ok: boolean; error?: string } => {
+  const submitNewStaffJoinRequest = (input: {
+    fullName: string;
+    email: string;
+    whatsappPhone: string;
+    specialization: string;
+    requestedPosition: 'محفظ حلقة' | 'مشرف تعليمي' | 'مسؤول مالي / إداري';
+    provider: StaffAuthProvider;
+    uid?: string;
+    photoURL?: string | null;
+  }): TeacherAccessRecord => {
+    const cleanEmail = input.email.trim().toLowerCase();
+    const isOwner = isOwnerEmail(cleanEmail);
+    const desiredRole: StaffHierarchyRole = isOwner
+      ? 'owner'
+      : input.requestedPosition === 'مشرف تعليمي'
+      ? 'supervisor'
+      : input.requestedPosition === 'مسؤول مالي / إداري'
+      ? 'financial_manager'
+      : 'teacher';
+
+    const existing = managedTeachers.find(
+      (t) => t.email.toLowerCase() === cleanEmail
+    );
+
+    const recordId =
+      existing?.id ||
+      `${desiredRole === 'supervisor' ? 'sup' : 'tch'}-${Date.now()}`;
+
+    const newRecord: TeacherAccessRecord = {
+      id: recordId,
+      name: input.fullName.trim() || cleanEmail.split('@')[0],
+      email: cleanEmail,
+      roleTitle: isOwner
+        ? '👑 مالك الأكاديمية (Super Admin / Owner)'
+        : `${input.requestedPosition} — ${
+            input.specialization.trim() || 'حلقات القرآن الكريم'
+          }`,
+      staffRole: desiredRole,
+      status: isOwner ? 'active' : 'pending',
+      authProvider: input.provider,
+      whatsappPhone: input.whatsappPhone.trim(),
+      specialization: input.specialization.trim(),
+      requestedPosition: input.requestedPosition,
+      requestedAt: getLocalDateString(0),
+      lastSyncAt: getLocalDateString(0),
+      assignedCirclesCount: 1,
+      googleUid: input.uid || auth.currentUser?.uid,
+      photoURL: input.photoURL || null,
+    };
+
+    setManagedTeachers((prev) => {
+      const filtered = prev.filter(
+        (t) => t.email.toLowerCase() !== cleanEmail
+      );
+      return [newRecord, ...filtered];
+    });
+
+    void syncStaffRegistrationToFirestore(newRecord).catch(() => {
+      // non-blocking
+    });
+
+    recordAuditLog(
+      'صلاحيات وأمان',
+      `طلب انضمام جديد (${input.requestedPosition}) عبر ${
+        input.provider === 'microsoft' ? 'Microsoft' : 'Google'
+      } من (${newRecord.name} — ${cleanEmail}) بانتظار موافقة المالك`,
+      newRecord.name
+    );
+
+    showToast(
+      'تم تسجيل طلب انضمامك بنجاح وحفظه في السحابة بانتظار تفعيل المالك ✓',
+      'success'
+    );
+
+    return newRecord;
+  };
+
+  const loginWithGoogleEmail = (
+    email: string,
+    pin?: string,
+    provider: StaffAuthProvider = 'google'
+  ): {
+    ok: boolean;
+    error?: string;
+    requiresOnboardingCard?: boolean;
+    requiresPendingScreen?: boolean;
+    staffRecord?: TeacherAccessRecord;
+  } => {
     const cleanEmail = email.trim().toLowerCase();
     const expectedPin = (settings.teacherPin || '1234').trim();
     if (!cleanEmail || !cleanEmail.includes('@')) {
-      return { ok: false, error: 'يرجى إدخال البريد الإلكتروني الخاص بحساب Google للمحفظ أو المشرف.' };
+      return {
+        ok: false,
+        error: 'يرجى إدخال البريد الإلكتروني الخاص بحساب Google أو Microsoft للمحفظ أو المشرف.',
+      };
     }
-    if (pin !== undefined && pin.trim() !== expectedPin) {
+
+    // Master Owner Emails (sayedkomy1@gmail.com / sayedkomy2@gmail.com) get instant Super Admin access
+    if (isOwnerEmail(cleanEmail)) {
+      if (pin !== undefined && pin.trim() !== '' && pin.trim() !== expectedPin) {
+        return { ok: false, error: 'رمز مرور المالك / المشرف (PIN) غير صحيح.' };
+      }
+      setCurrentStaffTier('owner');
+      setActiveStaffEmail(cleanEmail);
+      hasNotifiedOnSessionRef.current = false;
+      setUserRole('teacher');
+      setIsLoggedIn(true);
+      setActiveTab('owner_panel');
+      try {
+        localStorage.setItem(
+          SUPABASE_OFFICIAL_CONFIG.trustStorageKey,
+          JSON.stringify({
+            role: 'teacher',
+            email: cleanEmail,
+            provider,
+            trustedAt: new Date().toISOString(),
+          })
+        );
+      } catch {
+        // ignore
+      }
+      void restoreFromCloudFirestoreNow(true, cleanEmail);
+      recordAuditLog(
+        'صلاحيات وأمان',
+        `تسجيل دخول المالك الرسمي للأكاديمية 👑 (${cleanEmail}) بكامل الصلاحيات المطلقة`,
+        cleanEmail
+      );
+      showToast(
+        `👑 مرحباً بمالك الأكاديمية (${cleanEmail}) — تم فتح كافة البوابات ولوحة تحكم المالك العليا`,
+        'success'
+      );
+      return { ok: true };
+    }
+
+    const matchedStaff = managedTeachers.find(
+      (t) => t.email.toLowerCase() === cleanEmail
+    );
+
+    if (!matchedStaff) {
+      return {
+        ok: false,
+        requiresOnboardingCard: true,
+        error:
+          'أهلاً بك! بريدك الإلكتروني يسجل لأول مرة — يرجى استكمال بطاقة الانضمام السريعة لإرسال طلبك لمالك الأكاديمية.',
+      };
+    }
+
+    if (matchedStaff.status === 'blocked') {
+      return {
+        ok: false,
+        staffRecord: matchedStaff,
+        error: `هذا الحساب (${
+          matchedStaff.staffRole === 'supervisor' ? 'المشرف' : 'المحفظ'
+        }) موقوف أو مرفوض حالياً من قِبل مالك الأكاديمية.`,
+      };
+    }
+
+    if (matchedStaff.status === 'pending') {
+      return {
+        ok: false,
+        requiresPendingScreen: true,
+        staffRecord: matchedStaff,
+        error:
+          'تم تسجيل طلبك بنجاح ببريدك الإلكتروني — حسابك الآن قيد المراجعة والتفعيل من قِبل مالك الأكاديمية.',
+      };
+    }
+
+    if (pin !== undefined && pin.trim() !== '' && pin.trim() !== expectedPin) {
       return { ok: false, error: 'رمز مرور المعلم / المشرف (PIN) غير صحيح.' };
     }
 
-    if (isOwnerEmail(cleanEmail)) {
-      setCurrentStaffTier('owner');
-    } else {
-      const matchedStaff = managedTeachers.find(
-        (t) => t.email.toLowerCase() === cleanEmail
-      );
-      if (matchedStaff) {
-        if (matchedStaff.status === 'blocked') {
-          return {
-            ok: false,
-            error: `هذا الحساب (${
-              matchedStaff.staffRole === 'supervisor' ? 'المشرف' : 'المحفظ'
-            }) موقوف حالياً من قِبل الإدارة.`,
-          };
-        }
-        if (matchedStaff.status === 'pending') {
-          return {
-            ok: false,
-            error: `حساب (${
-              matchedStaff.staffRole === 'supervisor' ? 'المشرف' : 'المحفظ'
-            }) قيد المراجعة وبانتظار القبول والتفعيل من المالك أو المشرف.`,
-          };
-        }
-        setCurrentStaffTier(matchedStaff.staffRole || 'teacher');
-      } else {
-        return {
-          ok: false,
-          error: 'هذا البريد الإلكتروني غير مسجل ضمن قائمة المحفظين أو المشرفين المعتمدين بالأكاديمية.',
-        };
-      }
-    }
-
+    const effectiveTier: StaffHierarchyRole = matchedStaff.staffRole || 'teacher';
+    setCurrentStaffTier(effectiveTier);
     setActiveStaffEmail(cleanEmail);
     hasNotifiedOnSessionRef.current = false;
     setUserRole('teacher');
     setIsLoggedIn(true);
-    setActiveTab('dashboard');
+    setActiveTab(
+      effectiveTier === 'financial_manager' ? 'finance' : 'dashboard'
+    );
+
+    // Update lastActiveAt
+    const now = new Date();
+    const activeTimeStr = `${getLocalDateString(0)} ${String(
+      now.getHours()
+    ).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+    setManagedTeachers((prev) =>
+      prev.map((t) =>
+        t.id === matchedStaff.id ? { ...t, lastActiveAt: activeTimeStr } : t
+      )
+    );
+
     try {
       localStorage.setItem(
         SUPABASE_OFFICIAL_CONFIG.trustStorageKey,
         JSON.stringify({
           role: 'teacher',
           email: cleanEmail,
-          provider: 'google',
+          provider: matchedStaff.authProvider || provider,
           trustedAt: new Date().toISOString(),
         })
       );
@@ -2015,16 +2389,22 @@ export const AcademyProvider: React.FC<{ children: React.ReactNode }> = ({ child
       // ignore storage errors
     }
 
-    // Automatically restore Sheikh's / Owner's cloud backup from Firebase Cloud Firestore on login
     void restoreFromCloudFirestoreNow(true, cleanEmail);
 
     recordAuditLog(
       'صلاحيات وأمان',
-      `تسجيل دخول بحساب Google للمحفظ/المشرف (${cleanEmail}) واسترجاع بيانات السحابة تلقائياً`,
-      cleanEmail
+      `تسجيل دخول (${matchedStaff.name} — ${cleanEmail}) عبر ${
+        (matchedStaff.authProvider || provider) === 'microsoft'
+          ? 'Microsoft'
+          : 'Google'
+      } واسترجاع بيانات السحابة تلقائياً`,
+      matchedStaff.name
     );
-    showToast(`تم تسجيل الدخول بنجاح (${cleanEmail}) وجاري استرجاع طلابك وحلقاتك من السحابة تلقائياً ☁️`, 'success');
-    return { ok: true };
+    showToast(
+      `مرحباً بك (${matchedStaff.name}) — تم تسجيل الدخول وتطبيق صلاحياتك المعتمدة من المالك ☁️`,
+      'success'
+    );
+    return { ok: true, staffRecord: matchedStaff };
   };
 
   const [googleAuthUser, setGoogleAuthUser] = useState<GoogleAuthResult | null>(null);
@@ -2037,12 +2417,15 @@ export const AcademyProvider: React.FC<{ children: React.ReactNode }> = ({ child
         const fbEmail = (fbUser.email || '').trim().toLowerCase();
         if (fbEmail) {
           setActiveStaffEmail(fbEmail);
+          if (isOwnerEmail(fbEmail)) {
+            setCurrentStaffTier('owner');
+          }
         }
         setGoogleAuthUser((prev) => ({
           uid: fbUser.uid,
           email: fbUser.email || '',
           displayName:
-            fbUser.displayName || fbUser.email?.split('@')[0] || 'مستخدم Google',
+            fbUser.displayName || fbUser.email?.split('@')[0] || 'مستخدم الأكاديمية',
           photoURL: fbUser.photoURL,
           emailVerified: fbUser.emailVerified,
           motherName: prev?.motherName,
@@ -2057,12 +2440,19 @@ export const AcademyProvider: React.FC<{ children: React.ReactNode }> = ({ child
           unsubStaff = subscribeToStaffRegistrationsFromFirestore((remoteRecords) => {
             setManagedTeachers((prev) => {
               const map = new Map<string, TeacherAccessRecord>();
-              prev.forEach((item) => map.set(item.id, item));
+              prev.forEach((item) => map.set(item.email.toLowerCase(), item));
               remoteRecords.forEach((remote) => {
-                const existing = map.get(remote.id);
-                map.set(remote.id, {
+                const emailKey = remote.email.toLowerCase();
+                const existing = map.get(emailKey);
+                map.set(emailKey, {
                   ...existing,
                   ...remote,
+                  staffRole: isOwnerEmail(emailKey)
+                    ? 'owner'
+                    : remote.staffRole || existing?.staffRole || 'teacher',
+                  status: isOwnerEmail(emailKey)
+                    ? 'active'
+                    : remote.status || existing?.status || 'pending',
                 });
               });
               return Array.from(map.values());
@@ -2115,12 +2505,30 @@ export const AcademyProvider: React.FC<{ children: React.ReactNode }> = ({ child
     );
   };
 
-  const startGoogleOAuthRedirect = async (
+  const handleOAuthPopupFlow = async (
+    providerType: 'google' | 'microsoft',
     targetPortal: 'teacher' | 'supervisor' | 'guardian' | 'student' = 'teacher',
     initialFamily?: ExtendedFamilyFields
-  ): Promise<{ ok: boolean; error?: string; isFirstGoogleLogin?: boolean }> => {
+  ): Promise<{
+    ok: boolean;
+    error?: string;
+    isFirstGoogleLogin?: boolean;
+    requiresOnboardingCard?: boolean;
+    requiresPendingScreen?: boolean;
+    ssoCandidate?: {
+      email: string;
+      displayName: string;
+      provider: StaffAuthProvider;
+      uid?: string;
+      photoURL?: string | null;
+    };
+    staffRecord?: TeacherAccessRecord;
+  }> => {
     try {
-      const result = await signInWithGooglePopup(targetPortal, initialFamily);
+      const result =
+        providerType === 'microsoft'
+          ? await signInWithMicrosoftPopup(targetPortal, initialFamily)
+          : await signInWithGooglePopup(targetPortal, initialFamily);
       const cleanEmail = (result.email || '').trim().toLowerCase();
 
       setGoogleAuthUser(result);
@@ -2131,74 +2539,78 @@ export const AcademyProvider: React.FC<{ children: React.ReactNode }> = ({ child
           (t) => t.email.toLowerCase() === cleanEmail
         );
 
+        // If NOT a Master Owner and NOT yet registered in managedTeachers -> prompt Quick Join Card!
+        if (!ownerAccount && !existingStaff) {
+          return {
+            ok: false,
+            requiresOnboardingCard: true,
+            ssoCandidate: {
+              email: cleanEmail,
+              displayName:
+                result.displayName || cleanEmail.split('@')[0] || 'محفظ جديد',
+              provider: providerType,
+              uid: result.uid,
+              photoURL: result.photoURL,
+            },
+          };
+        }
+
         if (!ownerAccount && existingStaff) {
           if (existingStaff.status === 'blocked') {
             const blockedMsg = `هذا الحساب (${
               existingStaff.staffRole === 'supervisor' ? 'المشرف' : 'المحفظ'
-            }) موقوف مؤقتاً من قِبل المالك أو المشرف العام.`;
+            }) موقوف أو مرفوض من قِبل مالك الأكاديمية.`;
             showToast(blockedMsg, 'error');
-            return { ok: false, error: blockedMsg };
+            return { ok: false, error: blockedMsg, staffRecord: existingStaff };
           }
           if (existingStaff.status === 'pending') {
-            const pendingMsg = `حسابك (${
-              existingStaff.staffRole === 'supervisor' ? 'المشرف' : 'المحفظ'
-            }) بانتظار الموافقة والتفعيل من قِبل المالك أو المشرف العام.`;
-            showToast(pendingMsg, 'info');
-            return { ok: false, error: pendingMsg };
+            return {
+              ok: false,
+              requiresPendingScreen: true,
+              staffRecord: existingStaff,
+              error:
+                'تم تسجيل طلبك بنجاح ببريدك الإلكتروني — حسابك الآن قيد المراجعة والتفعيل من قِبل مالك الأكاديمية.',
+            };
           }
         }
 
-        // Integrate Google profile data + extended family fields into TeacherAccessRecord model
-        const staffRecordId = existingStaff?.id || `${targetPortal}-${result.uid.slice(0, 10)}`;
+        const staffRecordId =
+          existingStaff?.id || `${targetPortal}-${result.uid.slice(0, 10)}`;
         const staffPersonName =
-          result.displayName || existingStaff?.name || cleanEmail.split('@')[0];
-        const staffMother =
-          initialFamily?.motherName?.trim() ||
-          existingStaff?.motherName ||
-          result.motherName ||
-          '';
-        const staffGrandfather =
-          initialFamily?.grandfatherName?.trim() ||
-          existingStaff?.grandfatherName ||
-          result.grandfatherName ||
-          '';
-        const staffGrandmother =
-          initialFamily?.grandmotherName?.trim() ||
-          existingStaff?.grandmotherName ||
-          result.grandmotherName ||
-          '';
-        const staffUncle =
-          initialFamily?.uncleName?.trim() ||
-          existingStaff?.uncleName ||
-          result.uncleName ||
-          '';
+          existingStaff?.name ||
+          result.displayName ||
+          cleanEmail.split('@')[0];
 
         const createdRole: StaffHierarchyRole = ownerAccount
           ? 'owner'
           : existingStaff?.staffRole ||
             (targetPortal === 'supervisor' ? 'supervisor' : 'teacher');
 
+        const now = new Date();
+        const activeTimeStr = `${getLocalDateString(0)} ${String(
+          now.getHours()
+        ).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+
         const syncedStaffRecord: TeacherAccessRecord = {
+          ...(existingStaff || {}),
           id: staffRecordId,
           name: staffPersonName,
           email: cleanEmail,
           roleTitle:
             existingStaff?.roleTitle ||
             (createdRole === 'owner'
-              ? 'المالك العام للأكاديمية'
+              ? '👑 مالك الأكاديمية (Super Admin / Owner)'
               : createdRole === 'supervisor'
-              ? 'مشرف الحلقات والمتابعة (Google)'
-              : 'محفظ الحلقات القرآنية (Google)'),
+              ? 'مشرف عام الحلقات والمتابعة'
+              : 'محفظ الحلقات القرآنية'),
           staffRole: createdRole,
-          status: existingStaff?.status || 'active',
+          status: 'active',
+          authProvider: existingStaff?.authProvider || providerType,
           lastSyncAt: getLocalDateString(0),
+          lastActiveAt: activeTimeStr,
           assignedCirclesCount: existingStaff?.assignedCirclesCount ?? 1,
           googleUid: result.uid,
           photoURL: result.photoURL,
-          motherName: staffMother || undefined,
-          grandfatherName: staffGrandfather || undefined,
-          grandmotherName: staffGrandmother || undefined,
-          uncleName: staffUncle || undefined,
         };
 
         setManagedTeachers((prev) => {
@@ -2211,73 +2623,37 @@ export const AcademyProvider: React.FC<{ children: React.ReactNode }> = ({ child
           return [syncedStaffRecord, ...prev];
         });
 
-        void syncStaffRegistrationToFirestore(syncedStaffRecord).catch(() => {
-          // non-blocking
-        });
+        void syncStaffRegistrationToFirestore(syncedStaffRecord).catch(() => {});
 
-        void syncExtendedFamilyRecordToFirestore({
-          recordId: staffRecordId,
-          entityType: targetPortal === 'supervisor' ? 'supervisor' : 'teacher',
-          personName: staffPersonName,
-          motherName: staffMother,
-          grandfatherName: staffGrandfather,
-          grandmotherName: staffGrandmother,
-          uncleName: staffUncle,
-        }).catch(() => {
-          // non-blocking
-        });
-
-        if (ownerAccount) {
-          setCurrentStaffTier('owner');
-        } else if (existingStaff?.staffRole) {
-          setCurrentStaffTier(existingStaff.staffRole);
-        } else {
-          setCurrentStaffTier(targetPortal === 'supervisor' ? 'supervisor' : 'teacher');
-        }
-
+        setCurrentStaffTier(createdRole);
         if (cleanEmail) {
           setActiveStaffEmail(cleanEmail);
         }
         hasNotifiedOnSessionRef.current = false;
         setUserRole('teacher');
         setIsLoggedIn(true);
-        setActiveTab(targetPortal === 'supervisor' ? 'settings' : 'dashboard');
+        setActiveTab(
+          createdRole === 'owner'
+            ? 'owner_panel'
+            : createdRole === 'financial_manager'
+            ? 'finance'
+            : 'dashboard'
+        );
 
-        // Automatically fetch and merge Sheikh's / Owner's cloud backup from Firebase Cloud Firestore
         void restoreFromCloudFirestoreNow(true, cleanEmail);
       } else {
-        // Guardian or Student Portal: Integrate Google profile data + family fields with Student model
+        // Guardian or Student Portal
         const matchedStudent =
           students.find(
             (s) =>
               (s.accountStatus ?? 'نشط') !== 'مؤرشف' &&
-              (s.googleEmail?.toLowerCase() === cleanEmail || s.googleUid === result.uid)
+              (s.googleEmail?.toLowerCase() === cleanEmail ||
+                s.googleUid === result.uid)
           ) ||
           students.find((s) => (s.accountStatus ?? 'نشط') !== 'مؤرشف') ||
           students[0];
 
         if (matchedStudent) {
-          const mergedMother =
-            initialFamily?.motherName?.trim() ||
-            matchedStudent.motherName ||
-            result.motherName ||
-            '';
-          const mergedGrandfather =
-            initialFamily?.grandfatherName?.trim() ||
-            matchedStudent.grandfatherName ||
-            result.grandfatherName ||
-            '';
-          const mergedGrandmother =
-            initialFamily?.grandmotherName?.trim() ||
-            matchedStudent.grandmotherName ||
-            result.grandmotherName ||
-            '';
-          const mergedUncle =
-            initialFamily?.uncleName?.trim() ||
-            matchedStudent.uncleName ||
-            result.uncleName ||
-            '';
-
           setStudents((prev) =>
             prev.map((st) =>
               st.id === matchedStudent.id
@@ -2286,28 +2662,12 @@ export const AcademyProvider: React.FC<{ children: React.ReactNode }> = ({ child
                     googleUid: result.uid,
                     googleEmail: cleanEmail || st.googleEmail,
                     googleAvatarUrl: result.photoURL,
-                    motherName: mergedMother || st.motherName,
-                    grandfatherName: mergedGrandfather || st.grandfatherName,
-                    grandmotherName: mergedGrandmother || st.grandmotherName,
-                    uncleName: mergedUncle || st.uncleName,
                   }
                 : st
             )
           );
           setGuardianStudentId(matchedStudent.id);
           setSelectedStudentId(matchedStudent.id);
-
-          void syncExtendedFamilyRecordToFirestore({
-            recordId: matchedStudent.id,
-            entityType: 'student',
-            personName: matchedStudent.name,
-            motherName: mergedMother,
-            grandfatherName: mergedGrandfather,
-            grandmotherName: mergedGrandmother,
-            uncleName: mergedUncle,
-          }).catch(() => {
-            // non-blocking
-          });
         }
         hasNotifiedOnSessionRef.current = false;
         setIsStaffPortalPreview(false);
@@ -2326,7 +2686,7 @@ export const AcademyProvider: React.FC<{ children: React.ReactNode }> = ({ child
             email: cleanEmail || SUPABASE_OFFICIAL_CONFIG.ownerEmail,
             displayName: result.displayName,
             uid: result.uid,
-            provider: 'firebase_google',
+            provider: providerType,
             trustedAt: new Date().toISOString(),
           })
         );
@@ -2338,13 +2698,15 @@ export const AcademyProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
       recordAuditLog(
         'صلاحيات وأمان',
-        `تسجيل دخول رسمي وربط ملف Google (${result.displayName} — ${cleanEmail}) ومزامنة السحابة`,
+        `تسجيل دخول رسمي عبر ${
+          providerType === 'microsoft' ? 'Microsoft' : 'Google'
+        } (${result.displayName} — ${cleanEmail}) ومزامنة السحابة`,
         cleanEmail || result.displayName
       );
       showToast(
-        result.isFirstGoogleLogin
-          ? `مرحباً بك (${result.displayName}) — تم تسجيل أول دخول وحفظ بيانات العائلة في Firestore بنجاح`
-          : `مرحباً بك (${result.displayName}) — تم تسجيل الدخول بحساب Google بنجاح`,
+        isOwnerEmail(cleanEmail)
+          ? `👑 مرحباً بمالك الأكاديمية (${result.displayName}) — تم فتح كافة الصلاحيات المطلقة`
+          : `مرحباً بك (${result.displayName}) — تم تسجيل الدخول بنجاح`,
         'success'
       );
       return { ok: true, isFirstGoogleLogin: result.isFirstGoogleLogin };
@@ -2354,16 +2716,27 @@ export const AcademyProvider: React.FC<{ children: React.ReactNode }> = ({ child
         rawMessage.includes('auth/popup-closed-by-user') ||
         rawMessage.includes('auth/cancelled-popup-request')
       ) {
-        const cancelMsg = 'تم إغلاق نافذة تسجيل الدخول بحساب Google قبل إتمام العملية.';
-        showToast(cancelMsg, 'info');
+        const cancelMsg = `تم إغلاق نافذة تسجيل الدخول بحساب ${
+          providerType === 'microsoft' ? 'Microsoft' : 'Google'
+        } قبل إتمام العملية.`;
         return { ok: false, error: cancelMsg };
       }
-      const errMsg =
-        'تعذر إتمام الدخول عبر نافذة Google المنبثقة. تأكد من السماح بالنوافذ المنبثقة أو استخدم البريد والرمز.';
-      showToast(errMsg, 'error');
-      return { ok: false, error: errMsg };
+      return {
+        ok: false,
+        error: `POPUP_FALLBACK_${providerType.toUpperCase()}`,
+      };
     }
   };
+
+  const startGoogleOAuthRedirect = (
+    targetPortal: 'teacher' | 'supervisor' | 'guardian' | 'student' = 'teacher',
+    initialFamily?: ExtendedFamilyFields
+  ) => handleOAuthPopupFlow('google', targetPortal, initialFamily);
+
+  const startMicrosoftOAuthRedirect = (
+    targetPortal: 'teacher' | 'supervisor' | 'guardian' | 'student' = 'teacher',
+    initialFamily?: ExtendedFamilyFields
+  ) => handleOAuthPopupFlow('microsoft', targetPortal, initialFamily);
 
   // Handle Google OAuth callback hash (#access_token=...) if returning from OAuth redirect
   useEffect(() => {
@@ -4258,6 +4631,245 @@ export const AcademyProvider: React.FC<{ children: React.ReactNode }> = ({ child
     return created;
   };
 
+  // WhatsApp Offline Outbox Queue Implementation
+  const [pendingOutboxMessages, setPendingOutboxMessages] = useState<OutboxMessage[]>(() => {
+    try {
+      const raw = localStorage.getItem('imam_whatsapp_outbox_queue_v1');
+      if (raw) return JSON.parse(raw) as OutboxMessage[];
+    } catch {
+      // ignore
+    }
+    return [];
+  });
+
+  const queueOutboxMessage = (msg: Omit<OutboxMessage, 'id' | 'createdAt' | 'status'>) => {
+    const newMsg: OutboxMessage = {
+      ...msg,
+      id: `outbox-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      createdAt: new Date().toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' }),
+      status: 'queued',
+    };
+    setPendingOutboxMessages((prev) => {
+      const updated = [newMsg, ...prev];
+      try {
+        localStorage.setItem('imam_whatsapp_outbox_queue_v1', JSON.stringify(updated));
+      } catch {}
+      return updated;
+    });
+    showToast(`تم حفظ الرسالة في طابور رسائل واتساب الأوفلاين (${msg.recipientName})`, 'info');
+  };
+
+  const sendOutboxMessage = (id: string) => {
+    const item = pendingOutboxMessages.find((m) => m.id === id);
+    if (!item) return;
+    const cleanPhone = item.recipientPhone.replace(/\D/g, '');
+    const url = `https://api.whatsapp.com/send?phone=${cleanPhone}&text=${encodeURIComponent(item.text)}`;
+    window.open(url, '_blank');
+    setPendingOutboxMessages((prev) => {
+      const updated = prev.filter((m) => m.id !== id);
+      try {
+        localStorage.setItem('imam_whatsapp_outbox_queue_v1', JSON.stringify(updated));
+      } catch {}
+      return updated;
+    });
+    showToast(`تم إرسال رسالة ${item.recipientName} عبر واتساب بنجاح`, 'success');
+  };
+
+  const sendAllQueuedMessages = () => {
+    if (pendingOutboxMessages.length === 0) return;
+    pendingOutboxMessages.forEach((item) => {
+      const cleanPhone = item.recipientPhone.replace(/\D/g, '');
+      const url = `https://api.whatsapp.com/send?phone=${cleanPhone}&text=${encodeURIComponent(item.text)}`;
+      window.open(url, '_blank');
+    });
+    setPendingOutboxMessages([]);
+    try {
+      localStorage.removeItem('imam_whatsapp_outbox_queue_v1');
+    } catch {}
+    showToast('تم إرسال كافة رسائل طابور واتساب بنجاح', 'success');
+  };
+
+  const deleteOutboxMessage = (id: string) => {
+    setPendingOutboxMessages((prev) => {
+      const updated = prev.filter((m) => m.id !== id);
+      try {
+        localStorage.setItem('imam_whatsapp_outbox_queue_v1', JSON.stringify(updated));
+      } catch {}
+      return updated;
+    });
+  };
+
+  useEffect(() => {
+    const handleOnline = () => {
+      if (pendingOutboxMessages.length > 0) {
+        showToast(
+          `🌿 عاد الاتصال بالإنترنت! لديك ${pendingOutboxMessages.length} رسائل في طابور واتساب جاهزة للإرسال`,
+          'info'
+        );
+      }
+    };
+    window.addEventListener('online', handleOnline);
+    return () => window.removeEventListener('online', handleOnline);
+  }, [pendingOutboxMessages.length]);
+
+  // Smart Quiz & Peer-to-Peer Competitions Engine
+  const [peerCompetitions, setPeerCompetitions] = useState<PeerCompetitionPack[]>(() => {
+    try {
+      const saved = localStorage.getItem('imam_peer_competitions_v1');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      }
+    } catch {}
+    return buildInitialPeerCompetitions(INITIAL_STUDENTS);
+  });
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('imam_peer_competitions_v1', JSON.stringify(peerCompetitions));
+    } catch {}
+  }, [peerCompetitions]);
+
+  const createPeerCompetitionPack = (packInput: {
+    title: string;
+    description: string;
+    targetLevel: StudentLevel | 'الكل';
+    scopeLabel: string;
+    questions: SmartQuizQuestion[];
+    timeLimitSeconds: number;
+    xpRewardFirst: number;
+    xpRewardParticipant: number;
+    badgeTitle: string;
+  }): PeerCompetitionPack => {
+    const newPack: PeerCompetitionPack = {
+      id: `comp-pack-${Date.now()}`,
+      title: packInput.title.trim(),
+      description: packInput.description.trim(),
+      targetLevel: packInput.targetLevel,
+      scopeLabel: packInput.scopeLabel,
+      questions: packInput.questions,
+      timeLimitSeconds: packInput.timeLimitSeconds,
+      xpRewardFirst: packInput.xpRewardFirst,
+      xpRewardParticipant: packInput.xpRewardParticipant,
+      badgeTitle: packInput.badgeTitle.trim() || '🏆 وسام المسابقة القرآنية',
+      status: 'نشطة',
+      createdAt: getLocalDateString(0),
+      submissions: [],
+    };
+    setPeerCompetitions((prev) => [newPack, ...prev]);
+    recordAuditLog(
+      'تعديل طالب',
+      `إطلاق مسابقة تنافسية وحقيبة اختبارية جماعية: (${newPack.title}) لمستوى (${newPack.targetLevel})`,
+      newPack.title
+    );
+    showToast(`🏆 تم إطلاق المسابقة التنافسية (${newPack.title}) لطلاب الحلقات بنجاح!`, 'success');
+    return newPack;
+  };
+
+  const submitPeerCompetitionResult = (params: {
+    competitionId: string;
+    studentId: string;
+    correctCount: number;
+    totalQuestions: number;
+    timeSeconds: number;
+  }): PeerCompetitionSubmission | null => {
+    const { competitionId, studentId, correctCount, totalQuestions, timeSeconds } = params;
+    const st = students.find((s) => s.id === studentId);
+    const comp = peerCompetitions.find((c) => c.id === competitionId);
+    if (!st || !comp) return null;
+
+    const accuracyScore = Math.round((correctCount / Math.max(1, totalQuestions)) * 100);
+    // Speed bonus: faster completion gives up to +100 speed rank points
+    const speedBonus = Math.max(5, Math.min(100, Math.round(120 - timeSeconds)));
+    const compositeRankPoints = accuracyScore + (accuracyScore >= 50 ? speedBonus : 0);
+
+    const rawSubmission: PeerCompetitionSubmission = {
+      id: `comp-sub-${Date.now()}-${Math.random().toString(36).slice(2, 5)}`,
+      competitionId,
+      studentId: st.id,
+      studentName: st.name,
+      circleName: st.circle,
+      level: st.level,
+      score: accuracyScore,
+      correctCount,
+      totalQuestions,
+      timeSeconds: Math.max(3, timeSeconds),
+      compositeRankPoints,
+      completedAt: getLocalDateString(0),
+    };
+
+    let awardedCupLabel: PeerCompetitionSubmission['awardedCup'] = '🎖️ وسام التميز';
+
+    setPeerCompetitions((prev) =>
+      prev.map((c) => {
+        if (c.id !== competitionId) return c;
+        // Replace existing submission by same student if higher score, or append
+        const others = c.submissions.filter((sub) => sub.studentId !== st.id);
+        const merged = [...others, rawSubmission].sort(
+          (a, b) => b.compositeRankPoints - a.compositeRankPoints || a.timeSeconds - b.timeSeconds
+        );
+        const ranked = merged.map((item, idx) => {
+          const cup: PeerCompetitionSubmission['awardedCup'] =
+            idx === 0
+              ? '🏆 الكأس الذهبي'
+              : idx === 1
+              ? '🥈 الكأس الفضي'
+              : idx === 2
+              ? '🥉 الكأس البرونزي'
+              : '🎖️ وسام التميز';
+          if (item.studentId === st.id) {
+            awardedCupLabel = cup;
+          }
+          return {
+            ...item,
+            awardedCup: cup,
+          };
+        });
+        return {
+          ...c,
+          submissions: ranked,
+        };
+      })
+    );
+
+    const xpEarned =
+      awardedCupLabel === '🏆 الكأس الذهبي' ? comp.xpRewardFirst : comp.xpRewardParticipant;
+    const badgeToAward = `${awardedCupLabel} — ${comp.badgeTitle}`;
+
+    // Automatically award XP and Cup/Badge to the student's profile!
+    setStudents((prev) =>
+      prev.map((s) => {
+        if (s.id !== st.id) return s;
+        const existingBadges = s.badges || [];
+        const nextBadges = existingBadges.includes(badgeToAward)
+          ? existingBadges
+          : [badgeToAward, ...existingBadges];
+        return {
+          ...s,
+          xpPoints: (s.xpPoints || 120) + xpEarned,
+          badges: nextBadges,
+          hasGoldenCrown:
+            awardedCupLabel === '🏆 الكأس الذهبي' ? true : s.hasGoldenCrown,
+        };
+      })
+    );
+
+    showToast(
+      `🎉 أحسنت يا (${st.name})! الدقة ${accuracyScore}% في ${timeSeconds} ثانية — نلت (${awardedCupLabel}) و +${xpEarned} نقطة همة XP!`,
+      'success'
+    );
+
+    return {
+      ...rawSubmission,
+      awardedCup: awardedCupLabel,
+    };
+  };
+
+  const deletePeerCompetitionPack = (id: string) => {
+    setPeerCompetitions((prev) => prev.filter((c) => c.id !== id));
+    showToast('تم حذف المسابقة التنافسية من القائمة', 'info');
+  };
+
   const clearAllStudentsAndStartEmpty = () => {
     setStudents([]);
     setSessions([]);
@@ -4287,6 +4899,8 @@ export const AcademyProvider: React.FC<{ children: React.ReactNode }> = ({ child
         loginAsTeacher,
         loginWithGoogleEmail,
         startGoogleOAuthRedirect,
+        startMicrosoftOAuthRedirect,
+        submitNewStaffJoinRequest,
         saveCurrentUserFamilyProfileToFirestore,
         loginAsGuardian,
         loginAsGuardianDirect,
@@ -4304,9 +4918,53 @@ export const AcademyProvider: React.FC<{ children: React.ReactNode }> = ({ child
         setQuickSearchOpen,
         isFullScreenFocus,
         setIsFullScreenFocus,
-        students,
+        students:
+          currentStaffTier === 'teacher' &&
+          userRole === 'teacher' &&
+          (() => {
+            const activeTeacher = managedTeachers.find(
+              (t) => t.email.toLowerCase() === activeStaffEmail.toLowerCase()
+            );
+            return Boolean(
+              (activeTeacher?.restrictToAssignedCircles ||
+                currentTeacherPermissions.restrictToAssignedCircles) &&
+                activeTeacher?.assignedCircleNames &&
+                activeTeacher.assignedCircleNames.length > 0
+            );
+          })()
+            ? students.filter((s) => {
+                const activeTeacher = managedTeachers.find(
+                  (t) => t.email.toLowerCase() === activeStaffEmail.toLowerCase()
+                );
+                return (
+                  activeTeacher?.assignedCircleNames?.includes(s.circle) ||
+                  s.assignedTeacherEmail?.toLowerCase() ===
+                    activeStaffEmail.toLowerCase()
+                );
+              })
+            : students,
         sessions,
-        circles,
+        circles:
+          currentStaffTier === 'teacher' &&
+          userRole === 'teacher' &&
+          (() => {
+            const activeTeacher = managedTeachers.find(
+              (t) => t.email.toLowerCase() === activeStaffEmail.toLowerCase()
+            );
+            return Boolean(
+              (activeTeacher?.restrictToAssignedCircles ||
+                currentTeacherPermissions.restrictToAssignedCircles) &&
+                activeTeacher?.assignedCircleNames &&
+                activeTeacher.assignedCircleNames.length > 0
+            );
+          })()
+            ? circles.filter((c) => {
+                const activeTeacher = managedTeachers.find(
+                  (t) => t.email.toLowerCase() === activeStaffEmail.toLowerCase()
+                );
+                return activeTeacher?.assignedCircleNames?.includes(c.name);
+              })
+            : circles,
         exams,
         ijazahs,
         tasks,
@@ -4404,6 +5062,15 @@ export const AcademyProvider: React.FC<{ children: React.ReactNode }> = ({ child
         resetToSeedData,
         clearAllStudentsAndStartEmpty,
         importFullBackup,
+        pendingOutboxMessages,
+        queueOutboxMessage,
+        sendOutboxMessage,
+        sendAllQueuedMessages,
+        deleteOutboxMessage,
+        peerCompetitions,
+        createPeerCompetitionPack,
+        submitPeerCompetitionResult,
+        deletePeerCompetitionPack,
       }}
     >
       {children}

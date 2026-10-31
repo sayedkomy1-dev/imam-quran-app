@@ -30,11 +30,8 @@ jobs:
           node-version: "22"
           cache: "npm"
 
-      - name: Install dependencies
-        run: npm install
-
-      - name: Build production static bundle
-        run: npm run build
+      - name: Install dependencies cleanly and build
+        run: rm -rf node_modules package-lock.json && npm install --legacy-peer-deps && npm run build
 
       - name: Configure GitHub Pages
         uses: actions/configure-pages@v5

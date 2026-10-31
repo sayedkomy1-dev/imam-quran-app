@@ -88,17 +88,43 @@ html[data-theme="sepia"] .bg-\[\#faf6ec\] {
   font-variant-numeric: tabular-nums;
 }
 
-/* Custom print rules for Certificates and Reports */
+/* Custom print rules for Certificates, Harvest Reports and Sheets */
 @media print {
-  .no-print {
+  @page {
+    size: A4 portrait;
+    margin: 12mm 15mm;
+  }
+  .no-print,
+  aside,
+  header,
+  footer,
+  button,
+  .offline-indicator,
+  nav {
     display: none !important;
   }
   .print-only {
     display: block !important;
   }
-  body {
+  body,
+  html {
     background: #ffffff !important;
-    color: #000000 !important;
+    color: #14281d !important;
+    font-size: 13pt !important;
+    line-height: 1.6 !important;
+  }
+  .print-container {
+    width: 100% !important;
+    max-width: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    box-shadow: none !important;
+    border: none !important;
+  }
+  .print-border-islamic {
+    border: 3px double #145a3a !important;
+    padding: 16px !important;
+    border-radius: 12px !important;
   }
 }
 

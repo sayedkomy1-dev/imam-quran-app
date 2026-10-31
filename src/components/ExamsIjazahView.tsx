@@ -6,6 +6,7 @@ import { ExamRecord, GradeType } from '../types';
 import { formatGregorianAndHijri } from '../utils/dateUtils';
 import { generateVerificationHash } from '../utils/wlqSyncCore';
 import { PedagogicalDiagnosticCard } from './PedagogicalAdvisorModal';
+import { SmartQuizAndCompetitionsSection } from './SmartQuizAndCompetitionsSection';
 import {
   Award,
   CheckCircle2,
@@ -466,6 +467,9 @@ export const ExamsIjazahView: React.FC = () => {
           </button>
         </div>
       </div>
+
+      {/* سابعاً: محرك الاختبارات الذكية الآلية ومسابقات التنافس بين الطلاب (Smart Quiz & Competitions Engine) */}
+      <SmartQuizAndCompetitionsSection mode="teacher" />
 
       {/* Placement & Pedagogical Screening Center (اختبار الفرز التربوي وأنماط التعلم للأطفال داخل تحديد المستوى) */}
       {students.length > 0 && (
