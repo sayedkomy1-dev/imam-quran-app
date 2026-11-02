@@ -1,19 +1,7 @@
-import React, { useEffect, useState } from 'react';
+import React, { Suspense, lazy, useEffect, useState } from 'react';
 import { ActiveTab, AcademyProvider, useAcademy } from './context/AcademyContext';
 import { AuthGateModal } from './components/AuthGateModal';
 import { DashboardView } from './components/DashboardView';
-import { StudentsView } from './components/StudentsView';
-import { SessionEngineView } from './components/SessionEngineView';
-import { SmartBoardView } from './components/SmartBoardView';
-import { MakharijTajweedView } from './components/MakharijTajweedView';
-import { CirclesManagerView } from './components/CirclesManagerView';
-import { ExamsIjazahView } from './components/ExamsIjazahView';
-import { StrugglingAndTasksView } from './components/StrugglingAndTasksView';
-import { FinanceView } from './components/FinanceView';
-import { BroadcastCenterView } from './components/BroadcastCenterView';
-import { GuardianAndGuestView } from './components/GuardianAndGuestView';
-import { SettingsView } from './components/SettingsView';
-import { QuickSearchModal } from './components/QuickSearchModal';
 import {
   ExitConfirmationModal,
   OfflineIndicator,
@@ -22,14 +10,7 @@ import {
   detectPortalRouteFromLocation,
   updatePortalManifest,
 } from './components/PWAComponents';
-import { PortalAISuiteModal } from './components/PortalAISuiteModal';
 import { useBackButtonGuard } from './hooks/useBackButtonGuard';
-import { HybridFoundationView } from './components/HybridFoundationView';
-import { OfflineResourceCenterView } from './components/OfflineResourceCenterView';
-import { PublicMushafWaqfPortalView } from './components/PublicMushafWaqfPortalView';
-import { OwnerControlPanelView } from './components/OwnerControlPanelView';
-import { FaithOasisView } from './components/FaithOasisView';
-import { AcademyPdfGuideModal } from './components/AcademyPdfGuideModal';
 import { OFFICIAL_ACADEMY_WHATSAPP } from './data/hybridFoundationData';
 import { ACADEMY_BRAND_CONFIG } from './constants/brandConfig';
 import {
@@ -37,6 +18,79 @@ import {
   QuickSupportFloatingButton,
 } from './components/DeveloperSupportModal';
 import { formatGregorianAndHijri } from './utils/dateUtils';
+
+const StudentsView = lazy(() =>
+  import('./components/StudentsView').then((m) => ({ default: m.StudentsView }))
+);
+const SessionEngineView = lazy(() =>
+  import('./components/SessionEngineView').then((m) => ({ default: m.SessionEngineView }))
+);
+const SmartBoardView = lazy(() =>
+  import('./components/SmartBoardView').then((m) => ({ default: m.SmartBoardView }))
+);
+const MakharijTajweedView = lazy(() =>
+  import('./components/MakharijTajweedView').then((m) => ({ default: m.MakharijTajweedView }))
+);
+const CirclesManagerView = lazy(() =>
+  import('./components/CirclesManagerView').then((m) => ({ default: m.CirclesManagerView }))
+);
+const ExamsIjazahView = lazy(() =>
+  import('./components/ExamsIjazahView').then((m) => ({ default: m.ExamsIjazahView }))
+);
+const StrugglingAndTasksView = lazy(() =>
+  import('./components/StrugglingAndTasksView').then((m) => ({ default: m.StrugglingAndTasksView }))
+);
+const FinanceView = lazy(() =>
+  import('./components/FinanceView').then((m) => ({ default: m.FinanceView }))
+);
+const BroadcastCenterView = lazy(() =>
+  import('./components/BroadcastCenterView').then((m) => ({ default: m.BroadcastCenterView }))
+);
+const GuardianAndGuestView = lazy(() =>
+  import('./components/GuardianAndGuestView').then((m) => ({ default: m.GuardianAndGuestView }))
+);
+const SettingsView = lazy(() =>
+  import('./components/SettingsView').then((m) => ({ default: m.SettingsView }))
+);
+const QuickSearchModal = lazy(() =>
+  import('./components/QuickSearchModal').then((m) => ({ default: m.QuickSearchModal }))
+);
+const PortalAISuiteModal = lazy(() =>
+  import('./components/PortalAISuiteModal').then((m) => ({ default: m.PortalAISuiteModal }))
+);
+const HybridFoundationView = lazy(() =>
+  import('./components/HybridFoundationView').then((m) => ({ default: m.HybridFoundationView }))
+);
+const OfflineResourceCenterView = lazy(() =>
+  import('./components/OfflineResourceCenterView').then((m) => ({
+    default: m.OfflineResourceCenterView,
+  }))
+);
+const PublicMushafWaqfPortalView = lazy(() =>
+  import('./components/PublicMushafWaqfPortalView').then((m) => ({
+    default: m.PublicMushafWaqfPortalView,
+  }))
+);
+const OwnerControlPanelView = lazy(() =>
+  import('./components/OwnerControlPanelView').then((m) => ({ default: m.OwnerControlPanelView }))
+);
+const FaithOasisView = lazy(() =>
+  import('./components/FaithOasisView').then((m) => ({ default: m.FaithOasisView }))
+);
+const AcademyPdfGuideModal = lazy(() =>
+  import('./components/AcademyPdfGuideModal').then((m) => ({ default: m.AcademyPdfGuideModal }))
+);
+
+const ViewLoadingFallback: React.FC = () => (
+  <div className="py-16 flex flex-col items-center justify-center gap-3 text-center">
+    <div className="w-10 h-10 rounded-2xl bg-[#145a3a]/15 border-2 border-[#c59b27] flex items-center justify-center text-lg animate-pulse">
+      🕌
+    </div>
+    <p className="text-xs font-extrabold text-[#145a3a] dark:text-[#dfbd69]">
+      جارٍ فتح القسم القرآني...
+    </p>
+  </div>
+);
 import {
   AlertTriangle,
   ArrowRight,
@@ -279,19 +333,25 @@ const MainShell: React.FC = () => {
             <span>🤖 باحث التدبر القرآني والوقف الذكي (AI)</span>
           </button>
         </div>
-        <PublicMushafWaqfPortalView
-          onBackToAcademy={() => setPublicMushafPortalOpen(false)}
-        />
+        <Suspense fallback={<ViewLoadingFallback />}>
+          <PublicMushafWaqfPortalView
+            onBackToAcademy={() => setPublicMushafPortalOpen(false)}
+          />
+        </Suspense>
         <div className="max-w-7xl mx-auto px-4 pb-6">
           <PortalInstallAndShareBar
             route={activePortalRoute === 'sadaqa' ? 'sadaqa' : 'almushaf'}
           />
         </div>
-        <PortalAISuiteModal
-          isOpen={aiSuiteModalOpen}
-          onClose={() => setAiSuiteModalOpen(false)}
-          defaultPortal={activePortalRoute === 'sadaqa' ? 'sadaqa' : 'almushaf'}
-        />
+        {aiSuiteModalOpen && (
+          <Suspense fallback={null}>
+            <PortalAISuiteModal
+              isOpen={aiSuiteModalOpen}
+              onClose={() => setAiSuiteModalOpen(false)}
+              defaultPortal={activePortalRoute === 'sadaqa' ? 'sadaqa' : 'almushaf'}
+            />
+          </Suspense>
+        )}
         <ExitConfirmationModal
           isOpen={showExitConfirm}
           onCancel={cancelExit}
@@ -355,7 +415,9 @@ const MainShell: React.FC = () => {
           </div>
         )}
         <div className="max-w-[1380px] mx-auto px-4 sm:px-6 lg:px-8 py-5 md:py-7 space-y-6">
-          <GuardianAndGuestView />
+          <Suspense fallback={<ViewLoadingFallback />}>
+            <GuardianAndGuestView />
+          </Suspense>
           <PortalInstallAndShareBar
             route={activePortalRoute === 'student' ? 'student' : 'guardian'}
           />
@@ -584,11 +646,14 @@ const MainShell: React.FC = () => {
 
   return (
     <div className="h-screen overflow-hidden bg-[#f6f7f2] dark:bg-[#0b1711] text-[#14281d] dark:text-[#e9f2ec] flex">
-      {/* Desktop RTL Sidebar */}
+      {/* Desktop RTL Sidebar (Smoothly collapses in SmartFocus Mode) */}
       <aside
-        className={`${
-          isFullScreenFocus ? 'hidden' : 'hidden lg:flex'
-        } flex-col justify-between w-64 shrink-0 bg-white dark:bg-[#12231a] border-l border-neutral-200 dark:border-emerald-900/50 p-4 h-screen overflow-y-auto scrollbar-thin no-print`}
+        aria-hidden={isFullScreenFocus}
+        className={`hidden lg:flex flex-col justify-between shrink-0 bg-white dark:bg-[#12231a] h-screen scrollbar-thin no-print smart-focus-shell-transition ${
+          isFullScreenFocus
+            ? 'w-0 max-w-0 p-0 opacity-0 translate-x-12 border-l-0 overflow-hidden pointer-events-none select-none'
+            : 'w-64 max-w-64 p-4 opacity-100 translate-x-0 border-l border-neutral-200 dark:border-emerald-900/50 overflow-y-auto'
+        }`}
       >
         <div className="space-y-5">
           {/* Brand Lockup */}
@@ -749,11 +814,14 @@ const MainShell: React.FC = () => {
             </span>
           </div>
         )}
-        {/* Top Sticky Header (Hidden in Focus Mode to eliminate distractions) */}
+        {/* Top Sticky Header (Smoothly collapses in SmartFocus Mode to eliminate distractions) */}
         <header
-          className={`${
-            isFullScreenFocus ? 'hidden' : 'flex'
-          } flex-col sticky top-0 z-30 bg-white/95 dark:bg-[#12231a]/95 backdrop-blur-md border-b border-neutral-200 dark:border-emerald-900/50 px-4 md:px-6 py-2.5 gap-2 no-print`}
+          aria-hidden={isFullScreenFocus}
+          className={`flex flex-col sticky top-0 z-30 bg-white/95 dark:bg-[#12231a]/95 backdrop-blur-md px-4 md:px-6 gap-2 no-print smart-focus-shell-transition ${
+            isFullScreenFocus
+              ? 'max-h-0 py-0 opacity-0 -translate-y-6 border-b-0 overflow-hidden pointer-events-none select-none'
+              : 'max-h-48 py-2.5 opacity-100 translate-y-0 border-b border-neutral-200 dark:border-emerald-900/50'
+          }`}
         >
           <div className="flex items-center justify-between gap-3 flex-wrap">
             <div className="flex items-center gap-2 min-w-0 flex-wrap">
@@ -1197,37 +1265,39 @@ const MainShell: React.FC = () => {
           </div>
         </header>
 
-        {/* Active View Viewport (Expands to full width in Focus Mode) */}
+        {/* Active View Viewport (Smoothly expands to full width in SmartFocus Mode) */}
         <main
           className={`${
             isFullScreenFocus
               ? 'max-w-full w-full mx-auto p-2 md:p-4 flex-1'
               : 'max-w-7xl w-full mx-auto p-4 md:p-6 flex-1'
-          } transition-all duration-200`}
+          } smart-focus-shell-transition`}
         >
-          {activeTab === 'dashboard' && <DashboardView />}
-          {activeTab === 'faith_oasis' && <FaithOasisView />}
-          {activeTab === 'owner_panel' && <OwnerControlPanelView />}
-          {activeTab === 'students' && <StudentsView />}
-          {activeTab === 'session' && <SessionEngineView />}
-          {activeTab === 'smartboard' && <SmartBoardView />}
-          {activeTab === 'foundation' && <HybridFoundationView />}
-          {activeTab === 'tajweed' && <MakharijTajweedView />}
-          {activeTab === 'circles' && <CirclesManagerView />}
-          {activeTab === 'exams' && <ExamsIjazahView />}
-          {activeTab === 'struggling' && (
-            <StrugglingAndTasksView mode="struggling" />
-          )}
-          {activeTab === 'tasks' && <StrugglingAndTasksView mode="tasks" />}
-          {activeTab === 'finance' && <FinanceView />}
-          {activeTab === 'resources' && <OfflineResourceCenterView />}
-          {activeTab === 'public_mushaf' && (
-            <PublicMushafWaqfPortalView
-              onBackToAcademy={() => setActiveTab('dashboard')}
-            />
-          )}
-          {activeTab === 'broadcast' && <BroadcastCenterView />}
-          {activeTab === 'settings' && <SettingsView />}
+          <Suspense fallback={<ViewLoadingFallback />}>
+            {activeTab === 'dashboard' && <DashboardView />}
+            {activeTab === 'faith_oasis' && <FaithOasisView />}
+            {activeTab === 'owner_panel' && <OwnerControlPanelView />}
+            {activeTab === 'students' && <StudentsView />}
+            {activeTab === 'session' && <SessionEngineView />}
+            {activeTab === 'smartboard' && <SmartBoardView />}
+            {activeTab === 'foundation' && <HybridFoundationView />}
+            {activeTab === 'tajweed' && <MakharijTajweedView />}
+            {activeTab === 'circles' && <CirclesManagerView />}
+            {activeTab === 'exams' && <ExamsIjazahView />}
+            {activeTab === 'struggling' && (
+              <StrugglingAndTasksView mode="struggling" />
+            )}
+            {activeTab === 'tasks' && <StrugglingAndTasksView mode="tasks" />}
+            {activeTab === 'finance' && <FinanceView />}
+            {activeTab === 'resources' && <OfflineResourceCenterView />}
+            {activeTab === 'public_mushaf' && (
+              <PublicMushafWaqfPortalView
+                onBackToAcademy={() => setActiveTab('dashboard')}
+              />
+            )}
+            {activeTab === 'broadcast' && <BroadcastCenterView />}
+            {activeTab === 'settings' && <SettingsView />}
+          </Suspense>
 
           {/* Global Footer & Print Footer */}
           {!isFullScreenFocus && (
@@ -1246,11 +1316,14 @@ const MainShell: React.FC = () => {
         </main>
       </div>
 
-      {/* Mobile Bottom Navigation Bar */}
+      {/* Mobile Bottom Navigation Bar (Smoothly slides down in SmartFocus Mode) */}
       <nav
-        className={`${
-          isFullScreenFocus ? 'hidden' : 'lg:hidden'
-        } fixed bottom-0 left-0 right-0 z-40 bg-white/95 dark:bg-[#12231a]/95 backdrop-blur-md border-t border-neutral-200 dark:border-emerald-900/50 grid grid-cols-5 items-center h-16 px-2 no-print`}
+        aria-hidden={isFullScreenFocus}
+        className={`lg:hidden fixed bottom-0 left-0 right-0 z-40 bg-white/95 dark:bg-[#12231a]/95 backdrop-blur-md border-t border-neutral-200 dark:border-emerald-900/50 grid grid-cols-5 items-center h-16 px-2 no-print smart-focus-shell-transition ${
+          isFullScreenFocus
+            ? 'translate-y-24 opacity-0 pointer-events-none select-none'
+            : 'translate-y-0 opacity-100'
+        }`}
       >
         {[
           {
@@ -1371,7 +1444,9 @@ const MainShell: React.FC = () => {
       )}
 
       {/* Global Modals & Indicators */}
-      <QuickSearchModal />
+      <Suspense fallback={null}>
+        <QuickSearchModal />
+      </Suspense>
       <OfflineIndicator />
 
       {/* WhatsApp Offline Outbox Modal */}
@@ -1489,16 +1564,24 @@ const MainShell: React.FC = () => {
         </div>
       )}
 
-      <AcademyPdfGuideModal
-        isOpen={showAcademyPdfGuide}
-        onClose={() => setShowAcademyPdfGuide(false)}
-      />
+      {showAcademyPdfGuide && (
+        <Suspense fallback={null}>
+          <AcademyPdfGuideModal
+            isOpen={showAcademyPdfGuide}
+            onClose={() => setShowAcademyPdfGuide(false)}
+          />
+        </Suspense>
+      )}
 
-      <PortalAISuiteModal
-        isOpen={aiSuiteModalOpen}
-        onClose={() => setAiSuiteModalOpen(false)}
-        defaultPortal={currentStaffTier === 'owner' ? 'owner' : 'general'}
-      />
+      {aiSuiteModalOpen && (
+        <Suspense fallback={null}>
+          <PortalAISuiteModal
+            isOpen={aiSuiteModalOpen}
+            onClose={() => setAiSuiteModalOpen(false)}
+            defaultPortal={currentStaffTier === 'owner' ? 'owner' : 'general'}
+          />
+        </Suspense>
+      )}
 
       <ExitConfirmationModal
         isOpen={showExitConfirm}

@@ -39,19 +39,84 @@
         <div style="width:180px;height:6px;border-radius:999px;background:rgba(255,255,255,0.15);overflow:hidden;">
           <div style="width:65%;height:100%;background:linear-gradient(90deg,#c59b27,#34d399);border-radius:999px;"></div>
         </div>
+        <button
+          id="imam-splash-rescue-btn"
+          type="button"
+          onclick="(function(){try{if('serviceWorker' in navigator){navigator.serviceWorker.getRegistrations().then(function(r){r.forEach(function(x){x.unregister();});});}if(window.caches){window.caches.keys().then(function(k){k.forEach(function(n){window.caches.delete(n);});});}localStorage.removeItem('imam_academy_pwa_store_v13_sanitized');}catch(e){}window.location.href=window.location.pathname+'?v='+Date.now();})()"
+          style="display:none;margin-top:20px;padding:10px 20px;border-radius:14px;background:#c59b27;color:#14281d;font-family:'Cairo',sans-serif;font-size:13px;font-weight:800;border:none;cursor:pointer;box-shadow:0 8px 20px rgba(0,0,0,0.3);"
+        >
+          🔄 اضغط هنا لتحديث النسخة وفتح البوابة فوراً
+        </button>
       </div>
     </div>
+    <script type="module" src="/src/main.tsx"></script>
     <script>
       (function () {
+        // Suppress benign Vite HMR WebSocket unhandled rejections in preview/cloud environments
+        window.addEventListener('unhandledrejection', function (ev) {
+          var reasonStr = String((ev && ev.reason && (ev.reason.message || ev.reason)) || '');
+          if (reasonStr.indexOf('WebSocket closed without opened') !== -1 || reasonStr.indexOf('vite') !== -1) {
+            ev.preventDefault();
+          }
+        });
+
+        var fallbackLoaded = false;
+        function injectCompiledBundleNow() {
+          if (fallbackLoaded || window.__AL_IMAM_APP_MOUNTED__) return;
+          if (document.querySelector('script[src*="/assets/app.js"]')) return;
+          fallbackLoaded = true;
+          if (!document.querySelector('link[href*="/assets/app.css"]')) {
+            var cssLink = document.createElement('link');
+            cssLink.rel = 'stylesheet';
+            cssLink.href = '/assets/app.css';
+            document.head.appendChild(cssLink);
+          }
+          var jsScript = document.createElement('script');
+          jsScript.type = 'module';
+          jsScript.src = '/assets/app.js';
+          document.body.appendChild(jsScript);
+        }
+
+        // If running on static GitHub Pages / custom domain where raw index.html was served from root branch
+        // without Vite rewriting /src/main.tsx, immediately load pre-compiled /assets/app.js & /assets/app.css
+        var host = (window.location.hostname || '').toLowerCase();
+        var isStaticPublicDomain =
+          host.indexOf('welivequranacademy.online') !== -1 ||
+          host.indexOf('github.io') !== -1 ||
+          host.indexOf('pages.dev') !== -1 ||
+          host.indexOf('netlify.app') !== -1 ||
+          host.indexOf('vercel.app') !== -1;
+
+        if (isStaticPublicDomain && !document.querySelector('script[src*="/assets/app.js"]')) {
+          injectCompiledBundleNow();
+        } else {
+          // On Vite dev/preview hosts, also provide a fast 2.2s fallback to the compiled bundle if dev waterfall is slow
+          setTimeout(function () {
+            if (!window.__AL_IMAM_APP_MOUNTED__) {
+              injectCompiledBundleNow();
+            }
+          }, 2200);
+        }
+
+        setTimeout(function () {
+          if (!window.__AL_IMAM_APP_MOUNTED__) {
+            var btn = document.getElementById('imam-splash-rescue-btn');
+            if (btn) btn.style.display = 'inline-block';
+          }
+        }, 3500);
+
         try {
-          var MIGRATION_KEY = 'imam_pwa_migration_v12_clean';
+          var MIGRATION_KEY = 'imam_pwa_migration_v13_clean';
           var forceReset = window.location.search.indexOf('reset_cache=1') !== -1;
           if (!localStorage.getItem(MIGRATION_KEY) || forceReset) {
             localStorage.setItem(MIGRATION_KEY, '1');
             if ('serviceWorker' in navigator) {
               navigator.serviceWorker.getRegistrations().then(function (regs) {
                 regs.forEach(function (reg) {
-                  reg.unregister();
+                  var scriptUrl = (reg.active && reg.active.scriptURL) || '';
+                  if (forceReset || scriptUrl.indexOf('sw-push.js') === -1) {
+                    reg.unregister();
+                  }
                 });
               }).catch(function () {});
             }
@@ -70,6 +135,5 @@
         }
       })();
     </script>
-    <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

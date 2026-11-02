@@ -54,18 +54,248 @@ export function isNotificationsEnabledInStorage(): boolean {
   return true;
 }
 
+export interface ScheduledSessionReminderItem {
+  id: string;
+  title: string;
+  body: string;
+  tag?: string;
+  targetTab?: string;
+  studentId?: string | null;
+  studentName?: string | null;
+  circleName?: string | null;
+  meetingUrl?: string | null;
+  portalRoute?: string | null;
+  url?: string;
+  triggerAt: number;
+  fired?: boolean;
+}
+
 export async function ensurePushServiceWorkerRegistered(): Promise<ServiceWorkerRegistration | null> {
   if (typeof window === 'undefined' || !('serviceWorker' in navigator)) {
     return null;
   }
   try {
-    const existing = await navigator.serviceWorker.getRegistration();
-    if (existing) {
-      return existing;
+    let reg = await navigator.serviceWorker.getRegistration('/');
+    if (!reg) {
+      reg = await navigator.serviceWorker.register('/sw-push.js', { scope: '/' });
     }
-    return await navigator.serviceWorker.register('/sw-push.js', { scope: '/' });
+
+    // محاولة تفعيل المزامنة الدورية بالخلفية (Periodic Background Sync) لضمان إيقاظ عامل الخدمة عند إغلاق التطبيق
+    try {
+      const anyReg = reg as ServiceWorkerRegistration & {
+        periodicSync?: {
+          register: (tag: string, options: { minInterval: number }) => Promise<void>;
+        };
+        sync?: {
+          register: (tag: string) => Promise<void>;
+        };
+      };
+      if (anyReg.periodicSync && typeof anyReg.periodicSync.register === 'function') {
+        await anyReg.periodicSync.register('imam-session-reminders-periodic', {
+          minInterval: 10 * 60 * 1000, // كل 10 دقائق
+        });
+      }
+      if (anyReg.sync && typeof anyReg.sync.register === 'function') {
+        await anyReg.sync.register('imam-session-reminders-sync');
+      }
+    } catch {
+      // المتصفح قد لا يدعم PeriodicSync، وسيعتمد على المؤقتات وإشعارات Push بالخلفية
+    }
+
+    return reg;
   } catch {
     return null;
+  }
+}
+
+export async function syncSessionRemindersWithServiceWorker(params: {
+  students: Student[];
+  circles?: { id: string; name: string; scheduleDays?: number[]; scheduleTime?: string; permanentMeetingUrl?: string }[];
+  portalRole?: string;
+  guardianStudentIds?: string[];
+  notificationsEnabled?: boolean;
+}): Promise<void> {
+  if (typeof window === 'undefined' || !('serviceWorker' in navigator)) {
+    return;
+  }
+  if (params.notificationsEnabled === false) {
+    return;
+  }
+
+  try {
+    const reg = await ensurePushServiceWorkerRegistered();
+    const targetWorker =
+      reg?.active || reg?.waiting || reg?.installing || navigator.serviceWorker.controller;
+    if (!targetWorker) return;
+
+    const now = new Date();
+    const currentDay = now.getDay();
+    const todayDateStr = getLocalDateString(0);
+    const filterIds =
+      params.guardianStudentIds && params.guardianStudentIds.length > 0
+        ? new Set(params.guardianStudentIds)
+        : null;
+
+    const scheduledReminders: ScheduledSessionReminderItem[] = [];
+
+    for (const st of params.students) {
+      if (!st || st.accountStatus === 'مؤرشف' || st.accountStatus === 'متوقف') {
+        continue;
+      }
+      if (filterIds && !filterIds.has(st.id)) {
+        continue;
+      }
+
+      const circleObj = params.circles?.find(
+        (c) => c.name === st.circle || c.id === st.circleId
+      );
+      const days =
+        Array.isArray(st.scheduleDays) && st.scheduleDays.length > 0
+          ? st.scheduleDays
+          : circleObj?.scheduleDays || [];
+
+      if (!days.includes(currentDay)) continue;
+
+      const rawTime = st.scheduleTime || circleObj?.scheduleTime || '';
+      const match = rawTime.trim().match(/^(\d{1,2}):(\d{2})/);
+      if (!match) continue;
+
+      const hours = Number(match[1]);
+      const minutes = Number(match[2]);
+      if (Number.isNaN(hours) || Number.isNaN(minutes)) continue;
+
+      const sessionDate = new Date(
+        now.getFullYear(),
+        now.getMonth(),
+        now.getDate(),
+        hours,
+        minutes,
+        0,
+        0
+      );
+      const sessionMs = sessionDate.getTime();
+      const surahName = st.currentStop?.surahName || st.currentSurah || 'الورد المقرر';
+      const ayahNum = st.currentStop?.ayah || st.currentAyah || 1;
+      const circleTitle = st.circle || circleObj?.name || 'الحلقة القرآنية';
+      const meetingUrl = st.permanentMeetingUrl || circleObj?.permanentMeetingUrl || null;
+      const portalUrl =
+        params.portalRole === 'student'
+          ? '/Student'
+          : params.portalRole === 'guardian'
+          ? '/Guardian'
+          : '/';
+
+      // 1) تذكير قبل الحصة بـ 30 دقيقة
+      const trigger30m = sessionMs - 30 * 60 * 1000;
+      if (trigger30m > Date.now() - 2 * 60 * 1000) {
+        scheduledReminders.push({
+          id: `${todayDateStr}-${st.id}-30m`,
+          title: `⏰ تذكير بحصة القرآن بعد 30 دقيقة — ${st.name}`,
+          body: `موعد حلقة (${circleTitle}) الساعة ${rawTime} • الورد: سورة ${surahName} (آية ${ayahNum}). نرجو الاستعداد ومراجعة الحصون الخمسة.`,
+          tag: `imam-rem-30m-${st.id}`,
+          targetTab: 'session',
+          studentId: st.id,
+          studentName: st.name,
+          circleName: circleTitle,
+          meetingUrl,
+          portalRoute: params.portalRole || 'guardian',
+          url: portalUrl,
+          triggerAt: trigger30m,
+        });
+      }
+
+      // 2) تذكير قبل الحصة بـ 10 دقائق
+      const trigger10m = sessionMs - 10 * 60 * 1000;
+      if (trigger10m > Date.now() - 2 * 60 * 1000) {
+        scheduledReminders.push({
+          id: `${todayDateStr}-${st.id}-10m`,
+          title: `🕌 اقترب موعد حصة الطالب ${st.name} (خلال 10 دقائق)`,
+          body: `تبدأ حلقة (${circleTitle}) الساعة ${rawTime} • سورة ${surahName} (آية ${ayahNum}). اضغط للدخول وتجهيز المصحف.`,
+          tag: `imam-rem-10m-${st.id}`,
+          targetTab: 'session',
+          studentId: st.id,
+          studentName: st.name,
+          circleName: circleTitle,
+          meetingUrl,
+          portalRoute: params.portalRole || 'guardian',
+          url: portalUrl,
+          triggerAt: trigger10m,
+        });
+      }
+
+      // 3) إشعار بدء الحصة الآن
+      if (sessionMs > Date.now() - 5 * 60 * 1000) {
+        scheduledReminders.push({
+          id: `${todayDateStr}-${st.id}-now`,
+          title: `🟢 حان الآن موعد حصة القرآن الكريم — ${st.name}`,
+          body: `بدأت الآن حلقة (${circleTitle}) • المقرر: سورة ${surahName} (آية ${ayahNum}). بارك الله في همتكم، اضغط للدخول مباشرة.`,
+          tag: `imam-rem-now-${st.id}`,
+          targetTab: 'session',
+          studentId: st.id,
+          studentName: st.name,
+          circleName: circleTitle,
+          meetingUrl,
+          portalRoute: params.portalRole || 'guardian',
+          url: portalUrl,
+          triggerAt: sessionMs,
+        });
+      }
+    }
+
+    targetWorker.postMessage({
+      type: 'SYNC_SESSION_REMINDERS',
+      portalRole: params.portalRole || 'guardian',
+      guardianStudentIds: params.guardianStudentIds || [],
+      scheduledReminders,
+    });
+  } catch {
+    // ignore SW sync error
+  }
+}
+
+export async function scheduleBackgroundSessionReminder(options: {
+  title: string;
+  body: string;
+  delayMinutes?: number;
+  studentId?: string | null;
+  studentName?: string | null;
+  circleName?: string | null;
+  meetingUrl?: string | null;
+  portalRoute?: string | null;
+}): Promise<boolean> {
+  if (typeof window === 'undefined' || !('serviceWorker' in navigator)) {
+    return false;
+  }
+  const permission = await requestBrowserNotificationPermission();
+  if (permission !== 'granted') {
+    return false;
+  }
+  try {
+    const reg = await ensurePushServiceWorkerRegistered();
+    const targetWorker =
+      reg?.active || reg?.waiting || reg?.installing || navigator.serviceWorker.controller;
+    if (!targetWorker) return false;
+
+    targetWorker.postMessage({
+      type: 'SCHEDULE_SESSION_REMINDER',
+      title: options.title,
+      body: options.body,
+      delayMinutes: options.delayMinutes ?? 5,
+      studentId: options.studentId || null,
+      studentName: options.studentName || null,
+      circleName: options.circleName || null,
+      meetingUrl: options.meetingUrl || null,
+      portalRoute: options.portalRoute || 'guardian',
+      url:
+        options.portalRoute === 'student'
+          ? '/Student'
+          : options.portalRoute === 'guardian'
+          ? '/Guardian'
+          : '/',
+    });
+    return true;
+  } catch {
+    return false;
   }
 }
 
@@ -75,6 +305,8 @@ export interface LocalPushNotificationPayload {
   tag?: string;
   targetTab?: string;
   studentId?: string | null;
+  portalRoute?: string | null;
+  url?: string;
   notificationsEnabled?: boolean;
   onClick?: () => void;
 }
@@ -132,8 +364,10 @@ export async function sendLocalPushNotification(
     badge: '/assets/aistudio/icon-96_3bce66e2.png',
     tag: payload.tag || 'imam-academy-alert',
     data: {
+      url: payload.url || '/',
       targetTab: payload.targetTab || 'dashboard',
       studentId: payload.studentId || null,
+      portalRoute: payload.portalRoute || null,
     },
   };
 

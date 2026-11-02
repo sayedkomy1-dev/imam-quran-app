@@ -46,6 +46,25 @@ function githubPagesDeployHelperPlugin() {
               fs.copyFileSync(indexPath, path.join(routeDir, 'index.html'));
             }
           }
+
+          // Also mirror compiled assets/app.js and assets/app.css into root /assets/
+          // so GitHub Pages works 100% whether configured as "GitHub Actions" (dist/)
+          // OR "Deploy from a branch: main / (root)"
+          const rootAssetsDir = path.resolve(__dirname, 'assets');
+          fs.mkdirSync(rootAssetsDir, {recursive: true});
+          const builtJs = path.join(distDir, 'assets', 'app.js');
+          const builtCss = path.join(distDir, 'assets', 'app.css');
+          if (fs.existsSync(builtJs)) {
+            fs.copyFileSync(builtJs, path.join(rootAssetsDir, 'app.js'));
+          }
+          if (fs.existsSync(builtCss)) {
+            fs.copyFileSync(builtCss, path.join(rootAssetsDir, 'app.css'));
+          }
+          const publicSwPush = path.resolve(__dirname, 'public', 'sw-push.js');
+          if (fs.existsSync(publicSwPush)) {
+            fs.copyFileSync(publicSwPush, path.join(distDir, 'sw-push.js'));
+            fs.copyFileSync(publicSwPush, path.resolve(__dirname, 'sw-push.js'));
+          }
         }
       } catch {
         // non-blocking in development
@@ -60,6 +79,7 @@ export default defineConfig(() => {
     build: {
       rollupOptions: {
         output: {
+          inlineDynamicImports: true,
           entryFileNames: 'assets/app.js',
           chunkFileNames: 'assets/[name].js',
           assetFileNames: (assetInfo) => {

@@ -69,7 +69,9 @@ import { SURAHS } from '../data/quranData';
 import {
   UrgentAlertItem,
   computeTeacherAlerts,
+  ensurePushServiceWorkerRegistered,
   sendLocalPushNotification,
+  syncSessionRemindersWithServiceWorker,
 } from '../utils/notificationService';
 import {
   ImamSessionRestore,
@@ -2141,11 +2143,13 @@ export const AcademyProvider: React.FC<{ children: React.ReactNode }> = ({ child
     ]
   );
 
-  // Register push service worker and listen for notification click events from SW
+  // Register push service worker (/sw-push.js) and listen for notification click events from SW
   useEffect(() => {
     if (typeof window === 'undefined' || !('serviceWorker' in navigator)) {
       return;
     }
+
+    void ensurePushServiceWorkerRegistered();
 
     const handleServiceWorkerMessage = (event: MessageEvent) => {
       const data = event.data;
@@ -2164,6 +2168,50 @@ export const AcademyProvider: React.FC<{ children: React.ReactNode }> = ({ child
       navigator.serviceWorker.removeEventListener('message', handleServiceWorkerMessage);
     };
   }, []);
+
+  // Automatically sync upcoming session reminders for students and parents to sw-push.js
+  useEffect(() => {
+    if (typeof window === 'undefined' || !('serviceWorker' in navigator)) {
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      const guardianIds =
+        userRole === 'guardian' && guardianStudentId
+          ? students
+              .filter(
+                (s) =>
+                  s.id === guardianStudentId ||
+                  (students.find((x) => x.id === guardianStudentId)?.whatsappPhone &&
+                    s.whatsappPhone ===
+                      students.find((x) => x.id === guardianStudentId)?.whatsappPhone)
+              )
+              .map((s) => s.id)
+          : [];
+
+      const detectedPortal = detectPortalRouteFromLocation();
+
+      void syncSessionRemindersWithServiceWorker({
+        students,
+        circles,
+        portalRole:
+          detectedPortal === 'student'
+            ? 'student'
+            : userRole === 'guardian' || detectedPortal === 'guardian'
+            ? 'guardian'
+            : 'teacher',
+        guardianStudentIds: guardianIds,
+        notificationsEnabled: settings.notificationsEnabled,
+      });
+    }, 1200);
+
+    return () => window.clearTimeout(timer);
+  }, [
+    students,
+    circles,
+    userRole,
+    guardianStudentId,
+    settings.notificationsEnabled,
+  ]);
 
   const triggerPushReminderNow = async () => {
     if (!settings.notificationsEnabled) {

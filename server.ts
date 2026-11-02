@@ -545,10 +545,18 @@ ${recentErrorsSummary ? `ملاحظات وأخطاء الطالب السابقة
     }
   });
 
+  // Serve pre-compiled /assets (app.js, app.css, icons) for instant fallback and static compatibility
+  app.use('/assets', express.static(path.join(__dirname, 'assets')));
+  app.use('/assets', express.static(path.join(__dirname, 'dist', 'assets')));
+
   if (process.env.NODE_ENV !== 'production') {
     const { createServer: createViteServer } = await import('vite');
     const vite = await createViteServer({
-      server: { middlewareMode: true },
+      server: {
+        middlewareMode: true,
+        hmr: false,
+        watch: null,
+      },
       appType: 'spa',
     });
     app.use(vite.middlewares);

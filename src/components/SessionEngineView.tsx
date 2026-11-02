@@ -334,14 +334,60 @@ export const SessionEngineView: React.FC = () => {
     'board_expanded' | 'split_5axis'
   >('board_expanded');
 
+  // SmartFocus Engine: تلقائياً يُخفي القوائم الجانبية بانسيابية فور بدء التسميع لتقليل تشتت المعلم والطالب
+  const [smartFocusAutoEnabled, setSmartFocusAutoEnabled] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem('wlq_smart_focus_auto_enabled') !== '0';
+    } catch {
+      return true;
+    }
+  });
+  const [smartFocusTriggerReason, setSmartFocusTriggerReason] = useState<string>(
+    'تفعيل تلقائي عند بدء التسميع'
+  );
+
+  const handleToggleSmartFocusAuto = (enabled: boolean) => {
+    setSmartFocusAutoEnabled(enabled);
+    try {
+      localStorage.setItem('wlq_smart_focus_auto_enabled', enabled ? '1' : '0');
+    } catch {
+      // ignore storage errors
+    }
+    showToast(
+      enabled
+        ? '🎯 تم تفعيل خاصية SmartFocus التلقائية: ستختفي القوائم الجانبية بانسيابية فور بدء التسميع'
+        : 'تم إيقاف التفعيل التلقائي لـ SmartFocus (يمكنك تفعيله يدوياً في أي وقت)',
+      'info'
+    );
+  };
+
+  const activateSmartFocusOnRecitationStart = (
+    reason: string,
+    forceActivate = false
+  ) => {
+    if (!forceActivate && !smartFocusAutoEnabled) return;
+    setSmartFocusTriggerReason(reason);
+    if (!isFullScreenFocus) {
+      triggerHaptic(14);
+      setIsFullScreenFocus(true);
+      showToast(
+        `🎯 SmartFocus: تم إخفاء القوائم الجانبية تلقائياً بانسيابية (${reason}) لتركيز المعلم والطالب`,
+        'success'
+      );
+    }
+  };
+
   const handleToggleFocusMode = () => {
     triggerHaptic(14);
     const nextFocus = !isFullScreenFocus;
     setIsFullScreenFocus(nextFocus);
+    if (nextFocus) {
+      setSmartFocusTriggerReason('تفعيل SmartFocus يدوي من المعلم');
+    }
     showToast(
       nextFocus
-        ? '🎯 تم تفعيل وضع التركيز في محرك الحصة الخماسي: تم إخفاء القوائم الجانبية وتوسيع مساحة السبورة الذكية لتقليل المشتتات أثناء التسميع'
-        : 'تم إنهاء وضع التركيز واستعادة القوائم الجانبية والواجهة الكاملة',
+        ? '🎯 تم تفعيل وضع SmartFocus: تم إخفاء القوائم الجانبية بانسيابية وتوسيع مساحة التسميع والسبورة الذكية'
+        : 'تم إنهاء وضع SmartFocus واستعادة القوائم الجانبية بانسيابية',
       nextFocus ? 'success' : 'info'
     );
   };
@@ -393,6 +439,9 @@ export const SessionEngineView: React.FC = () => {
     hasFiredApproachingWarningRef.current = false;
     hasFiredTimeExpiredRef.current = false;
     setIsTimerRunning(autoStart);
+    if (autoStart) {
+      activateSmartFocusOnRecitationStart('بدء عداد وقت التسميع');
+    }
   };
 
   const handleExtendTimerSeconds = (extraSeconds: number) => {
@@ -421,6 +470,9 @@ export const SessionEngineView: React.FC = () => {
     hasFiredApproachingWarningRef.current = false;
     hasFiredTimeExpiredRef.current = false;
     setIsTimerRunning(startImmediately);
+    if (startImmediately) {
+      activateSmartFocusOnRecitationStart('بدء وقت التسميع');
+    }
   };
 
   // Accurate 1-second countdown interval with approaching-end & time-up alerts
@@ -857,7 +909,8 @@ export const SessionEngineView: React.FC = () => {
       return;
     }
 
-    // Start new microphone recording for this axis
+    // Start new microphone recording for this axis + Auto-trigger SmartFocus
+    activateSmartFocusOnRecitationStart(`بدء تسميع (${params.axisLabel}) بالميكروفون`);
     axisPendingCallbackRef.current = params;
     setActiveAxisMicRecording(params.axisKey);
     setAxisMicSeconds(0);
@@ -1572,14 +1625,27 @@ export const SessionEngineView: React.FC = () => {
         return;
       }
 
+      if (e.key === 'Escape' && isFullScreenFocus) {
+        e.preventDefault();
+        setIsFullScreenFocus(false);
+        showToast(
+          'تم الخروج من وضع SmartFocus واستعادة القوائم الجانبية بانسيابية (Esc)',
+          'info'
+        );
+        return;
+      }
+
       if (e.key === 'f' || e.key === 'F' || e.key === 'ب') {
         e.preventDefault();
         const nextFocus = !isFullScreenFocus;
         setIsFullScreenFocus(nextFocus);
+        if (nextFocus) {
+          setSmartFocusTriggerReason('اختصار لوحة المفاتيح [F]');
+        }
         showToast(
           nextFocus
-            ? '🎯 اختصار [F]: تم تفعيل وضع التركيز وإخفاء القوائم الجانبية وتوسيع السبورة الذكية'
-            : 'اختصار [F]: تم إنهاء وضع التركيز واستعادة القوائم الجانبية',
+            ? '🎯 اختصار [F]: تم تفعيل SmartFocus وإخفاء القوائم الجانبية بانسيابية'
+            : 'اختصار [F]: تم إنهاء SmartFocus واستعادة القوائم الجانبية بانسيابية',
           'info'
         );
         return;
@@ -2248,7 +2314,8 @@ export const SessionEngineView: React.FC = () => {
       return;
     }
 
-    // Start new recording
+    // Start new recording + Auto-trigger SmartFocus
+    activateSmartFocusOnRecitationStart('بدء تسجيل الملاحظات الصوتية للتسميع');
     setActiveVoiceRecordTarget(targetMode);
     setVoiceRecordingSeconds(0);
     voiceStartTimestampRef.current = Date.now();
@@ -3684,26 +3751,26 @@ export const SessionEngineView: React.FC = () => {
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
-            {/* زر تبديل وضع التركيز (Focus Mode Toggle Switch) */}
+            {/* زر تبديل وضع التركيز الذكي (SmartFocus Toggle + Auto-Hide Sidebars on Recitation Start) */}
             <button
               type="button"
               role="switch"
               aria-checked={isFullScreenFocus}
               onClick={handleToggleFocusMode}
-              className={`px-3.5 py-1.5 rounded-xl text-xs font-extrabold border-2 flex items-center gap-2 cursor-pointer transition-all ${
+              className={`px-3.5 py-1.5 rounded-xl text-xs font-extrabold border-2 flex items-center gap-2 cursor-pointer transition-all duration-300 ${
                 isFullScreenFocus
                   ? 'bg-gradient-to-l from-[#145a3a] to-emerald-700 text-white border-[#c59b27] shadow-md ring-2 ring-[#c59b27]/40'
                   : 'bg-[#f6f7f2] dark:bg-[#0b1711] border-[#c59b27]/60 text-[#145a3a] dark:text-[#dfbd69] hover:border-[#145a3a]'
               }`}
-              title="زر تبديل وضع التركيز: إخفاء القوائم الجانبية وتوسيع مساحة السبورة الذكية لتقليل المشتتات أثناء التسميع [F]"
+              title="خاصية SmartFocus: إخفاء القوائم الجانبية بانسيابية لتقليل تشتت المعلم والطالب أثناء التسميع [F / Esc]"
             >
               <span
-                className={`relative inline-flex h-4 w-7 items-center rounded-full transition-colors ${
+                className={`relative inline-flex h-4 w-7 items-center rounded-full transition-colors duration-300 ${
                   isFullScreenFocus ? 'bg-[#c59b27]' : 'bg-neutral-300 dark:bg-emerald-900'
                 }`}
               >
                 <span
-                  className={`inline-block h-3 w-3 transform rounded-full bg-white transition-transform ${
+                  className={`inline-block h-3 w-3 transform rounded-full bg-white transition-transform duration-300 ${
                     isFullScreenFocus ? '-translate-x-3.5' : '-translate-x-0.5'
                   }`}
                 />
@@ -3715,10 +3782,23 @@ export const SessionEngineView: React.FC = () => {
               )}
               <span>
                 {isFullScreenFocus
-                  ? 'وضع التركيز مفعّل (السبورة موسّعة)'
-                  : 'وضع التركيز وتوسيع السبورة'}
+                  ? 'SmartFocus مفعّل (القوائم مخفية بانسيابية)'
+                  : '🎯 SmartFocus (إخفاء القوائم)'}
               </span>
             </button>
+
+            <label
+              className="no-print px-2.5 py-1.5 rounded-xl bg-emerald-50/80 dark:bg-emerald-950/40 border border-emerald-500/30 text-[11px] font-extrabold text-[#145a3a] dark:text-[#dfbd69] flex items-center gap-1.5 cursor-pointer transition-colors"
+              title="إخفاء القوائم الجانبية والشريط العلوي تلقائياً مع تأثير انتقال انسيابي فور بدء التسميع"
+            >
+              <input
+                type="checkbox"
+                checked={smartFocusAutoEnabled}
+                onChange={(e) => handleToggleSmartFocusAuto(e.target.checked)}
+                className="accent-[#145a3a] rounded cursor-pointer"
+              />
+              <span>SmartFocus تلقائي عند بدء التسميع</span>
+            </label>
 
             <button
               type="button"
@@ -3815,11 +3895,15 @@ export const SessionEngineView: React.FC = () => {
                     if (timerRemainingSeconds <= 0) {
                       handleResetRecitationTimer(true);
                     } else {
-                      setIsTimerRunning((prev) => !prev);
+                      const nextRun = !isTimerRunning;
+                      setIsTimerRunning(nextRun);
+                      if (nextRun) {
+                        activateSmartFocusOnRecitationStart('بدء عداد التسميع من الشريط العلوي');
+                      }
                     }
                   }}
                   className="px-2 py-0.5 rounded-lg bg-black/20 hover:bg-black/30 text-[11px] font-black cursor-pointer flex items-center gap-1"
-                  title={isTimerRunning ? 'إيقاف مؤقت للعداد' : 'بدء العداد التنازلي للتسميع'}
+                  title={isTimerRunning ? 'إيقاف مؤقت للعداد' : 'بدء العداد التنازلي للتسميع وتفعيل SmartFocus تلقائياً'}
                 >
                   {isTimerRunning ? (
                     <>
@@ -3855,6 +3939,23 @@ export const SessionEngineView: React.FC = () => {
               </button>
             )}
 
+            {currentStudent && (
+              <button
+                type="button"
+                onClick={() => {
+                  activateSmartFocusOnRecitationStart('بدء التسميع الفوري بوضع SmartFocus', true);
+                  if (!isTimerRunning) {
+                    setIsTimerRunning(true);
+                  }
+                }}
+                className="px-3.5 py-1.5 rounded-xl bg-gradient-to-l from-[#c59b27] to-[#dfbd69] hover:brightness-105 text-[#14281d] text-xs font-black flex items-center gap-1.5 cursor-pointer shadow-xs"
+                title="بدء التسميع الفوري مع إخفاء القوائم الجانبية تلقائياً (SmartFocus) وتشغيل عداد الحصة"
+              >
+                <Play className="w-3.5 h-3.5 fill-current" />
+                <span>🚀 بدء التسميع (SmartFocus)</span>
+              </button>
+            )}
+
             <button
               type="button"
               onClick={() => setActiveTab('smartboard')}
@@ -3863,6 +3964,46 @@ export const SessionEngineView: React.FC = () => {
               <BookOpen className="w-3.5 h-3.5 text-[#dfbd69]" />
               <span>📖 فتح النص في السبورة الذكية (الموضع ١٠)</span>
             </button>
+          </div>
+        </div>
+
+        {/* شريط SmartFocus الانسيابي النشط أثناء التسميع (يظهر بنعومة عند إخفاء القوائم الجانبية) */}
+        <div
+          className={`smart-focus-section-collapse overflow-hidden ${
+            isFullScreenFocus
+              ? 'max-h-40 opacity-100 translate-y-0 mt-2'
+              : 'max-h-0 opacity-0 -translate-y-2 pointer-events-none mt-0'
+          }`}
+        >
+          <div className="p-3.5 rounded-2xl bg-gradient-to-l from-[#145a3a] via-emerald-900 to-[#0b1711] text-white border-2 border-[#c59b27] shadow-lg flex flex-wrap items-center justify-between gap-3">
+            <div className="flex flex-wrap items-center gap-2.5">
+              <span className="px-3 py-1 rounded-xl bg-[#c59b27] text-[#14281d] text-xs font-black flex items-center gap-1.5 shadow-2xs">
+                <Sparkles className="w-3.5 h-3.5" />
+                <span>🎯 وضع SmartFocus نشط</span>
+              </span>
+              <span className="text-xs font-extrabold text-[#dfbd69]">
+                تم إخفاء القوائم الجانبية والشريط العلوي بانسيابية لمنع تشتت المعلم والطالب ({smartFocusTriggerReason})
+              </span>
+              {currentStudent && (
+                <span className="px-2.5 py-0.5 rounded-lg bg-white/15 border border-white/20 text-[11px] font-bold text-emerald-100">
+                  👤 {currentStudent.name} • سورة {actualRecitation.surahName} ({actualRecitation.fromAyah}-{actualRecitation.toAyah}) • الإتقان: {masteryScore}%
+                </span>
+              )}
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  triggerHaptic(12);
+                  setIsFullScreenFocus(false);
+                }}
+                className="px-3.5 py-1.5 rounded-xl bg-white/15 hover:bg-white/25 border border-[#dfbd69]/50 text-[#dfbd69] text-xs font-black flex items-center gap-1.5 cursor-pointer transition"
+              >
+                <Minimize2 className="w-3.5 h-3.5" />
+                <span>إظهار القوائم الجانبية [F / Esc]</span>
+              </button>
+            </div>
           </div>
         </div>
 
@@ -6829,7 +6970,11 @@ export const SessionEngineView: React.FC = () => {
                       if (timerRemainingSeconds <= 0) {
                         handleResetRecitationTimer(true);
                       } else {
-                        setIsTimerRunning((prev) => !prev);
+                        const nextRun = !isTimerRunning;
+                        setIsTimerRunning(nextRun);
+                        if (nextRun) {
+                          activateSmartFocusOnRecitationStart('بدء وقت التسميع في المحرك الخماسي');
+                        }
                       }
                     }}
                     className={`px-4 py-2 rounded-xl text-xs sm:text-sm font-black flex items-center gap-2 cursor-pointer shadow-md transition ${
