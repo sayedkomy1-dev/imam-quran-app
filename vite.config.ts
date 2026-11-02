@@ -9,65 +9,66 @@ import {VitePWA} from 'vite-plugin-pwa';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+/**
+ * GitHub Pages Deploy Helper Plugin
+ * يُنشئ مجلدات المسارات الست للبوابات مباشرةً في مجلد dist
+ * حتى يعيد GitHub Pages استجابة HTTP 200 عند الدخول المباشر لأيٍّ منها
+ */
 function githubPagesDeployHelperPlugin() {
   return {
     name: 'github-pages-deploy-helper',
     closeBundle() {
       try {
         const distDir = path.resolve(__dirname, 'dist');
-        if (fs.existsSync(distDir)) {
-          fs.writeFileSync(path.join(distDir, 'CNAME'), 'welivequranacademy.online\n', 'utf-8');
-          fs.writeFileSync(path.join(distDir, '.nojekyll'), '', 'utf-8');
-          fs.writeFileSync(path.join(distDir, '_redirects'), '/* /index.html 200\n', 'utf-8');
+        if (!fs.existsSync(distDir)) return;
 
-          const indexPath = path.join(distDir, 'index.html');
-          if (fs.existsSync(indexPath)) {
-            fs.copyFileSync(indexPath, path.join(distDir, '404.html'));
+        // CNAME & no-jekyll
+        fs.writeFileSync(path.join(distDir, 'CNAME'), 'welivequranacademy.online\n', 'utf-8');
+        fs.writeFileSync(path.join(distDir, '.nojekyll'), '', 'utf-8');
+        // Netlify / Vercel redirect fallback
+        fs.writeFileSync(path.join(distDir, '_redirects'), '/* /index.html 200\n', 'utf-8');
 
-            // Create physical portal route directories so GitHub Pages returns HTTP 200 OK
-            // for every direct portal URL and PWA installation works 100% natively
-            const portalRoutes = [
-              'student',
-              'Student',
-              'guardian',
-              'Guardian',
-              'owner',
-              'Owner',
-              'general',
-              'General',
-              'almushaf',
-              'AlMushaf',
-              'sadaqa',
-              'Sadaqa',
-            ];
-            for (const route of portalRoutes) {
-              const routeDir = path.join(distDir, route);
-              fs.mkdirSync(routeDir, {recursive: true});
-              fs.copyFileSync(indexPath, path.join(routeDir, 'index.html'));
-            }
-          }
+        const indexPath = path.join(distDir, 'index.html');
+        if (!fs.existsSync(indexPath)) return;
 
-          // Also mirror compiled assets/app.js and assets/app.css into root /assets/
-          // so GitHub Pages works 100% whether configured as "GitHub Actions" (dist/)
-          // OR "Deploy from a branch: main / (root)"
-          const rootAssetsDir = path.resolve(__dirname, 'assets');
-          fs.mkdirSync(rootAssetsDir, {recursive: true});
-          const builtJs = path.join(distDir, 'assets', 'app.js');
-          const builtCss = path.join(distDir, 'assets', 'app.css');
-          if (fs.existsSync(builtJs)) {
-            fs.copyFileSync(builtJs, path.join(rootAssetsDir, 'app.js'));
-          }
-          if (fs.existsSync(builtCss)) {
-            fs.copyFileSync(builtCss, path.join(rootAssetsDir, 'app.css'));
-          }
-          const publicSwPush = path.resolve(__dirname, 'public', 'sw-push.js');
-          if (fs.existsSync(publicSwPush)) {
-            fs.copyFileSync(publicSwPush, path.join(distDir, 'sw-push.js'));
-            fs.copyFileSync(publicSwPush, path.resolve(__dirname, 'sw-push.js'));
-          }
+        // Copy as 404.html for GitHub Pages SPA fallback
+        fs.copyFileSync(indexPath, path.join(distDir, '404.html'));
+
+        // Create physical portal route directories (case-insensitive pairs)
+        const portalRoutes = [
+          'student', 'Student',
+          'guardian', 'Guardian',
+          'owner', 'Owner',
+          'general', 'General',
+          'almushaf', 'AlMushaf',
+          'sadaqa', 'Sadaqa',
+        ];
+        for (const route of portalRoutes) {
+          const routeDir = path.join(distDir, route);
+          fs.mkdirSync(routeDir, {recursive: true});
+          fs.copyFileSync(indexPath, path.join(routeDir, 'index.html'));
         }
-      } catch {
-        // non-blocking in development
+
+        // Mirror compiled assets into root /assets/ so GitHub Pages "Deploy from branch: main (root)"
+        // works 100% alongside "Deploy from GitHub Actions (dist/)"
+        const rootAssetsDir = path.resolve(__dirname, 'assets');
+        fs.mkdirSync(rootAssetsDir, {recursive: true});
+        const builtJs = path.join(distDir, 'assets', 'app.js');
+        const builtCss = path.join(distDir, 'assets', 'app.css');
+        if (fs.existsSync(builtJs)) fs.copyFileSync(builtJs, path.join(rootAssetsDir, 'app.js'));
+        if (fs.existsSync(builtCss)) fs.copyFileSync(builtCss, path.join(rootAssetsDir, 'app.css'));
+
+        // Copy sw-push.js to dist root
+        const publicSwPush = path.resolve(__dirname, 'public', 'sw-push.js');
+        if (fs.existsSync(publicSwPush)) {
+          fs.copyFileSync(publicSwPush, path.join(distDir, 'sw-push.js'));
+          fs.copyFileSync(publicSwPush, path.resolve(__dirname, 'sw-push.js'));
+        }
+
+        console.log('[Al-Imam Build] ✅ GitHub Pages portal routes created successfully.');
+      } catch (err) {
+        // Non-blocking in development
+        console.warn('[Al-Imam Build] ⚠️ githubPagesDeployHelper warning:', err);
       }
     },
   };
@@ -77,8 +78,14 @@ export default defineConfig(() => {
   return {
     base: '/',
     build: {
+      target: 'esnext',
+      minify: 'esbuild',
+      cssMinify: true,
+      sourcemap: false,
+      chunkSizeWarningLimit: 4500,
       rollupOptions: {
         output: {
+          // Single-bundle output for GitHub Pages / static hosting compatibility
           inlineDynamicImports: true,
           entryFileNames: 'assets/app.js',
           chunkFileNames: 'assets/[name].js',
@@ -97,6 +104,7 @@ export default defineConfig(() => {
       githubPagesDeployHelperPlugin(),
       VitePWA({
         registerType: 'autoUpdate',
+        injectRegister: 'auto',
         includeAssets: [
           'sw-push.js',
           'icon.svg',
@@ -117,10 +125,12 @@ export default defineConfig(() => {
           theme_color: '#145a3a',
           background_color: '#f6f7f2',
           display: 'standalone',
+          orientation: 'portrait-primary',
           start_url: '/',
           scope: '/',
           dir: 'rtl',
           lang: 'ar',
+          categories: ['education', 'productivity', 'utilities'],
           icons: [
             {
               src: '/assets/aistudio/icon-96_3bce66e2.png',
@@ -147,6 +157,29 @@ export default defineConfig(() => {
               purpose: 'maskable',
             },
           ],
+          shortcuts: [
+            {
+              name: 'بوابة المعلمين والتسميع',
+              short_name: 'التسميع',
+              description: 'فتح محرك الحصة الخماسي مباشرةً',
+              url: '/General',
+              icons: [{src: '/assets/aistudio/icon-96_3bce66e2.png', sizes: '96x96'}],
+            },
+            {
+              name: 'بوابة ولي الأمر',
+              short_name: 'ولي الأمر',
+              description: 'متابعة تقدم الأبناء في الحفظ',
+              url: '/Guardian',
+              icons: [{src: '/assets/aistudio/icon-96_3bce66e2.png', sizes: '96x96'}],
+            },
+            {
+              name: 'المصحف الشريف',
+              short_name: 'المصحف',
+              description: 'قراءة المصحف الشريف بالصوت والتفسير',
+              url: '/almushaf',
+              icons: [{src: '/assets/aistudio/icon-96_3bce66e2.png', sizes: '96x96'}],
+            },
+          ],
         },
         workbox: {
           maximumFileSizeToCacheInBytes: 15 * 1024 * 1024,
@@ -159,13 +192,8 @@ export default defineConfig(() => {
               handler: 'CacheFirst',
               options: {
                 cacheName: 'google-fonts-cache',
-                expiration: {
-                  maxEntries: 10,
-                  maxAgeSeconds: 60 * 60 * 24 * 365,
-                },
-                cacheableResponse: {
-                  statuses: [0, 200],
-                },
+                expiration: {maxEntries: 10, maxAgeSeconds: 60 * 60 * 24 * 365},
+                cacheableResponse: {statuses: [0, 200]},
               },
             },
             {
@@ -173,13 +201,8 @@ export default defineConfig(() => {
               handler: 'CacheFirst',
               options: {
                 cacheName: 'gstatic-fonts-cache',
-                expiration: {
-                  maxEntries: 10,
-                  maxAgeSeconds: 60 * 60 * 24 * 365,
-                },
-                cacheableResponse: {
-                  statuses: [0, 200],
-                },
+                expiration: {maxEntries: 10, maxAgeSeconds: 60 * 60 * 24 * 365},
+                cacheableResponse: {statuses: [0, 200]},
               },
             },
             {
@@ -187,13 +210,8 @@ export default defineConfig(() => {
               handler: 'StaleWhileRevalidate',
               options: {
                 cacheName: 'quran-api-cache',
-                expiration: {
-                  maxEntries: 120,
-                  maxAgeSeconds: 60 * 60 * 24 * 90,
-                },
-                cacheableResponse: {
-                  statuses: [0, 200],
-                },
+                expiration: {maxEntries: 120, maxAgeSeconds: 60 * 60 * 24 * 90},
+                cacheableResponse: {statuses: [0, 200]},
               },
             },
             {
@@ -201,13 +219,27 @@ export default defineConfig(() => {
               handler: 'CacheFirst',
               options: {
                 cacheName: 'quran-audio-cache',
-                expiration: {
-                  maxEntries: 300,
-                  maxAgeSeconds: 60 * 60 * 24 * 60,
-                },
-                cacheableResponse: {
-                  statuses: [0, 200],
-                },
+                expiration: {maxEntries: 300, maxAgeSeconds: 60 * 60 * 24 * 60},
+                cacheableResponse: {statuses: [0, 200]},
+              },
+            },
+            {
+              urlPattern: /^https:\/\/cdn\.jsdelivr\.net\/gh\/fawazahmed0\/.*/i,
+              handler: 'CacheFirst',
+              options: {
+                cacheName: 'quran-fonts-cache',
+                expiration: {maxEntries: 20, maxAgeSeconds: 60 * 60 * 24 * 180},
+                cacheableResponse: {statuses: [0, 200]},
+              },
+            },
+            {
+              urlPattern: /^https:\/\/firestore\.googleapis\.com\/.*/i,
+              handler: 'NetworkFirst',
+              options: {
+                cacheName: 'firestore-cache',
+                networkTimeoutSeconds: 10,
+                expiration: {maxEntries: 50, maxAgeSeconds: 60 * 60 * 24},
+                cacheableResponse: {statuses: [0, 200]},
               },
             },
           ],
@@ -225,10 +257,12 @@ export default defineConfig(() => {
     },
     server: {
       // HMR is disabled in AI Studio via DISABLE_HMR env var.
-      // Do not modify—file watching is disabled to prevent flickering during agent edits.
+      // Do not modify — file watching is disabled to prevent flickering during agent edits.
       hmr: process.env.DISABLE_HMR !== 'true',
-      // Disable file watching when DISABLE_HMR is true to save CPU during agent edits.
       watch: process.env.DISABLE_HMR === 'true' ? null : {},
+    },
+    optimizeDeps: {
+      include: ['react', 'react-dom', 'firebase/app', 'firebase/auth', 'firebase/firestore'],
     },
   };
 });

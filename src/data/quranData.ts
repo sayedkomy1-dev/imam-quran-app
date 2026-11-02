@@ -612,14 +612,25 @@ export function getSurahAudioUrl(reciter: string, surahId: number): string {
   return `https://everyayah.com/data/${reciter}/${s}001.mp3`;
 }
 
-export type QuranEditionMode = 'digital' | 'shamarli' | 'madinah';
+export type QuranEditionMode = 'digital' | 'shamarli' | 'madinah' | 'local_kfgqpc';
 
-export function getQuranPageImageUrl(edition: 'shamarli' | 'madinah', pageNumber: number): string {
+export function getQuranPageImageUrl(
+  edition: 'shamarli' | 'madinah' | 'local_kfgqpc',
+  pageNumber: number
+): string {
   const ppp = String(Math.max(1, Math.min(604, Math.round(pageNumber || 1)))).padStart(3, '0');
+  if (edition === 'local_kfgqpc') {
+    return `/assets/kfgqpc/mushaf604/${ppp}.png`;
+  }
   if (edition === 'shamarli') {
     return `https://www.equran.me/quran/shamarli/images/${ppp}.png`;
   }
   return `https://everyayah.com/data/images_png/Page${ppp}.png`;
+}
+
+export function getLocalKfgqpcPageUrl(pageNumber: number): string {
+  const ppp = String(Math.max(1, Math.min(604, Math.round(pageNumber || 1)))).padStart(3, '0');
+  return `/assets/kfgqpc/mushaf604/${ppp}.png`;
 }
 
 

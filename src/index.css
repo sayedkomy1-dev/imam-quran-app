@@ -2,6 +2,17 @@
 
 @custom-variant dark (&:where(.dark, .dark *));
 
+/* ——— Performance: content-visibility for long lists ——— */
+@layer utilities {
+  .cv-auto {
+    content-visibility: auto;
+    contain-intrinsic-size: auto 400px;
+  }
+  .cv-hidden {
+    content-visibility: hidden;
+  }
+}
+
 @font-face {
   font-family: 'uthmanic_hafs';
   src:

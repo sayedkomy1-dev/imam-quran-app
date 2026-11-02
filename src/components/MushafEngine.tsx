@@ -27,6 +27,7 @@ import {
   getPageNumberForJuz,
   getPageNumberForSurahAyah,
   getQuranPageImageUrl,
+  getLocalKfgqpcPageUrl,
   getWordMeaningAndTafsir,
   loadDualTafsirForAyah,
   loadSurahVerses,
@@ -560,11 +561,14 @@ export const MushafEngine: React.FC<MushafEngineProps> = ({
                 }`}
               >
                 <img
-                  src={getQuranPageImageUrl('madinah', currentPage)}
+                  src={getLocalKfgqpcPageUrl(currentPage)}
                   onError={(e) => {
                     const target = e.currentTarget;
                     if (!target.dataset.fallback1) {
                       target.dataset.fallback1 = '1';
+                      target.src = getQuranPageImageUrl('madinah', currentPage);
+                    } else if (!target.dataset.fallback2) {
+                      target.dataset.fallback2 = '1';
                       target.src = getQuranPageImageUrl('shamarli', currentPage);
                     }
                   }}

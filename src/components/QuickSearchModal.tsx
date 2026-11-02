@@ -92,13 +92,14 @@ export const QuickSearchModal: React.FC = () => {
 
   const filteredStudents = useMemo(() => {
     const q = query.trim();
-    if (!q) return students.slice(0, 5);
-    return students.filter(
+    const safeStudents = Array.isArray(students) ? students : [];
+    if (!q) return safeStudents.slice(0, 5);
+    return safeStudents.filter(
       (s) =>
-        s.name.includes(q) ||
-        s.guardianName.includes(q) ||
-        s.circle.includes(q) ||
-        s.whatsappPhone.includes(q)
+        (s.name || '').includes(q) ||
+        (s.guardianName || '').includes(q) ||
+        (s.circle || '').includes(q) ||
+        (s.whatsappPhone || '').includes(q)
     );
   }, [query, students]);
 
@@ -116,8 +117,9 @@ export const QuickSearchModal: React.FC = () => {
 
   const filteredTasks = useMemo(() => {
     const q = query.trim();
+    const safeTasks = Array.isArray(tasks) ? tasks : [];
     if (!q) return [];
-    return tasks.filter((t) => t.title.includes(q) || t.notes.includes(q)).slice(0, 4);
+    return safeTasks.filter((t) => (t.title || '').includes(q) || (t.notes || '').includes(q)).slice(0, 4);
   }, [query, tasks]);
 
   if (!quickSearchOpen) return null;

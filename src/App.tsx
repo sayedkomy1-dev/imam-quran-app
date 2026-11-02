@@ -1146,7 +1146,7 @@ const MainShell: React.FC = () => {
                         : 'text-neutral-600 dark:text-neutral-300 hover:text-[#145a3a]'
                     }`}
                   >
-                    👑 الوضع الإداري (المالك)
+                    👑 وضع المالك
                   </button>
                   <button
                     type="button"
@@ -1188,7 +1188,7 @@ const MainShell: React.FC = () => {
                         : 'text-neutral-600 dark:text-neutral-300 hover:text-[#145a3a]'
                     }`}
                   >
-                    📖 وضع المحفظ (حلقاتي)
+                    📖 وضع المحفظ
                   </button>
                 </div>
               ) : currentStaffTier === 'supervisor' ? (
@@ -1202,7 +1202,7 @@ const MainShell: React.FC = () => {
                         : 'text-neutral-600 dark:text-neutral-300 hover:text-[#145a3a]'
                     }`}
                   >
-                    🛡️ وضع الإشراف الإداري
+                    🛡️ وضع المشرف
                   </button>
                   <button
                     type="button"
@@ -1230,12 +1230,12 @@ const MainShell: React.FC = () => {
                         : 'text-neutral-600 dark:text-neutral-300 hover:text-[#145a3a]'
                     }`}
                   >
-                    📖 وضع المحفظ (إدارة الحصة)
+                    📖 وضع المحفظ
                   </button>
                 </div>
               ) : (
                 <span className="px-3 py-1 rounded-lg bg-emerald-700/15 border border-emerald-700/40 text-[#145a3a] dark:text-emerald-300 text-[11px] font-black">
-                  📖 وضع المحفظ (التسميع والحلقات)
+                  📖 وضع المحفظ
                 </span>
               )}
             </div>

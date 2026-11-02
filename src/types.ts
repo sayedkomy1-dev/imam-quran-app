@@ -187,7 +187,7 @@ export type ErrorContext =
   | 'المراجعة البعيدة'
   | 'الأجزاء';
 
-export type GradeType = 'ممتاز' | 'جيد جداً' | 'جيد' | 'ضعيف' | 'إعادة';
+export type GradeType = 'ممتاز' | 'جيد جداً' | 'جيد' | 'مقبول' | 'ضعيف' | 'إعادة';
 
 export type ReciterId =
   | 'Husary_128kbps'

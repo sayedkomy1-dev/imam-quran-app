@@ -51,6 +51,7 @@ import {
   getPageNumberForQuarter,
   getPageNumberForSurahAyah,
   getQuranPageImageUrl,
+  getLocalKfgqpcPageUrl,
   getWordMeaningAndTafsir,
   loadDualTafsirForAyah,
   loadSurahVerses,
@@ -2762,6 +2763,13 @@ export const PublicMushafWaqfPortalView: React.FC<PublicMushafWaqfPortalViewProp
                       <div className="flex flex-col items-center">
                         <img
                           src={getQuranPageImageUrl(mushafEdition, currentPage)}
+                          onError={(e) => {
+                            const target = e.currentTarget;
+                            if (!target.dataset.fallbackTried) {
+                              target.dataset.fallbackTried = '1';
+                              target.src = getQuranPageImageUrl('shamarli', currentPage);
+                            }
+                          }}
                           alt={`مصحف صفحة ${currentPage}`}
                           className={`max-h-[75vh] sm:max-h-[85vh] w-auto rounded-xl shadow-xl border-2 border-amber-500/50 object-contain hover:scale-[1.01] transition-transform duration-200 ${
                             mushafNightMode ? 'mushaf-dark-filter' : ''
@@ -2776,6 +2784,13 @@ export const PublicMushafWaqfPortalView: React.FC<PublicMushafWaqfPortalViewProp
                         <div className="hidden lg:flex flex-col items-center border-r-2 border-amber-500/30 pr-4">
                           <img
                             src={getQuranPageImageUrl(mushafEdition, currentPage + 1)}
+                            onError={(e) => {
+                              const target = e.currentTarget;
+                              if (!target.dataset.fallbackTried) {
+                                target.dataset.fallbackTried = '1';
+                                target.src = getQuranPageImageUrl('shamarli', currentPage + 1);
+                              }
+                            }}
                             alt={`مصحف صفحة ${currentPage + 1}`}
                             className={`max-h-[75vh] sm:max-h-[85vh] w-auto rounded-xl shadow-xl border-2 border-amber-500/50 object-contain hover:scale-[1.01] transition-transform duration-200 ${
                               mushafNightMode ? 'mushaf-dark-filter' : ''

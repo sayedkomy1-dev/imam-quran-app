@@ -193,12 +193,12 @@ const playRecitationTimerTone = (mode: 'warning' | 'final_tick' | 'expired') => 
 };
 
 const ERROR_WEIGHTS: Record<ErrorType, number> = {
-  حفظ: 4,
-  'نسيان آية': 5,
-  تلقين: 3,
-  تردد: 2,
-  تجويد: 2,
-  تشكيل: 2,
+  حفظ: 2.0,
+  'نسيان آية': 2.0,
+  تشكيل: 1.5,
+  تجويد: 1.0,
+  تردد: 0.5,
+  تلقين: 0.5,
 };
 
 export const renderMiniSquares = (pct = 90) => {
@@ -1533,9 +1533,11 @@ export const SessionEngineView: React.FC = () => {
     const defaultDeduction =
       customMeta?.deductionPoints ??
       (type === 'حفظ' || type === 'نسيان آية'
+        ? 2.0
+        : type === 'تشكيل'
+        ? 1.5
+        : type === 'تجويد'
         ? 1.0
-        : type === 'تردد' || type === 'تلقين'
-        ? 0.25
         : 0.5);
 
     const defaultStageKey: ErrorHotspotStageKey =
@@ -6028,7 +6030,7 @@ export const SessionEngineView: React.FC = () => {
                 type="button"
                 onClick={() =>
                   handleAddError('حفظ', {
-                    deductionPoints: 1.0,
+                    deductionPoints: 2.0,
                     hotspotStageKey: 'memorization_1',
                     subType: 'خطأ حفظ / نسيان',
                   })
@@ -6040,7 +6042,7 @@ export const SessionEngineView: React.FC = () => {
                   <div className="text-[10px] opacity-90 mt-0.5">يُحفظ في النقاط الساخنة</div>
                 </div>
                 <span className="px-2 py-1 rounded-xl bg-black/25 font-mono text-xs font-black">
-                  -1.0 نقطة
+                  -2.0 نقطة
                 </span>
               </button>
 
@@ -6048,7 +6050,7 @@ export const SessionEngineView: React.FC = () => {
                 type="button"
                 onClick={() =>
                   handleAddError('تشكيل', {
-                    deductionPoints: 0.5,
+                    deductionPoints: 1.5,
                     hotspotStageKey: 'tashkeel_05',
                     subType: 'خطأ تشكيل / إعراب',
                   })
@@ -6060,7 +6062,7 @@ export const SessionEngineView: React.FC = () => {
                   <div className="text-[10px] opacity-90 mt-0.5">ضبط أواخر الكلمات والحركات</div>
                 </div>
                 <span className="px-2 py-1 rounded-xl bg-black/25 font-mono text-xs font-black">
-                  -0.5 نقطة
+                  -1.5 نقطة
                 </span>
               </button>
 
@@ -6068,7 +6070,7 @@ export const SessionEngineView: React.FC = () => {
                 type="button"
                 onClick={() =>
                   handleAddError('تجويد', {
-                    deductionPoints: 0.5,
+                    deductionPoints: 1.0,
                     hotspotStageKey: 'tajweed_05',
                     subType: 'خطأ حكم تجويدي',
                   })
@@ -6080,7 +6082,7 @@ export const SessionEngineView: React.FC = () => {
                   <div className="text-[10px] opacity-90 mt-0.5">غنن • مدود • قلقلة • مخارج</div>
                 </div>
                 <span className="px-2 py-1 rounded-xl bg-black/25 font-mono text-xs font-black">
-                  -0.5 نقطة
+                  -1.0 نقطة
                 </span>
               </button>
 
@@ -6088,7 +6090,7 @@ export const SessionEngineView: React.FC = () => {
                 type="button"
                 onClick={() =>
                   handleAddError('تردد', {
-                    deductionPoints: 0.25,
+                    deductionPoints: 0.5,
                     hotspotStageKey: 'hesitation_025',
                     subType: 'تردد / تنبيه فتح',
                   })
@@ -6100,7 +6102,7 @@ export const SessionEngineView: React.FC = () => {
                   <div className="text-[10px] opacity-85 mt-0.5">توقف يسير أو فتح من الشيخ</div>
                 </div>
                 <span className="px-2 py-1 rounded-xl bg-black/15 font-mono text-xs font-black">
-                  -0.25 نقطة
+                  -0.5 نقطة
                 </span>
               </button>
             </div>

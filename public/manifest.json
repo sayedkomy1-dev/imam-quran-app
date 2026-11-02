@@ -1,21 +1,32 @@
 {
+  "id": "/",
   "name": "أكاديمية الإمام لتحفيظ القرآن الكريم — بالقرآن نحيا",
   "short_name": "أكاديمية الإمام",
-  "description": "أكاديمية الإمام لتحفيظ القرآن الكريم | بالقرآن نحيا — تصميم وتطوير Sayed Mohamed Elkomy (+201068631966)",
+  "description": "أكاديمية الإمام لتحفيظ القرآن الكريم | بالقرآن نحيا — تصميم وتطوير Sayed Mohamed Elkomy. منظومة متكاملة لإدارة حلقات تحفيظ القرآن الكريم، محرك التسميع الخماسي، السبورة الذكية، الاختبارات والإجازات، والمتابعة الأسرية.",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
-  "orientation": "portrait",
+  "display_override": ["standalone", "minimal-ui", "browser"],
+  "orientation": "portrait-primary",
   "background_color": "#062c1e",
   "theme_color": "#064e3b",
   "dir": "rtl",
   "lang": "ar",
+  "categories": ["education", "productivity", "utilities"],
+  "related_applications": [],
+  "prefer_related_applications": false,
   "icons": [
     {
       "src": "/icon.svg",
       "sizes": "any",
       "type": "image/svg+xml",
       "purpose": "any maskable"
+    },
+    {
+      "src": "/assets/aistudio/icon-96_3bce66e2.png",
+      "sizes": "96x96",
+      "type": "image/png",
+      "purpose": "any"
     },
     {
       "src": "/assets/aistudio/icon-192_29a1c2ce.png",
@@ -27,7 +38,51 @@
       "src": "/assets/aistudio/icon-512_0f792e6f.png",
       "sizes": "512x512",
       "type": "image/png",
-      "purpose": "any maskable"
+      "purpose": "any"
+    },
+    {
+      "src": "/assets/aistudio/icon-maskable_0f792e6f.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "بوابة المعلمين والتسميع",
+      "short_name": "التسميع",
+      "description": "فتح محرك الحصة الخماسي مباشرةً",
+      "url": "/General",
+      "icons": [{"src": "/assets/aistudio/icon-96_3bce66e2.png", "sizes": "96x96"}]
+    },
+    {
+      "name": "بوابة ولي الأمر",
+      "short_name": "ولي الأمر",
+      "description": "متابعة تقدم الأبناء في الحفظ",
+      "url": "/Guardian",
+      "icons": [{"src": "/assets/aistudio/icon-96_3bce66e2.png", "sizes": "96x96"}]
+    },
+    {
+      "name": "مصحف المدينة الشامل",
+      "short_name": "المصحف",
+      "description": "قراءة المصحف الشريف مع التلاوات والتفسير",
+      "url": "/almushaf",
+      "icons": [{"src": "/assets/aistudio/icon-96_3bce66e2.png", "sizes": "96x96"}]
+    },
+    {
+      "name": "الصدقة الجارية والوقف القرآني",
+      "short_name": "الوقف",
+      "description": "بوابة الوقف القرآني وبطاقات الدعاء",
+      "url": "/sadaqa",
+      "icons": [{"src": "/assets/aistudio/icon-96_3bce66e2.png", "sizes": "96x96"}]
+    }
+  ],
+  "screenshots": [
+    {
+      "src": "/assets/aistudio/icon-512_0f792e6f.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "label": "أكاديمية الإمام لتحفيظ القرآن الكريم — بالقرآن نحيا"
     }
   ]
 }
