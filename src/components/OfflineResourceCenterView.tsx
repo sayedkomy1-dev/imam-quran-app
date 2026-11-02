@@ -303,8 +303,8 @@ export const OfflineResourceCenterView: React.FC = () => {
         (lvl) => `
           <div style="border:2px solid #145a3a;border-radius:16px;padding:16px;margin-bottom:16px;background:#fcfaf2;">
             <h2 style="color:#145a3a;margin-top:0;">المستوى ${lvl.levelNumber}: ${lvl.title}</h2>
-            <p><strong>الهدف الأدائي:</strong> ${lvl.targetGoal}</p>
-            <p><strong>المحتوى والمهارات:</strong> ${lvl.topics.join(' • ')}</p>
+            <p><strong>الهدف الأدائي:</strong> ${lvl.objective}</p>
+            <p><strong>المحتوى والمهارات:</strong> ${lvl.keyRules.join(' • ')}</p>
           </div>
         `
       ).join('');

@@ -50,6 +50,7 @@ export function isMasterOwnerEmail(email?: string | null): boolean {
 export function getEffectiveFirebaseConfig(): CustomFirebaseConfigInput & {
   firestoreDatabaseId: string;
   isCustom: boolean;
+  config: CustomFirebaseConfigInput & { firestoreDatabaseId: string };
 } {
   if (typeof window !== 'undefined') {
     try {
@@ -57,7 +58,7 @@ export function getEffectiveFirebaseConfig(): CustomFirebaseConfigInput & {
       if (raw) {
         const parsed = JSON.parse(raw) as Partial<CustomFirebaseConfigInput>;
         if (parsed.apiKey && parsed.projectId && parsed.appId) {
-          return {
+          const cfg = {
             apiKey: parsed.apiKey.trim(),
             authDomain:
               (parsed.authDomain || `${parsed.projectId}.firebaseapp.com`).trim(),
@@ -65,7 +66,11 @@ export function getEffectiveFirebaseConfig(): CustomFirebaseConfigInput & {
             appId: parsed.appId.trim(),
             firestoreDatabaseId:
               (parsed.firestoreDatabaseId || defaultFirebaseConfig.firestoreDatabaseId || '(default)').trim(),
+          };
+          return {
+            ...cfg,
             isCustom: true,
+            config: cfg,
           };
         }
       }
@@ -73,13 +78,17 @@ export function getEffectiveFirebaseConfig(): CustomFirebaseConfigInput & {
       // ignore local storage parse errors
     }
   }
-  return {
+  const defaultCfg = {
     apiKey: defaultFirebaseConfig.apiKey,
     authDomain: defaultFirebaseConfig.authDomain,
     projectId: defaultFirebaseConfig.projectId,
     appId: defaultFirebaseConfig.appId,
     firestoreDatabaseId: defaultFirebaseConfig.firestoreDatabaseId,
+  };
+  return {
+    ...defaultCfg,
     isCustom: false,
+    config: defaultCfg,
   };
 }
 

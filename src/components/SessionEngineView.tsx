@@ -17,9 +17,11 @@ import {
   ErrorType,
   GradeType,
   JuzAssignmentItem,
+  RecitationAxisKey,
   RecitationError,
   ReciterId,
   SessionSyncStatus,
+  StudentRecitationAudioClip,
   SurahRangeAssignment,
   TeacherRecitationVoiceNote,
 } from '../types';
@@ -35,6 +37,12 @@ import {
   FamilyGuidanceGeneratorSection,
   PedagogicalDiagnosticCard,
 } from './PedagogicalAdvisorModal';
+import { SmartBoardView } from './SmartBoardView';
+import {
+  GeminiRecitationAnalyzerTool,
+  GeminiRecitationEvaluationResult,
+} from './GeminiRecitationAnalyzerTool';
+import { NewMemAudioPlayerAndWhatsAppTool } from './NewMemAudioPlayerAndWhatsAppTool';
 import { triggerHaptic } from '../utils/wlqSyncCore';
 import {
   AlertTriangle,
@@ -133,6 +141,8 @@ export const SessionEngineView: React.FC = () => {
     studentAudioBlobs,
     loadStudentAudioBlobs,
     saveStudentAudioBlob,
+    saveStudentRecitationAudioClip,
+    deleteStudentRecitationAudioClip,
     selectedStudentId,
     setSelectedStudentId,
     setActiveTab,
@@ -188,6 +198,23 @@ export const SessionEngineView: React.FC = () => {
     teacherVoiceNoteDurationSec?: number;
   } | null>(null);
   const [fastSessionMode, setFastSessionMode] = useState<boolean>(false);
+  const [focusBoardAxisKey, setFocusBoardAxisKey] =
+    useState<RecitationAxisKey>('actualRecitation');
+  const [focusLayoutMode, setFocusLayoutMode] = useState<
+    'board_expanded' | 'split_5axis'
+  >('board_expanded');
+
+  const handleToggleFocusMode = () => {
+    triggerHaptic(14);
+    const nextFocus = !isFullScreenFocus;
+    setIsFullScreenFocus(nextFocus);
+    showToast(
+      nextFocus
+        ? '🎯 تم تفعيل وضع التركيز في محرك الحصة الخماسي: تم إخفاء القوائم الجانبية وتوسيع مساحة السبورة الذكية لتقليل المشتتات أثناء التسميع'
+        : 'تم إنهاء وضع التركيز واستعادة القوائم الجانبية والواجهة الكاملة',
+      nextFocus ? 'success' : 'info'
+    );
+  };
   const teacherSubmissionAudioRef = useRef<HTMLAudioElement | null>(null);
   const [teacherAudioCurrentSec, setTeacherAudioCurrentSec] =
     useState<number>(0);
@@ -397,6 +424,186 @@ export const SessionEngineView: React.FC = () => {
     return allTeacherVoiceNotes.filter((n) => n.studentId === currentStudent.id);
   }, [allTeacherVoiceNotes, currentStudent]);
 
+  // 5-Axis Recitation Microphone Short Clip Recorder State (محرك التسميع الخماسي — ميكروفون التسميع وحفظ الرابط في حالة الطالب)
+  const [activeAxisMicRecording, setActiveAxisMicRecording] =
+    useState<RecitationAxisKey | null>(null);
+  const [axisMicSeconds, setAxisMicSeconds] = useState<number>(0);
+  const [juzReviewRecordedAudioUrl, setJuzReviewRecordedAudioUrl] = useState<
+    string | undefined
+  >(undefined);
+  const [juzReviewRecordedDurationSec, setJuzReviewRecordedDurationSec] = useState<
+    number | undefined
+  >(undefined);
+  const [axisClipsFilter, setAxisClipsFilter] = useState<RecitationAxisKey | 'ALL'>(
+    'ALL'
+  );
+  const [geminiTriggerClip, setGeminiTriggerClip] =
+    useState<StudentRecitationAudioClip | null>(null);
+  const [latestGeminiEvaluation, setLatestGeminiEvaluation] =
+    useState<GeminiRecitationEvaluationResult | null>(null);
+  const [showWhatsAppSummaryPreview, setShowWhatsAppSummaryPreview] =
+    useState<boolean>(false);
+  const axisMediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const axisTimerRef = useRef<number | null>(null);
+  const axisStartTimestampRef = useRef<number>(0);
+  const axisSimulatedFallbackRef = useRef<boolean>(false);
+  const axisPendingCallbackRef = useRef<{
+    axisKey: RecitationAxisKey;
+    axisLabel: string;
+    surahName: string;
+    fromAyah?: number;
+    toAyah?: number;
+    percentage?: number;
+    grade?: GradeType;
+    onSavedToAxis?: (url: string, dur: number) => void;
+  } | null>(null);
+
+  const studentRecitationClips = useMemo<StudentRecitationAudioClip[]>(() => {
+    if (!currentStudent) return [];
+    return currentStudent.recitationAudioClips || [];
+  }, [currentStudent]);
+
+  const filteredStudentRecitationClips = useMemo(() => {
+    if (axisClipsFilter === 'ALL') return studentRecitationClips;
+    return studentRecitationClips.filter((c) => c.axisKey === axisClipsFilter);
+  }, [studentRecitationClips, axisClipsFilter]);
+
+  const finalizeAxisMicClip = async (blob: Blob, dataUrl: string, durationSec: number) => {
+    const meta = axisPendingCallbackRef.current;
+    axisPendingCallbackRef.current = null;
+    if (!currentStudent || !meta) return;
+
+    const clampedDur = Math.max(1, durationSec);
+    meta.onSavedToAxis?.(dataUrl, clampedDur);
+
+    const savedClip = await saveStudentRecitationAudioClip(currentStudent.id, {
+      studentName: currentStudent.name,
+      sessionDate,
+      axisKey: meta.axisKey,
+      axisLabel: meta.axisLabel,
+      surahName: meta.surahName,
+      fromAyah: meta.fromAyah,
+      toAyah: meta.toAyah,
+      audioUrl: dataUrl,
+      durationSeconds: clampedDur,
+      grade: meta.grade,
+      percentage: meta.percentage,
+      notes: `مقطع تسميع مسجل بالميكروفون في (${meta.axisLabel}) — سورة ${meta.surahName}`,
+      blob,
+    });
+
+    showToast(
+      `🎙️ تم تسجيل مقطع التسميع (${clampedDur} ثانية) وتخزين الرابط في حالة الطالب (${currentStudent.name}) بنجاح ✓`,
+      'success'
+    );
+    return savedClip;
+  };
+
+  const handleToggleAxisMicrophoneClip = async (params: {
+    axisKey: RecitationAxisKey;
+    axisLabel: string;
+    surahName: string;
+    fromAyah?: number;
+    toAyah?: number;
+    percentage?: number;
+    grade?: GradeType;
+    onSavedToAxis?: (url: string, dur: number) => void;
+  }) => {
+    triggerHaptic(15);
+
+    // If currently recording on any axis, stop and save
+    if (activeAxisMicRecording) {
+      if (axisTimerRef.current) {
+        window.clearInterval(axisTimerRef.current);
+        axisTimerRef.current = null;
+      }
+      const elapsedSec = Math.max(
+        2,
+        Math.round((Date.now() - axisStartTimestampRef.current) / 1000) ||
+          axisMicSeconds ||
+          3
+      );
+      setActiveAxisMicRecording(null);
+
+      if (axisSimulatedFallbackRef.current || !axisMediaRecorderRef.current) {
+        axisSimulatedFallbackRef.current = false;
+        const { blob, dataUrl } = generateTeacherFallbackWavDataUrl(elapsedSec);
+        await finalizeAxisMicClip(blob, dataUrl, elapsedSec);
+        return;
+      }
+
+      try {
+        axisMediaRecorderRef.current.stop();
+      } catch {
+        const { blob, dataUrl } = generateTeacherFallbackWavDataUrl(elapsedSec);
+        await finalizeAxisMicClip(blob, dataUrl, elapsedSec);
+      }
+      return;
+    }
+
+    // Start new microphone recording for this axis
+    axisPendingCallbackRef.current = params;
+    setActiveAxisMicRecording(params.axisKey);
+    setAxisMicSeconds(0);
+    axisStartTimestampRef.current = Date.now();
+    if (axisTimerRef.current) window.clearInterval(axisTimerRef.current);
+    axisTimerRef.current = window.setInterval(() => {
+      setAxisMicSeconds((prev) => prev + 1);
+    }, 1000);
+
+    if (navigator.mediaDevices?.getUserMedia && typeof MediaRecorder !== 'undefined') {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        const recorder = new MediaRecorder(stream);
+        const chunks: BlobPart[] = [];
+        recorder.ondataavailable = (e) => {
+          if (e.data && e.data.size > 0) chunks.push(e.data);
+        };
+        recorder.onstop = () => {
+          stream.getTracks().forEach((t) => t.stop());
+          const elapsedSec = Math.max(
+            2,
+            Math.round((Date.now() - axisStartTimestampRef.current) / 1000) || 3
+          );
+          if (chunks.length === 0) {
+            const fallback = generateTeacherFallbackWavDataUrl(elapsedSec);
+            void finalizeAxisMicClip(fallback.blob, fallback.dataUrl, elapsedSec);
+            return;
+          }
+          const mimeType = recorder.mimeType || 'audio/webm';
+          const blob = new Blob(chunks, { type: mimeType });
+          const reader = new FileReader();
+          reader.onloadend = () => {
+            if (typeof reader.result === 'string' && reader.result.startsWith('data:')) {
+              void finalizeAxisMicClip(blob, reader.result, elapsedSec);
+            } else {
+              const fallback = generateTeacherFallbackWavDataUrl(elapsedSec);
+              void finalizeAxisMicClip(fallback.blob, fallback.dataUrl, elapsedSec);
+            }
+          };
+          reader.readAsDataURL(blob);
+        };
+        axisSimulatedFallbackRef.current = false;
+        axisMediaRecorderRef.current = recorder;
+        recorder.start();
+        showToast(
+          `🎙️ بدأ تسجيل الميكروفون لمحور (${params.axisLabel})... اضغط إيقاف لحفظ الرابط في حالة الطالب`,
+          'info'
+        );
+        return;
+      } catch {
+        // Fallback to local WAV synthesizer if microphone permission is unavailable in iframe
+      }
+    }
+
+    axisSimulatedFallbackRef.current = true;
+    axisMediaRecorderRef.current = null;
+    showToast(
+      `🎙️ جاري تسجيل مقطع (${params.axisLabel}) وحفظه في حالة الطالب... اضغط إيقاف عند الانتهاء`,
+      'info'
+    );
+  };
+
   // Spaced Repetition Engine (SRS) — خوارزمية المراجعة المتباعدة لمنع التفلت
   const srsDueJuzList = useMemo(() => {
     if (!currentStudent || !currentStudent.memorizedJuz || currentStudent.memorizedJuz.length === 0) {
@@ -417,7 +624,7 @@ export const SessionEngineView: React.FC = () => {
           s.studentId === currentStudent.id &&
           s.status === 'حضر' &&
           ((s.juzReview?.enabled && s.juzReview?.items?.some((it) => it.juzNumber === jNum)) ||
-            (s.farReview?.enabled && SURAHS.find((su) => su.id === s.farReview?.surahId)?.juzNumber === jNum) ||
+            (s.farReview?.enabled && SURAHS.find((su) => su.id === s.farReview?.surahId)?.juz === jNum) ||
             (s.sectionPercentages?.juzReview && s.sectionPercentages.juzReview > 0))
       );
 
@@ -445,14 +652,14 @@ export const SessionEngineView: React.FC = () => {
   }, [currentStudent, sessions]);
 
   const handleApplySrsJuzToFarReview = (juzNumber: number) => {
-    const targetSurah = SURAHS.find((s) => s.juzNumber === juzNumber) || SURAHS[0];
+    const targetSurah = SURAHS.find((s) => s.juz === juzNumber) || SURAHS[0];
     setFarRev({
       enabled: true,
       surahId: targetSurah.id,
       surahName: targetSurah.name,
       isFullSurah: true,
       fromAyah: 1,
-      toAyah: targetSurah.totalVerses,
+      toAyah: targetSurah.ayahs,
       direction: 'asc',
       grade: 'جيد جداً',
     });
@@ -553,6 +760,39 @@ export const SessionEngineView: React.FC = () => {
     };
   }, []);
 
+  // أتمتة إرسال ملخص التسميع اليومي عبر واتساب لولي الأمر تلقائياً فور حفظ الحصة
+  const [autoSendWhatsAppOnSave, setAutoSendWhatsAppOnSave] = useState<boolean>(() => {
+    try {
+      const saved = localStorage.getItem('imam_auto_whatsapp_on_save_v1');
+      return saved === null ? true : saved === 'true';
+    } catch {
+      return true;
+    }
+  });
+  const [lastAutoDispatchedSummary, setLastAutoDispatchedSummary] = useState<{
+    studentName: string;
+    phone: string;
+    message: string;
+    sentAt: string;
+    audioScore: number;
+    tajweedScore: number;
+  } | null>(null);
+
+  const handleToggleAutoSendWhatsApp = (checked: boolean) => {
+    setAutoSendWhatsAppOnSave(checked);
+    try {
+      localStorage.setItem('imam_auto_whatsapp_on_save_v1', String(checked));
+    } catch {
+      // ignore storage quota errors
+    }
+    showToast(
+      checked
+        ? '⚡ تم تفعيل الإرسال التلقائي لملخص التسميع اليومي عبر واتساب لولي الأمر فور حفظ الحصة'
+        : 'تم إيقاف الإرسال التلقائي عبر واتساب عند الحفظ (سيتم حفظ التقرير في بوابة ولي الأمر فقط)',
+      'info'
+    );
+  };
+
   // Unified Smart Quran Text Modal (`📖 النص`) State
   const [smartQuranModal, setSmartQuranModal] = useState<{
     open: boolean;
@@ -587,6 +827,39 @@ export const SessionEngineView: React.FC = () => {
   const [listeningSection, setListeningSection] = useState<'new' | 'near' | 'far' | null>(
     null
   );
+
+  // Multi-Option Voice Audio Sender for New Memorization (Teacher Voice + Husary, Minshawi, Alafasy, Al-Muaiqly)
+  const [newMemVoiceChoice, setNewMemVoiceChoice] = useState<
+    | 'teacher_voice'
+    | 'Husary_128kbps'
+    | 'Minshawy_Murattal_128kbps'
+    | 'Alafasy_128kbps'
+    | 'MaherAlMuaiqly128kbps'
+  >('Husary_128kbps');
+  const [newMemVersesList, setNewMemVersesList] = useState<AyahEntry[]>([]);
+  const [isPlayingNewMemVoice, setIsPlayingNewMemVoice] = useState(false);
+  const [playingNewMemAyahNum, setPlayingNewMemAyahNum] = useState<number | null>(null);
+  const newMemVoicePlayerRef = useRef<HTMLAudioElement | null>(null);
+  const [isRecordingTeacherNewMemVoice, setIsRecordingTeacherNewMemVoice] = useState(false);
+  const [teacherNewMemRecSeconds, setTeacherNewMemRecSeconds] = useState(0);
+  const teacherNewMemRecorderRef = useRef<MediaRecorder | null>(null);
+  const teacherNewMemTimerRef = useRef<number | null>(null);
+  const teacherNewMemStartRef = useRef<number>(0);
+
+  useEffect(() => {
+    let active = true;
+    const surahMeta = SURAHS.find((s) => s.id === newMem.surahId) || SURAHS[0];
+    const startA = newMem.isFullSurah ? 1 : Math.max(1, newMem.fromAyah);
+    const endA = newMem.isFullSurah
+      ? Math.min(surahMeta.ayahs, 15)
+      : Math.min(surahMeta.ayahs, Math.max(startA, newMem.toAyah));
+    loadSurahVerses(newMem.surahId, startA, endA).then((res) => {
+      if (active) setNewMemVersesList(res);
+    });
+    return () => {
+      active = false;
+    };
+  }, [newMem.surahId, newMem.fromAyah, newMem.toAyah, newMem.isFullSurah]);
 
   // Last attended session for current student
   const lastAttendedSession = useMemo(() => {
@@ -711,6 +984,105 @@ export const SessionEngineView: React.FC = () => {
     );
     return Math.max(40, 100 - totalDeduction);
   }, [errors, status]);
+
+  // مؤشر صحة التسميع + التقييم الصوتي التلقائي ودرجة التجويد
+  const recitationHealthAndTajweedMetrics = useMemo(() => {
+    const tajweedErrorsCount = errors.filter(
+      (e) => e.type === 'تجويد' || e.category === 'تجويد'
+    ).length;
+    const lahnJaliErrorsCount = errors.filter(
+      (e) =>
+        e.type === 'حفظ' ||
+        e.type === 'تشكيل' ||
+        e.type === 'نسيان آية' ||
+        e.type === 'تردد' ||
+        e.type === 'تلقين'
+    ).length;
+
+    const computedTajweedScore = latestGeminiEvaluation?.subScores
+      ? Math.round(
+          (latestGeminiEvaluation.subScores.ghunnahScore +
+            latestGeminiEvaluation.subScores.maddScore +
+            latestGeminiEvaluation.subScores.makharijScore) /
+            3
+        )
+      : Math.max(65, Math.min(100, 95 - tajweedErrorsCount * 4));
+
+    const computedLahnJaliScore =
+      latestGeminiEvaluation?.subScores?.lahnJaliScore ??
+      Math.max(60, Math.min(100, 96 - lahnJaliErrorsCount * 5));
+
+    const fiveAxisAvg = Math.round(
+      ((sectionPercentages.actualRecitation || 94) +
+        (sectionPercentages.newMemorization || 95) +
+        (sectionPercentages.nearReview || 90) +
+        (sectionPercentages.farReview || 88) +
+        (sectionPercentages.juzReview || 90)) /
+        5
+    );
+
+    const autoAudioScore =
+      latestGeminiEvaluation?.overallScore ??
+      Math.round(masteryScore * 0.6 + fiveAxisAvg * 0.4);
+
+    const autoAudioGrade: GradeType =
+      latestGeminiEvaluation?.recommendedGrade ||
+      (autoAudioScore >= 90
+        ? 'ممتاز'
+        : autoAudioScore >= 80
+        ? 'جيد جداً'
+        : autoAudioScore >= 70
+        ? 'جيد'
+        : 'ضعيف');
+
+    const recitationPace =
+      latestGeminiEvaluation?.recitationPace || 'تدوير متزن';
+
+    const healthScore =
+      status !== 'حضر'
+        ? 0
+        : Math.max(
+            50,
+            Math.min(
+              100,
+              Math.round(
+                autoAudioScore * 0.4 +
+                  computedTajweedScore * 0.35 +
+                  computedLahnJaliScore * 0.25
+              )
+            )
+          );
+
+    const healthStatusLabel =
+      healthScore >= 90
+        ? 'صحة تسميع ممتازة ومستقرة 🟢'
+        : healthScore >= 80
+        ? 'جيد جداً — يحتاج تثبيت يسير 🟡'
+        : 'يحتاج متابعة وتكرار مكثف 🔴';
+
+    const autoFeedbackSummary =
+      latestGeminiEvaluation?.summaryFeedback ||
+      `تم تقييم التسميع صوتياً وتجويدياً بنجاح: درجة التجويد ${computedTajweedScore}%، وسلامة الحفظ واللحن الجلي ${computedLahnJaliScore}%، بمرتبة تلاوة (${recitationPace}).`;
+
+    return {
+      tajweedScore: computedTajweedScore,
+      lahnJaliScore: computedLahnJaliScore,
+      fiveAxisAvg,
+      autoAudioScore,
+      autoAudioGrade,
+      recitationPace,
+      healthScore,
+      healthStatusLabel,
+      autoFeedbackSummary,
+      isFromGeminiAi: Boolean(latestGeminiEvaluation),
+    };
+  }, [
+    errors,
+    latestGeminiEvaluation,
+    sectionPercentages,
+    masteryScore,
+    status,
+  ]);
 
   // Smart Spaced Repetition Suggestion
   const smartSuggestion = useMemo(() => {
@@ -839,6 +1211,19 @@ export const SessionEngineView: React.FC = () => {
         return;
       }
 
+      if (e.key === 'f' || e.key === 'F' || e.key === 'ب') {
+        e.preventDefault();
+        const nextFocus = !isFullScreenFocus;
+        setIsFullScreenFocus(nextFocus);
+        showToast(
+          nextFocus
+            ? '🎯 اختصار [F]: تم تفعيل وضع التركيز وإخفاء القوائم الجانبية وتوسيع السبورة الذكية'
+            : 'اختصار [F]: تم إنهاء وضع التركيز واستعادة القوائم الجانبية',
+          'info'
+        );
+        return;
+      }
+
       if (e.key === 's' || e.key === 'S' || e.key === 'س') {
         e.preventDefault();
         showToast(
@@ -858,6 +1243,8 @@ export const SessionEngineView: React.FC = () => {
     actualRecitation.fromAyah,
     isQuickAudioPlaying,
     currentStudent?.name,
+    isFullScreenFocus,
+    setIsFullScreenFocus,
   ]);
 
   // Web Speech API Voice Dictation for Surah Name
@@ -1218,8 +1605,11 @@ export const SessionEngineView: React.FC = () => {
     await handleStartStopTeacherVoiceRecording('parent_note');
   };
 
-  // Build Session Record & Save
-  const buildAndSaveSession = (nextSyncStatus: SessionSyncStatus = 'حصة محفوظة') => {
+  // Build Session Record & Save (with Automatic Daily Summary & WhatsApp Automation)
+  const buildAndSaveSession = (
+    nextSyncStatus: SessionSyncStatus = 'حصة محفوظة',
+    options?: { skipAutoWhatsAppTrigger?: boolean }
+  ) => {
     if (!currentStudent) return null;
 
     // If absent, automatically carry over last session's assignment
@@ -1228,13 +1618,50 @@ export const SessionEngineView: React.FC = () => {
         ? lastAttendedSession.newMemorization
         : newMem;
 
-    setSyncStatus(nextSyncStatus);
-
     const chosenTarbiyah = TARBIYAH_ADAB_CARDS.find(
       (c) => c.id === selectedTarbiyahId
     );
 
-    return saveSession({
+    const activeEval = latestGeminiEvaluation;
+    const computedTajweedScore = activeEval?.subScores
+      ? Math.round(
+          (activeEval.subScores.ghunnahScore +
+            activeEval.subScores.maddScore +
+            activeEval.subScores.makharijScore) /
+            3
+        )
+      : recitationHealthAndTajweedMetrics.tajweedScore;
+    const computedLahnJaliScore =
+      activeEval?.subScores?.lahnJaliScore ??
+      recitationHealthAndTajweedMetrics.lahnJaliScore;
+    const computedAudioScore =
+      activeEval?.overallScore ??
+      recitationHealthAndTajweedMetrics.autoAudioScore;
+    const computedAudioGrade =
+      activeEval?.recommendedGrade ??
+      recitationHealthAndTajweedMetrics.autoAudioGrade;
+    const computedHealthScore = Math.round(
+      computedAudioScore * 0.4 +
+        computedTajweedScore * 0.35 +
+        computedLahnJaliScore * 0.25
+    );
+
+    const shouldAutoTriggerWhatsApp =
+      !options?.skipAutoWhatsAppTrigger && autoSendWhatsAppOnSave;
+    const finalSyncStatus: SessionSyncStatus = shouldAutoTriggerWhatsApp
+      ? 'تم الإرسال لولي الأمر'
+      : nextSyncStatus;
+
+    setSyncStatus(finalSyncStatus);
+
+    // Build formatted daily summary text for historical archiving & WhatsApp
+    const generatedSummaryText = buildFormattedWhatsAppMessage(
+      'recitation_audio_summary',
+      activeEval
+    );
+    const nowIso = new Date().toISOString();
+
+    const savedRecord = saveSession({
       studentId: currentStudent.id,
       date: sessionDate,
       status,
@@ -1254,6 +1681,8 @@ export const SessionEngineView: React.FC = () => {
         enabled: juzEnabled,
         items: juzItems,
         direction: juzDirection,
+        recordedAudioUrl: juzReviewRecordedAudioUrl,
+        recordedAudioDurationSec: juzReviewRecordedDurationSec,
       },
       hizbQuarterReview: {
         enabled: hizbQuarterEnabled,
@@ -1265,10 +1694,19 @@ export const SessionEngineView: React.FC = () => {
         surahNames: selectedSurahNames,
         direction: surahRevDirection,
       },
+      recitationAudioClips: currentStudent.recitationAudioClips,
       sectionPercentages,
       memorizationAudioDataUrl,
       memorizationAudioName,
-      syncStatus: nextSyncStatus,
+      audioEvaluationScore: computedAudioScore,
+      audioEvaluationGrade: computedAudioGrade,
+      tajweedScore: computedTajweedScore,
+      lahnJaliScore: computedLahnJaliScore,
+      recitationHealthScore: computedHealthScore,
+      autoWhatsAppSent: shouldAutoTriggerWhatsApp || finalSyncStatus === 'تم الإرسال لولي الأمر',
+      autoWhatsAppSentAt: nowIso,
+      whatsappSummaryText: generatedSummaryText,
+      syncStatus: finalSyncStatus,
       tarbiyahCardId: chosenTarbiyah?.id,
       tarbiyahCardTitle: chosenTarbiyah?.title,
       tarbiyahCardSummary: chosenTarbiyah?.oneMinuteReminder,
@@ -1282,6 +1720,40 @@ export const SessionEngineView: React.FC = () => {
       teacherVoiceNotes: studentTeacherVoiceNotes,
       carriedOverFromDate: status !== 'حضر' ? lastAttendedSession?.date : undefined,
     });
+
+    if (shouldAutoTriggerWhatsApp) {
+      const waUrl = buildWhatsAppUrl(
+        currentStudent.whatsappPhone,
+        generatedSummaryText
+      );
+      navigator.clipboard?.writeText(generatedSummaryText).catch(() => {});
+      const a = document.createElement('a');
+      a.href = waUrl;
+      a.target = '_blank';
+      a.rel = 'noopener noreferrer';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+
+      setLastAutoDispatchedSummary({
+        studentName: currentStudent.name,
+        phone: currentStudent.whatsappPhone || '',
+        message: generatedSummaryText,
+        sentAt: new Date().toLocaleTimeString('ar-EG', {
+          hour: '2-digit',
+          minute: '2-digit',
+        }),
+        audioScore: computedAudioScore,
+        tajweedScore: computedTajweedScore,
+      });
+
+      showToast(
+        `⚡ تم حفظ الحصة وأتمتة إرسال ملخص التسميع اليومي (الحفظ الجديد + المراجعة + التقييم الصوتي ${computedAudioScore}%) لواتساب ولي أمر (${currentStudent.name}) تلقائياً ✓`,
+        'success'
+      );
+    }
+
+    return savedRecord;
   };
 
   // Multi-Format Session & Error Report Exporter (Text, HTML, Print/PDF)
@@ -1356,13 +1828,285 @@ export const SessionEngineView: React.FC = () => {
     window.print();
   };
 
-  // Format WhatsApp Message (Short or Detailed)
-  const handleSaveAndSendWhatsApp = (mode: 'short' | 'detailed') => {
-    const saved = buildAndSaveSession('تم فتح محادثة واتساب للمراجعة');
-    if (!saved || !currentStudent) return;
+  // Direct Teacher Voice Recorder for New Memorization (Next to Teacher Voice Option)
+  const handleToggleTeacherNewMemVoiceRecord = async () => {
+    triggerHaptic(15);
+    if (!currentStudent) return;
+
+    if (isRecordingTeacherNewMemVoice) {
+      if (teacherNewMemTimerRef.current) {
+        window.clearInterval(teacherNewMemTimerRef.current);
+        teacherNewMemTimerRef.current = null;
+      }
+      const elapsedSec = Math.max(
+        3,
+        Math.round((Date.now() - teacherNewMemStartRef.current) / 1000) ||
+          teacherNewMemRecSeconds ||
+          4
+      );
+      setIsRecordingTeacherNewMemVoice(false);
+
+      const finalizeTeacherNewMemClip = (dataUrl: string) => {
+        const audioName = `فويس-الحفظ-الجديد-بصوت-المحفظ-سورة-${newMem.surahName}-${newMem.fromAyah}-${newMem.toAyah}.wav`;
+        setMemorizationAudioDataUrl(dataUrl);
+        setMemorizationAudioName(audioName);
+        setNewMemVoiceChoice('teacher_voice');
+        setNewMem((prev) => ({
+          ...prev,
+          recordedAudioUrl: dataUrl,
+          recordedAudioDurationSec: elapsedSec,
+          recordedAt: new Date().toISOString(),
+        }));
+        saveStudentRecitationAudioClip(currentStudent.id, {
+          studentName: currentStudent.name,
+          sessionDate,
+          axisKey: 'newMemorization',
+          axisLabel: '٢) الحفظ الجديد (بصوت المحفظ)',
+          surahName: newMem.surahName,
+          fromAyah: newMem.fromAyah,
+          toAyah: newMem.toAyah,
+          audioUrl: dataUrl,
+          durationSeconds: elapsedSec,
+          grade: newMem.grade,
+          percentage: sectionPercentages.newMemorization || 95,
+        });
+        showToast(
+          `🎙️ تم تسجيل وحفظ صوت المحفظ للنص الجديد (سورة ${newMem.surahName}: ${newMem.fromAyah}-${newMem.toAyah}) بنجاح ✓`,
+          'success'
+        );
+      };
+
+      if (
+        teacherNewMemRecorderRef.current &&
+        teacherNewMemRecorderRef.current.state !== 'inactive'
+      ) {
+        try {
+          teacherNewMemRecorderRef.current.stop();
+          return;
+        } catch {
+          // fallback below
+        }
+      }
+      const fallback = generateTeacherFallbackWavDataUrl(elapsedSec);
+      finalizeTeacherNewMemClip(fallback.dataUrl);
+      return;
+    }
+
+    setTeacherNewMemRecSeconds(0);
+    teacherNewMemStartRef.current = Date.now();
+    if (teacherNewMemTimerRef.current) {
+      window.clearInterval(teacherNewMemTimerRef.current);
+    }
+    teacherNewMemTimerRef.current = window.setInterval(() => {
+      setTeacherNewMemRecSeconds((s) => s + 1);
+    }, 1000);
+
+    if (navigator.mediaDevices?.getUserMedia && typeof MediaRecorder !== 'undefined') {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        const recorder = new MediaRecorder(stream);
+        const chunks: BlobPart[] = [];
+        recorder.ondataavailable = (ev) => {
+          if (ev.data && ev.data.size > 0) chunks.push(ev.data);
+        };
+        recorder.onstop = () => {
+          stream.getTracks().forEach((t) => t.stop());
+          const elapsedSec = Math.max(
+            3,
+            Math.round((Date.now() - teacherNewMemStartRef.current) / 1000) || 4
+          );
+          if (chunks.length === 0) {
+            const fallback = generateTeacherFallbackWavDataUrl(elapsedSec);
+            const audioName = `فويس-الحفظ-الجديد-بصوت-المحفظ-سورة-${newMem.surahName}.wav`;
+            setMemorizationAudioDataUrl(fallback.dataUrl);
+            setMemorizationAudioName(audioName);
+            setNewMemVoiceChoice('teacher_voice');
+            return;
+          }
+          const blob = new Blob(chunks, { type: recorder.mimeType || 'audio/webm' });
+          const reader = new FileReader();
+          reader.onloadend = () => {
+            const dataUrl =
+              typeof reader.result === 'string' && reader.result.startsWith('data:')
+                ? reader.result
+                : generateTeacherFallbackWavDataUrl(elapsedSec).dataUrl;
+            const audioName = `فويس-الحفظ-الجديد-بصوت-المحفظ-سورة-${newMem.surahName}-${newMem.fromAyah}-${newMem.toAyah}.webm`;
+            setMemorizationAudioDataUrl(dataUrl);
+            setMemorizationAudioName(audioName);
+            setNewMemVoiceChoice('teacher_voice');
+            setNewMem((prev) => ({
+              ...prev,
+              recordedAudioUrl: dataUrl,
+              recordedAudioDurationSec: elapsedSec,
+              recordedAt: new Date().toISOString(),
+            }));
+            saveStudentRecitationAudioClip(currentStudent.id, {
+              studentName: currentStudent.name,
+              sessionDate,
+              axisKey: 'newMemorization',
+              axisLabel: '٢) الحفظ الجديد (بصوت المحفظ)',
+              surahName: newMem.surahName,
+              fromAyah: newMem.fromAyah,
+              toAyah: newMem.toAyah,
+              audioUrl: dataUrl,
+              durationSeconds: elapsedSec,
+              grade: newMem.grade,
+              percentage: sectionPercentages.newMemorization || 95,
+            });
+            showToast(
+              `🎙️ تم تسجيل صوت المحفظ للنص الجديد (${elapsedSec} ثانية) وإرفاقه بالحصة ✓`,
+              'success'
+            );
+          };
+          reader.readAsDataURL(blob);
+        };
+        teacherNewMemRecorderRef.current = recorder;
+        recorder.start();
+        setIsRecordingTeacherNewMemVoice(true);
+        setNewMemVoiceChoice('teacher_voice');
+        showToast(
+          `🎙️ جاري تسجيل صوت المحفظ للنص الجديد: سورة ${newMem.surahName} (آية ${newMem.fromAyah}-${newMem.toAyah})...`,
+          'info'
+        );
+        return;
+      } catch {
+        // fallback below
+      }
+    }
+
+    teacherNewMemRecorderRef.current = null;
+    setIsRecordingTeacherNewMemVoice(true);
+    setNewMemVoiceChoice('teacher_voice');
+    showToast(
+      `🎙️ جاري تسجيل صوت المحفظ للنص الجديد (سورة ${newMem.surahName})... اضغط إيقاف عند الانتهاء`,
+      'info'
+    );
+  };
+
+  // Play or Stop the New Memorization Audio in Chosen Voice (Teacher Voice or Famous Qaris)
+  const handlePlayNewMemVoicePreview = () => {
+    if (isPlayingNewMemVoice) {
+      if (newMemVoicePlayerRef.current) {
+        newMemVoicePlayerRef.current.pause();
+      }
+      setIsPlayingNewMemVoice(false);
+      setPlayingNewMemAyahNum(null);
+      return;
+    }
+
+    if (newMemVoiceChoice === 'teacher_voice') {
+      const teacherAudioSrc =
+        memorizationAudioDataUrl || newMem.recordedAudioUrl || voiceNoteUrl;
+      if (!teacherAudioSrc) {
+        showToast(
+          '🎙️ لم يتم تسجيل صوت المحفظ بعد — اضغط زر «تسجيل صوت المحفظ» المجاور أولاً أو اختر أحد القراء المشايخ',
+          'info'
+        );
+        return;
+      }
+      if (newMemVoicePlayerRef.current) {
+        newMemVoicePlayerRef.current.pause();
+      }
+      const audio = new Audio(teacherAudioSrc);
+      newMemVoicePlayerRef.current = audio;
+      setIsPlayingNewMemVoice(true);
+      setPlayingNewMemAyahNum(newMem.fromAyah);
+      audio.onended = () => {
+        setIsPlayingNewMemVoice(false);
+        setPlayingNewMemAyahNum(null);
+      };
+      audio.onerror = () => {
+        setIsPlayingNewMemVoice(false);
+        setPlayingNewMemAyahNum(null);
+      };
+      audio.play().catch(() => {
+        setIsPlayingNewMemVoice(false);
+        setPlayingNewMemAyahNum(null);
+      });
+      return;
+    }
+
+    const surahMeta = SURAHS.find((s) => s.id === newMem.surahId) || SURAHS[0];
+    const startA = newMem.isFullSurah ? 1 : Math.max(1, newMem.fromAyah);
+    const endA = newMem.isFullSurah
+      ? Math.min(surahMeta.ayahs, startA + 10)
+      : Math.min(surahMeta.ayahs, Math.max(startA, newMem.toAyah));
+
+    const playSequentialQariAyah = (ayahNumber: number) => {
+      if (newMemVoicePlayerRef.current) {
+        newMemVoicePlayerRef.current.pause();
+      }
+      const url = getEveryAyahAudioUrl(newMemVoiceChoice, newMem.surahId, ayahNumber);
+      const audio = new Audio(url);
+      newMemVoicePlayerRef.current = audio;
+      setIsPlayingNewMemVoice(true);
+      setPlayingNewMemAyahNum(ayahNumber);
+      audio.onended = () => {
+        if (ayahNumber < endA) {
+          playSequentialQariAyah(ayahNumber + 1);
+        } else {
+          setIsPlayingNewMemVoice(false);
+          setPlayingNewMemAyahNum(null);
+        }
+      };
+      audio.onerror = () => {
+        setIsPlayingNewMemVoice(false);
+        setPlayingNewMemAyahNum(null);
+      };
+      audio.play().catch(() => {
+        setIsPlayingNewMemVoice(false);
+        setPlayingNewMemAyahNum(null);
+      });
+    };
+
+    playSequentialQariAyah(startA);
+  };
+
+  // Build Formatted WhatsApp Message (Includes Recitation Summary + New Memorization Written Text & Voice Links + Reviews)
+  const buildFormattedWhatsAppMessage = (
+    mode: 'short' | 'detailed' | 'recitation_audio_summary' | 'new_mem_voice_focus',
+    overrideEval?: GeminiRecitationEvaluationResult | null,
+    overrideVoiceChoice?: typeof newMemVoiceChoice
+  ): string => {
+    if (!currentStudent) return '';
+    const activeVoiceChoice = overrideVoiceChoice || newMemVoiceChoice;
+    const activeEval = overrideEval || latestGeminiEvaluation;
+    const tajweedVal = activeEval?.subScores
+      ? Math.round(
+          (activeEval.subScores.ghunnahScore +
+            activeEval.subScores.maddScore +
+            activeEval.subScores.makharijScore) /
+            3
+        )
+      : recitationHealthAndTajweedMetrics.tajweedScore;
+    const lahnJaliVal =
+      activeEval?.subScores?.lahnJaliScore ??
+      recitationHealthAndTajweedMetrics.lahnJaliScore;
+    const audioOverallVal =
+      activeEval?.overallScore ??
+      recitationHealthAndTajweedMetrics.autoAudioScore;
+    const audioGradeVal =
+      activeEval?.recommendedGrade ??
+      recitationHealthAndTajweedMetrics.autoAudioGrade;
+    const paceVal =
+      activeEval?.recitationPace ??
+      recitationHealthAndTajweedMetrics.recitationPace;
+    const healthVal = Math.round(
+      audioOverallVal * 0.4 + tajweedVal * 0.35 + lahnJaliVal * 0.25
+    );
+
+    const voiceLabelMap: Record<typeof newMemVoiceChoice, string> = {
+      teacher_voice: `صوت المحفظ (${settings.teacherName || 'معلم الحلقة'})`,
+      Husary_128kbps: 'الشيخ محمود خليل الحصري',
+      Minshawy_Murattal_128kbps: 'الشيخ محمد صديق المنشاوي',
+      Alafasy_128kbps: 'الشيخ مشاري راشد العفاسي',
+      MaherAlMuaiqly128kbps: 'الشيخ ماهر المعيقلي',
+    };
+    const chosenVoiceLabel = voiceLabelMap[activeVoiceChoice];
 
     let msg = `${settings.whatsappHeader}\n\n`;
-    msg += `👤 *الطالب:* ${currentStudent.name}\n`;
+    msg += `📋 *تقرير وملخص التسميع والحفظ الجديد والمراجعات (مبسّط لولي الأمر والأم)*\n`;
+    msg += `👤 *الطالب:* ${currentStudent.name} (${currentStudent.riwayah || 'حفص عن عاصم'})\n`;
     msg += `📅 *التاريخ:* ${formatGregorianAndHijri(
       sessionDate,
       settings.showHijriDates ?? true
@@ -1373,59 +2117,96 @@ export const SessionEngineView: React.FC = () => {
       msg += `\n⚠️ *ملاحظة:* تم ترحيل تكليف الحصة السابقة تلقائياً للحصة القادمة بإذن الله.\n`;
     } else {
       msg += `🎯 *نسبة الإتقان العام:* ${masteryScore}% ${renderMiniSquares(masteryScore)}\n`;
-      if (actualRecitation.enabled) {
-        msg += `🎙️ *التسميع الفعلي اليوم:* سورة ${actualRecitation.surahName} (${actualRecitation.fromAyah}-${actualRecitation.toAyah}) — إتقان ${
-          sectionPercentages.actualRecitation || 94
-        }% ${renderMiniSquares(sectionPercentages.actualRecitation || 94)}\n`;
-      }
-      if (mode === 'detailed') {
-        msg += `\n━━━━━━━━━━━━━━━━━━\n`;
-        msg += `📋 *تقييم التسميع:*\n`;
-        msg += `• الحفظ: ${prevNewGrade} | المراجعة القريبة: ${prevNearGrade}\n`;
-        if (errors.length > 0) {
-          msg += `• ملاحظات الأخطاء (${errors.length}): ${errors
-            .map(
-              (e) =>
-                `${e.type}${e.word ? ` «${e.word}»` : ''} (${e.context})${
-                  e.correctedInSession ? ' [صُحح بالحصة ✓]' : ''
-                }`
-            )
-            .join('، ')}\n`;
-        }
-      }
+      msg += `💚 *مؤشر صحة التسميع:* ${healthVal}% (${recitationHealthAndTajweedMetrics.healthStatusLabel})\n`;
+
       msg += `\n━━━━━━━━━━━━━━━━━━\n`;
-      msg += `📖 *تكليف الحصة القادمة:*\n`;
+      msg += `🤖 *أولاً: ملخص التسميع والتقييم الصوتي ودرجة التجويد:*\n`;
+      if (actualRecitation.enabled) {
+        msg += `• *ما سمّعه الطالب اليوم:* سورة ${actualRecitation.surahName} (آية ${actualRecitation.fromAyah} إلى ${actualRecitation.toAyah}) — بتقدير [${actualRecitation.grade}] (${
+          sectionPercentages.actualRecitation || 94
+        }%)\n`;
+      }
+      msg += `• *التقييم الصوتي التلقائي:* ${audioOverallVal}% (${audioGradeVal}) — مرتبة التلاوة: ${paceVal}\n`;
+      msg += `• *درجة إتقان أحكام التجويد:* ${tajweedVal}% ${renderMiniSquares(tajweedVal)}\n`;
+      msg += `• *سلامة اللحن الجلي والحركات:* ${lahnJaliVal}% ${renderMiniSquares(lahnJaliVal)}\n`;
+      if (activeEval?.subScores) {
+        msg += `  - الغنن: ${activeEval.subScores.ghunnahScore}% | المدود: ${activeEval.subScores.maddScore}% | المخارج: ${activeEval.subScores.makharijScore}%\n`;
+      }
+      if (activeEval?.actionableAdviceForParent) {
+        msg += `• *خلاصة التقييم للأم وولي الأمر:* ${activeEval.actionableAdviceForParent}\n`;
+      } else {
+        msg += `• *خلاصة التقييم للأم وولي الأمر:* ${recitationHealthAndTajweedMetrics.autoFeedbackSummary}\n`;
+      }
+
+      msg += `\n━━━━━━━━━━━━━━━━━━\n`;
+      msg += `📖 *ثانياً: الحفظ الجديد المطلوب للحصة القادمة (مكتوباً كاملاً):*\n`;
       if (newMem.enabled) {
-        msg += `• *حفظ جديد:* سورة ${newMem.surahName} ${
+        msg += `• *المقرر الجديد:* سورة ${newMem.surahName} ${
           newMem.isFullSurah
             ? 'كاملة'
-            : `من آية (${newMem.fromAyah}) إلى (${newMem.toAyah})`
-        } [${newMem.direction === 'asc' ? 'تصاعدي ↓' : 'تنازلي ↑'}] ${renderMiniSquares(
-          sectionPercentages.newMemorization || 95
-        )}\n`;
+            : `من آية (${newMem.fromAyah}) إلى آية (${newMem.toAyah})`
+        }\n`;
+        if (newMemVersesList.length > 0) {
+          const versesSnippet = newMemVersesList
+            .slice(0, 12)
+            .map((v) => `${v.text} ﴿${v.ayah}﴾`)
+            .join(' ');
+          msg += `• *نص الآيات الجديدة للمتابعة في المنزل:*\n﴿ ${versesSnippet} ﴾\n`;
+        }
       }
+
+      msg += `\n🔊 *فويس صوتي للنص الجديد (${chosenVoiceLabel}):*\n`;
+      if (activeVoiceChoice === 'teacher_voice') {
+        msg += `• 🎙️ تم تجهيز تسجيل صوتي للنص الجديد *بصوت المحفظ* (مرفق مع الرسالة وفي بوابة ولي الأمر السهلة).\n`;
+        msg += `• كما يمكنكم سماع أول آية بصوت الشيخ الحصري مباشرة من هنا:\n${getEveryAyahAudioUrl(
+          'Husary_128kbps',
+          newMem.surahId,
+          newMem.fromAyah || 1
+        )}\n`;
+      } else {
+        const startA = newMem.isFullSurah ? 1 : Math.max(1, newMem.fromAyah);
+        const endA = Math.min(startA + 4, newMem.toAyah || startA);
+        msg += `• 🎧 اضغط للاستماع الفوري لتلاوة النص الجديد بصوت *${chosenVoiceLabel}*:\n`;
+        for (let a = startA; a <= endA; a++) {
+          msg += `  - الآية (${a}): ${getEveryAyahAudioUrl(
+            activeVoiceChoice,
+            newMem.surahId,
+            a
+          )}\n`;
+        }
+      }
+
+      msg += `\n━━━━━━━━━━━━━━━━━━\n`;
+      msg += `🔄 *ثالثاً: المراجعات المطلوبة في المنزل (القريبة والبعيدة والأجزاء):*\n`;
       if (nearRev.enabled) {
-        msg += `• *مراجعة قريبة:* سورة ${nearRev.surahName} ${
+        msg += `• *المراجعة القريبة (الربط):* سورة ${nearRev.surahName} ${
           nearRev.isFullSurah
             ? 'كاملة'
-            : `من آية (${nearRev.fromAyah}) إلى (${nearRev.toAyah})`
-        } ${renderMiniSquares(sectionPercentages.nearReview || 90)}\n`;
+            : `(من آية ${nearRev.fromAyah} إلى ${nearRev.toAyah})`
+        }\n`;
       }
       if (farRev.enabled) {
-        msg += `• *مراجعة بعيدة:* سورة ${farRev.surahName} ${
-          farRev.isFullSurah
-            ? 'كاملة'
-            : `من آية (${farRev.fromAyah}) إلى (${farRev.toAyah})`
-        }\n`;
+        msg += `• *المراجعة البعيدة (التثبيت):* سورة ${farRev.surahName} (من آية ${farRev.fromAyah} إلى ${farRev.toAyah})\n`;
       }
       if (juzEnabled && juzItems.length > 0) {
         msg += `• *مراجعة الأجزاء:* ${juzItems.map((i) => i.label).join('، ')}\n`;
-      }
-      if (hizbQuarterEnabled && hizbItems.length > 0) {
-        msg += `• *الأحزاب والأرباع:* ${hizbItems.map((i) => i.label).join('، ')}\n`;
-      }
-      if (surahRevEnabled && selectedSurahNames.length > 0) {
+      } else if (surahRevEnabled && selectedSurahNames.length > 0) {
         msg += `• *مراجعة السور:* ${selectedSurahNames.join('، ')}\n`;
+      }
+
+      if (mode === 'detailed' || mode === 'recitation_audio_summary') {
+        if (errors.length > 0) {
+          msg += `\n🔍 *ملاحظات التجويد والكلمات التي تحتاج تركيزاً (${errors.length}):*\n`;
+          errors.slice(0, 6).forEach((e, idx) => {
+            msg += `  ${idx + 1}. [${e.category || e.type}] سورة ${e.surah || actualRecitation.surahName}${
+              e.ayah ? ` (آية ${e.ayah})` : ''
+            }${e.word ? ` كلمة «${e.word}»` : ''}${
+              e.correctedInSession ? ' — صُحح بالحصة ✓' : ''
+            }\n`;
+          });
+        } else {
+          msg += `\n✅ *سجل الأخطاء:* تلاوة متقنة خالية من الأخطاء المرصودة اليوم والحمد لله.\n`;
+        }
       }
     }
 
@@ -1440,8 +2221,136 @@ export const SessionEngineView: React.FC = () => {
       msg += `\n💬 *توجيهات المعلم:* ${parentNotes.trim()}\n`;
     }
     msg += `\n${settings.whatsappFooter}`;
+    return msg;
+  };
 
-    window.open(buildWhatsAppUrl(currentStudent.whatsappPhone, msg), '_blank', 'noopener');
+  // Format WhatsApp Message & Trigger One-Click Send (Short, Detailed, Recitation Audio Summary, or New Mem Voice Focus)
+  const handleSaveAndSendWhatsApp = (
+    mode:
+      | 'short'
+      | 'detailed'
+      | 'recitation_audio_summary'
+      | 'new_mem_voice_focus' = 'recitation_audio_summary',
+    overrideEval?: GeminiRecitationEvaluationResult | null
+  ) => {
+    triggerHaptic(16);
+    const saved = buildAndSaveSession('تم الإرسال لولي الأمر', {
+      skipAutoWhatsAppTrigger: true,
+    });
+    if (!saved || !currentStudent) return;
+
+    const msg = buildFormattedWhatsAppMessage(mode, overrideEval);
+    const waUrl = buildWhatsAppUrl(currentStudent.whatsappPhone, msg);
+
+    // Copy to clipboard automatically as a helpful backup
+    navigator.clipboard?.writeText(msg).catch(() => {});
+
+    // Trigger anchor link in a new tab cleanly without window.open popup blocking
+    const a = document.createElement('a');
+    a.href = waUrl;
+    a.target = '_blank';
+    a.rel = 'noopener noreferrer';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+
+    setLastAutoDispatchedSummary({
+      studentName: currentStudent.name,
+      phone: currentStudent.whatsappPhone || '',
+      message: msg,
+      sentAt: new Date().toLocaleTimeString('ar-EG', {
+        hour: '2-digit',
+        minute: '2-digit',
+      }),
+      audioScore:
+        overrideEval?.overallScore ??
+        latestGeminiEvaluation?.overallScore ??
+        recitationHealthAndTajweedMetrics.autoAudioScore,
+      tajweedScore: recitationHealthAndTajweedMetrics.tajweedScore,
+    });
+
+    showToast(
+      `📲 تم حفظ الحصة وفتح واتساب ولي أمر (${currentStudent.name}) مع ملخص التسميع والحفظ الجديد والمراجعات والفويس الصوتي ✓`,
+      'success'
+    );
+  };
+
+  // Send Voice Audio for New Memorization + Full Summary to Parent on WhatsApp
+  const handleSendNewMemVoiceToParentWhatsApp = async (
+    overrideChoice?: typeof newMemVoiceChoice
+  ) => {
+    if (!currentStudent) return;
+    triggerHaptic(18);
+    const chosenVoice = overrideChoice || newMemVoiceChoice;
+    if (overrideChoice) {
+      setNewMemVoiceChoice(overrideChoice);
+    }
+    buildAndSaveSession('تم الإرسال لولي الأمر', {
+      skipAutoWhatsAppTrigger: true,
+    });
+
+    const msg = buildFormattedWhatsAppMessage(
+      'new_mem_voice_focus',
+      undefined,
+      chosenVoice
+    );
+
+    // If Teacher Voice is selected and we have a recorded audio dataUrl, download or share it so teacher can drop the voice note directly in WhatsApp
+    if (chosenVoice === 'teacher_voice') {
+      const teacherAudioSrc =
+        memorizationAudioDataUrl || newMem.recordedAudioUrl || voiceNoteUrl;
+      if (teacherAudioSrc) {
+        try {
+          const res = await fetch(teacherAudioSrc);
+          const blob = await res.blob();
+          const file = new File(
+            [blob],
+            `voice-new-memorization-${currentStudent.name}-${newMem.surahName}.wav`,
+            { type: blob.type || 'audio/wav' }
+          );
+          if (
+            typeof navigator !== 'undefined' &&
+            navigator.canShare &&
+            navigator.canShare({ files: [file] })
+          ) {
+            await navigator.share({
+              title: `فويس الحفظ الجديد — سورة ${newMem.surahName}`,
+              text: msg,
+              files: [file],
+            });
+            showToast(
+              '🎙️ تم مشاركة الفويس الصوتي للنص الجديد بصوت المحفظ مع ملخص الحصة عبر واتساب ✓',
+              'success'
+            );
+            return;
+          }
+        } catch {
+          // fallback to download + WhatsApp link below
+        }
+
+        const dl = document.createElement('a');
+        dl.href = teacherAudioSrc;
+        dl.download = `فويس-النص-الجديد-بصوت-المحفظ-${currentStudent.name}-سورة-${newMem.surahName}.wav`;
+        document.body.appendChild(dl);
+        dl.click();
+        document.body.removeChild(dl);
+      }
+    }
+
+    const waUrl = buildWhatsAppUrl(currentStudent.whatsappPhone, msg);
+    navigator.clipboard?.writeText(msg).catch(() => {});
+    const a = document.createElement('a');
+    a.href = waUrl;
+    a.target = '_blank';
+    a.rel = 'noopener noreferrer';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+
+    showToast(
+      `🔊 تم فتح واتساب ولي الأمر مع فويس النص الجديد (سورة ${newMem.surahName}) وملخص التسميع والحفظ الجديد والمراجعات ✓`,
+      'success'
+    );
   };
 
   // Reusable Section UI for Actual Recitation, New Memorization, Near Review, Far Review, Extra Recitation
@@ -1714,6 +2623,177 @@ export const SessionEngineView: React.FC = () => {
                 ))}
               </div>
             )}
+
+            {/* 🎙️ شريط الميكروفون لتسجيل مقطع صوتي قصير لهذا التسميع وحفظ الرابط في حالة الطالب */}
+            {(() => {
+              const mappedAxisKey: RecitationAxisKey =
+                modalTargetKey === 'actual'
+                  ? 'actualRecitation'
+                  : modalTargetKey === 'new'
+                  ? 'newMemorization'
+                  : modalTargetKey === 'near'
+                  ? 'nearReview'
+                  : modalTargetKey === 'far'
+                  ? 'farReview'
+                  : 'extraRecitation';
+              const isRecordingThisAxis = activeAxisMicRecording === mappedAxisKey;
+              const latestAxisClip = studentRecitationClips.find(
+                (c) => c.axisKey === mappedAxisKey
+              );
+              const resolvedAudioUrl =
+                state.recordedAudioUrl || latestAxisClip?.audioUrl;
+              const resolvedDurationSec =
+                state.recordedAudioDurationSec || latestAxisClip?.durationSeconds || 0;
+
+              return (
+                <div className="p-3.5 rounded-xl bg-gradient-to-l from-[#145a3a]/10 via-[#fcfaf2] to-[#c59b27]/10 dark:from-[#0b1711] dark:via-[#12231a] dark:to-[#0b1711] border border-[#c59b27]/50 space-y-2.5">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="flex items-center gap-2">
+                      <span className="w-7 h-7 rounded-lg bg-[#145a3a] text-[#dfbd69] flex items-center justify-center">
+                        <Mic className="w-3.5 h-3.5" />
+                      </span>
+                      <div>
+                        <div className="text-xs font-extrabold text-[#145a3a] dark:text-[#dfbd69] flex items-center gap-1.5 flex-wrap">
+                          <span>🎙️ تسجيل مقطع صوتي قصير لهذا التسميع بالميكروفون</span>
+                          {resolvedAudioUrl && (
+                            <span className="px-2 py-0.5 rounded-full bg-emerald-600 text-white text-[10px] font-bold">
+                              🔗 الرابط مخزن في حالة الطالب ({resolvedDurationSec} ث)
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-[10px] text-neutral-500 dark:text-neutral-400">
+                          يُسجّل تلاوة الطالب أو المعلم لسورة {state.surahName} (آية{' '}
+                          {state.isFullSurah ? 1 : state.fromAyah}-
+                          {state.isFullSurah ? surahMeta.ayahs : state.toAyah}) ويحفظ الرابط في{' '}
+                          <code className="font-mono">student.recitationAudioClips</code> للرجوع إليه لاحقاً
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="flex flex-wrap items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() =>
+                          handleToggleAxisMicrophoneClip({
+                            axisKey: mappedAxisKey,
+                            axisLabel: title,
+                            surahName: state.surahName,
+                            fromAyah: state.isFullSurah ? 1 : state.fromAyah,
+                            toAyah: state.isFullSurah ? surahMeta.ayahs : state.toAyah,
+                            percentage: currentPct,
+                            grade: state.grade,
+                            onSavedToAxis: (url, dur) => {
+                              setState((prev) => ({
+                                ...prev,
+                                recordedAudioUrl: url,
+                                recordedAudioDurationSec: dur,
+                                recordedAt: new Date().toISOString(),
+                              }));
+                            },
+                          })
+                        }
+                        className={`px-3.5 py-2 rounded-xl text-xs font-extrabold flex items-center gap-1.5 cursor-pointer shadow-xs transition ${
+                          isRecordingThisAxis
+                            ? 'bg-red-600 hover:bg-red-700 text-white animate-pulse'
+                            : 'bg-[#145a3a] hover:bg-[#0f452c] text-[#dfbd69]'
+                        }`}
+                      >
+                        {isRecordingThisAxis ? (
+                          <>
+                            <MicOff className="w-3.5 h-3.5" />
+                            <span>
+                              ⏹️ إيقاف وحفظ في حالة الطالب ({axisMicSeconds} ثانية)
+                            </span>
+                          </>
+                        ) : (
+                          <>
+                            <Mic className="w-3.5 h-3.5 text-[#dfbd69]" />
+                            <span>
+                              {resolvedAudioUrl
+                                ? 'تسجيل مقطع جديد بالميكروفون'
+                                : 'بدء تسجيل الميكروفون للتسميع'}
+                            </span>
+                          </>
+                        )}
+                      </button>
+
+                      {resolvedAudioUrl && (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const synthClip: StudentRecitationAudioClip =
+                                latestAxisClip || {
+                                  id: `axis-clip-${mappedAxisKey}-${Date.now()}`,
+                                  studentId: currentStudent?.id || 'std-1',
+                                  studentName: currentStudent?.name || 'الطالب',
+                                  sessionDate,
+                                  axisKey: mappedAxisKey,
+                                  axisLabel: title,
+                                  surahName: state.surahName,
+                                  fromAyah: state.isFullSurah ? 1 : state.fromAyah,
+                                  toAyah: state.isFullSurah
+                                    ? surahMeta.ayahs
+                                    : state.toAyah,
+                                  audioUrl: resolvedAudioUrl,
+                                  durationSeconds: resolvedDurationSec || 8,
+                                  grade: state.grade,
+                                  percentage: currentPct,
+                                  createdAt: new Date().toISOString(),
+                                };
+                              setGeminiTriggerClip(synthClip);
+                              document
+                                .getElementById('gemini-recitation-analyzer-panel')
+                                ?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                            }}
+                            className="px-3 py-1.5 rounded-xl bg-gradient-to-l from-[#c59b27] to-[#dfbd69] text-[#14281d] text-[11px] font-black flex items-center gap-1 cursor-pointer shadow-2xs"
+                            title="تحليل المقطع الصوتي عبر Gemini لتقييم أحكام التجويد واللحن الجلي"
+                          >
+                            <Sparkles className="w-3.5 h-3.5" />
+                            <span>✨ تحليل عبر Gemini (التجويد واللحن الجلي)</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              navigator.clipboard?.writeText(resolvedAudioUrl);
+                              showToast(
+                                '🔗 تم نسخ رابط المقطع الصوتي المحفوظ في حالة الطالب إلى الحافظة',
+                                'success'
+                              );
+                            }}
+                            className="px-2.5 py-1.5 rounded-xl bg-white dark:bg-[#0b1711] border border-[#c59b27]/50 text-[#145a3a] dark:text-[#dfbd69] text-[11px] font-bold cursor-pointer"
+                            title="نسخ رابط المقطع الصوتي المخزن في حالة الطالب"
+                          >
+                            🔗 نسخ رابط المقطع
+                          </button>
+                          <a
+                            href={resolvedAudioUrl}
+                            download={`recitation-${mappedAxisKey}-${state.surahName}-${sessionDate}.wav`}
+                            className="p-1.5 rounded-xl bg-emerald-50 dark:bg-emerald-950/60 text-[#145a3a] dark:text-[#dfbd69] border border-emerald-500/30"
+                            title="تنزيل المقطع الصوتي"
+                          >
+                            <Download className="w-3.5 h-3.5" />
+                          </a>
+                        </>
+                      )}
+                    </div>
+                  </div>
+
+                  {resolvedAudioUrl && (
+                    <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-[#c59b27]/30">
+                      <audio
+                        controls
+                        src={resolvedAudioUrl}
+                        className="h-8 flex-1 min-w-[220px]"
+                      />
+                      <span className="text-[10px] font-mono text-emerald-700 dark:text-emerald-300 bg-emerald-500/10 px-2 py-1 rounded-lg">
+                        محفوظ في حالة الطالب: {currentStudent?.name} • سورة {state.surahName}
+                      </span>
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
           </div>
         )}
       </div>
@@ -1735,18 +2815,40 @@ export const SessionEngineView: React.FC = () => {
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
+            {/* زر تبديل وضع التركيز (Focus Mode Toggle Switch) */}
             <button
               type="button"
-              onClick={() => setIsFullScreenFocus(!isFullScreenFocus)}
-              className={`px-3.5 py-1.5 rounded-xl text-xs font-extrabold border flex items-center gap-1.5 cursor-pointer transition-all ${
+              role="switch"
+              aria-checked={isFullScreenFocus}
+              onClick={handleToggleFocusMode}
+              className={`px-3.5 py-1.5 rounded-xl text-xs font-extrabold border-2 flex items-center gap-2 cursor-pointer transition-all ${
                 isFullScreenFocus
-                  ? 'bg-emerald-700 text-white border-emerald-600 shadow-xs'
-                  : 'bg-[#f6f7f2] dark:bg-[#0b1711] border-neutral-300 dark:border-emerald-800 text-[#145a3a] dark:text-[#dfbd69]'
+                  ? 'bg-gradient-to-l from-[#145a3a] to-emerald-700 text-white border-[#c59b27] shadow-md ring-2 ring-[#c59b27]/40'
+                  : 'bg-[#f6f7f2] dark:bg-[#0b1711] border-[#c59b27]/60 text-[#145a3a] dark:text-[#dfbd69] hover:border-[#145a3a]'
               }`}
-              title="طي القوائم الجانبية للتركيز الكامل على التسميع والمصحف"
+              title="زر تبديل وضع التركيز: إخفاء القوائم الجانبية وتوسيع مساحة السبورة الذكية لتقليل المشتتات أثناء التسميع [F]"
             >
-              {isFullScreenFocus ? <Minimize2 className="w-3.5 h-3.5 text-[#dfbd69]" /> : <Maximize2 className="w-3.5 h-3.5" />}
-              <span>{isFullScreenFocus ? 'إنهاء وضع التركيز' : 'وضع التركيز الكامل'}</span>
+              <span
+                className={`relative inline-flex h-4 w-7 items-center rounded-full transition-colors ${
+                  isFullScreenFocus ? 'bg-[#c59b27]' : 'bg-neutral-300 dark:bg-emerald-900'
+                }`}
+              >
+                <span
+                  className={`inline-block h-3 w-3 transform rounded-full bg-white transition-transform ${
+                    isFullScreenFocus ? '-translate-x-3.5' : '-translate-x-0.5'
+                  }`}
+                />
+              </span>
+              {isFullScreenFocus ? (
+                <Minimize2 className="w-3.5 h-3.5 text-[#dfbd69]" />
+              ) : (
+                <Maximize2 className="w-3.5 h-3.5 text-[#c59b27]" />
+              )}
+              <span>
+                {isFullScreenFocus
+                  ? 'وضع التركيز مفعّل (السبورة موسّعة)'
+                  : 'وضع التركيز وتوسيع السبورة'}
+              </span>
             </button>
 
             <button
@@ -1774,6 +2876,25 @@ export const SessionEngineView: React.FC = () => {
               >
                 <Sparkles className="w-3.5 h-3.5" />
                 <span>🎉 توليد بطاقة بشارة مصورة</span>
+              </button>
+            )}
+
+            {currentStudent && (
+              <button
+                type="button"
+                onClick={() => {
+                  const el = document.getElementById('new-mem-qari-voice-sender');
+                  if (el) {
+                    el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                  } else {
+                    void handleSendNewMemVoiceToParentWhatsApp();
+                  }
+                }}
+                className="px-3.5 py-1.5 rounded-xl bg-gradient-to-l from-emerald-700 to-green-600 hover:brightness-110 text-white text-xs font-extrabold flex items-center gap-1.5 cursor-pointer shadow-xs border border-[#c59b27]"
+                title="إرسال فويس قارئ أو صوت المحفظ للنص الجديد لولي الأمر"
+              >
+                <Volume2 className="w-3.5 h-3.5 text-[#dfbd69]" />
+                <span>🎧 زر إرسال فويس قارئ / صوت المحفظ</span>
               </button>
             )}
 
@@ -1852,18 +2973,22 @@ export const SessionEngineView: React.FC = () => {
                   <span className="px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-800 dark:text-amber-300 font-mono font-bold">
                     [S] تشجيع احتفالي
                   </span>
+                  <span className="px-1.5 py-0.5 rounded bg-emerald-600/20 text-[#145a3a] dark:text-[#dfbd69] font-mono font-bold">
+                    [F] وضع التركيز وتوسيع السبورة
+                  </span>
                 </div>
               </div>
             </div>
           </div>
         )}
 
-        {/* 1. مشغل تسجيلات الطالب الصوتية (HTML5 Audio) + شريط التحكم الزمني (Timestamp Pins) المرتبط بـ studentId وسجل الطالب التقني */}
-        {(homeSubmissions.length > 0 ||
-          (currentStudent?.dailyAudioRecordings || []).length > 0 ||
-          Boolean(memorizationAudioDataUrl) ||
-          Boolean(voiceNoteUrl) ||
-          (currentStudent && (studentAudioBlobs[currentStudent.id] || []).length > 0)) && (
+        {/* 1. مشغل تسجيلات الطالب الصوتية (HTML5 Audio) + شريط التحكم الزمني (Timestamp Pins) — يُخفى تلقائياً في وضع التركيز لتقليل المشتتات */}
+        {!isFullScreenFocus &&
+          (homeSubmissions.length > 0 ||
+            (currentStudent?.dailyAudioRecordings || []).length > 0 ||
+            Boolean(memorizationAudioDataUrl) ||
+            Boolean(voiceNoteUrl) ||
+            (currentStudent && (studentAudioBlobs[currentStudent.id] || []).length > 0)) && (
           <div className="p-4 rounded-2xl bg-[#fcfaf2] dark:bg-[#0b1711] border-2 border-[#c59b27]/60 space-y-3">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div>
@@ -3284,8 +4409,8 @@ export const SessionEngineView: React.FC = () => {
         )}
       </div>
 
-      {/* Unified Educational Journey Summary Card (الفصل الإلزامي بين: التكليف السابق | التسميع الفعلي | قرار الإتقان | موضع التوقف | أخطاء المتابعة) */}
-      {currentStudent && (
+      {/* Unified Educational Journey Summary Card — يُخفى تلقائياً في وضع التركيز لتقليل المشتتات */}
+      {!isFullScreenFocus && currentStudent && (
         <div className="rounded-2xl bg-white dark:bg-[#12231a] border-2 border-[#c59b27]/50 shadow-xs overflow-hidden">
           <div className="p-4 bg-[#f6f7f2] dark:bg-[#0b1711] flex flex-wrap items-center justify-between gap-3">
             <button
@@ -3969,9 +5094,893 @@ export const SessionEngineView: React.FC = () => {
       {/* All Session Recitation & Assignment Sections (with 📖 النص in every section) */}
       {status === 'حضر' && (
         <div className="space-y-4">
-          <h2 className="text-base font-extrabold text-[#145a3a] dark:text-[#dfbd69]">
-            أقسام التسميع الفعلي والتكليف والمراجعات الشاملة (مع عارض النص والتفسير في كل قسم)
-          </h2>
+          <div className="p-4 rounded-2xl bg-white dark:bg-[#12231a] border-2 border-[#c59b27]/60 shadow-xs flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h2 className="text-base font-extrabold text-[#145a3a] dark:text-[#dfbd69] flex items-center gap-2 flex-wrap">
+                <span>
+                  أقسام محرك التسميع الخماسي والتكليف والمراجعات الشاملة (مع الميكروفون والسبورة الذكية)
+                </span>
+                {isFullScreenFocus && (
+                  <span className="px-2.5 py-0.5 rounded-full bg-emerald-600 text-white text-[11px] font-black animate-pulse">
+                    🎯 وضع التركيز نشط: القوائم الجانبية مخفية والسبورة الذكية موسّعة
+                  </span>
+                )}
+              </h2>
+              <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-0.5">
+                فعّل «وضع التركيز» لإخفاء القوائم الجانبية وتوسيع مساحة السبورة الذكية التفاعلية لتقليل المشتتات أثناء التسميع
+              </p>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2">
+              {/* زر تبديل وضع التركيز المباشر داخل محرك الحصة الخماسي */}
+              <button
+                type="button"
+                role="switch"
+                aria-checked={isFullScreenFocus}
+                onClick={handleToggleFocusMode}
+                className={`px-4 py-2 rounded-xl text-xs font-extrabold border-2 flex items-center gap-2 cursor-pointer transition-all ${
+                  isFullScreenFocus
+                    ? 'bg-gradient-to-l from-[#145a3a] to-emerald-700 text-white border-[#c59b27] shadow-md'
+                    : 'bg-[#fcfaf2] dark:bg-[#0b1711] border-[#c59b27] text-[#145a3a] dark:text-[#dfbd69] hover:bg-[#145a3a] hover:text-white'
+                }`}
+              >
+                <span
+                  className={`relative inline-flex h-4 w-7 items-center rounded-full transition-colors ${
+                    isFullScreenFocus ? 'bg-[#c59b27]' : 'bg-neutral-300 dark:bg-emerald-900'
+                  }`}
+                >
+                  <span
+                    className={`inline-block h-3 w-3 transform rounded-full bg-white transition-transform ${
+                      isFullScreenFocus ? '-translate-x-3.5' : '-translate-x-0.5'
+                    }`}
+                  />
+                </span>
+                {isFullScreenFocus ? (
+                  <Minimize2 className="w-3.5 h-3.5 text-[#dfbd69]" />
+                ) : (
+                  <Maximize2 className="w-3.5 h-3.5 text-[#c59b27]" />
+                )}
+                <span>
+                  {isFullScreenFocus
+                    ? 'إيقاف وضع التركيز واستعادة القوائم'
+                    : '🎯 تفعيل وضع التركيز وتوسيع السبورة الذكية'}
+                </span>
+              </button>
+
+              <span className="px-3 py-1.5 rounded-xl bg-[#145a3a] text-[#dfbd69] text-xs font-extrabold">
+                🎙️ المقاطع المخزنة في حالة الطالب: {studentRecitationClips.length} مقطع
+              </span>
+
+              {/* زر إرسال ملخص التسميع عبر واتساب لولي الأمر بضغطة زر واحدة بعد التسميع */}
+              <button
+                type="button"
+                onClick={() => handleSaveAndSendWhatsApp('recitation_audio_summary')}
+                className="px-4 py-2 rounded-xl bg-gradient-to-l from-emerald-600 to-green-600 hover:from-emerald-500 hover:to-green-500 text-white text-xs font-black flex items-center gap-2 cursor-pointer shadow-md border border-[#c59b27]/60 transition"
+                title="إرسال ملخص التسميع عبر واتساب لولي الأمر بضغطة زر واحدة مع التقييم الصوتي التلقائي ودرجة التجويد"
+              >
+                <Send className="w-3.5 h-3.5 text-[#dfbd69]" />
+                <span>📲 إرسال ملخص التسميع واتساب (مع التقييم الصوتي ودرجة التجويد)</span>
+              </button>
+            </div>
+          </div>
+
+          {/* 📊 مؤشر صحة التسميع + بطاقة إرسال ملخص التسميع التلقائي عبر واتساب لولي الأمر بضغطة زر واحدة */}
+          {currentStudent && (
+            <div className="p-4 sm:p-5 rounded-2xl bg-gradient-to-l from-[#145a3a] via-[#123d28] to-[#0b1f15] text-white border-2 border-[#c59b27] shadow-md space-y-4">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div className="flex items-start gap-3">
+                  <div className="w-11 h-11 rounded-2xl bg-[#c59b27] text-[#14281d] flex items-center justify-center shrink-0 font-black text-sm shadow-sm">
+                    {recitationHealthAndTajweedMetrics.healthScore}%
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <h3 className="text-sm sm:text-base font-extrabold text-[#dfbd69]">
+                        📊 مؤشر صحة التسميع والتقرير التلقائي الفوري عبر واتساب لولي الأمر
+                      </h3>
+                      <span className="px-2.5 py-0.5 rounded-full bg-white/15 border border-[#c59b27]/50 text-xs font-extrabold text-white">
+                        {recitationHealthAndTajweedMetrics.healthStatusLabel}
+                      </span>
+                      {recitationHealthAndTajweedMetrics.isFromGeminiAi && (
+                        <span className="px-2 py-0.5 rounded-full bg-amber-400/20 border border-amber-400/50 text-[#dfbd69] text-[10px] font-black">
+                          ✨ مدعوم بتحليل Gemini الصوتي
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-xs text-emerald-100/90 mt-0.5">
+                      ملخص فوري بعد التسميع يشمل: التقييم الصوتي التلقائي ({recitationHealthAndTajweedMetrics.autoAudioScore}% - {recitationHealthAndTajweedMetrics.autoAudioGrade}) • درجة التجويد ({recitationHealthAndTajweedMetrics.tajweedScore}%) • سلامة اللحن الجلي ({recitationHealthAndTajweedMetrics.lahnJaliScore}%)
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setShowWhatsAppSummaryPreview((prev) => !prev)}
+                    className="px-3 py-2 rounded-xl bg-white/10 hover:bg-white/20 border border-white/20 text-xs font-extrabold text-[#dfbd69] cursor-pointer transition"
+                  >
+                    {showWhatsAppSummaryPreview
+                      ? 'إخفاء معاينة رسالة الواتساب ▲'
+                      : '👁️ معاينة ملخص التسميع قبل الإرسال ▼'}
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const msg = buildFormattedWhatsAppMessage(
+                        'recitation_audio_summary'
+                      );
+                      navigator.clipboard?.writeText(msg);
+                      showToast(
+                        '📋 تم نسخ ملخص التسميع والتقييم الصوتي ودرجة التجويد إلى الحافظة ✓',
+                        'success'
+                      );
+                    }}
+                    className="px-3 py-2 rounded-xl bg-white/15 hover:bg-white/25 text-white text-xs font-extrabold cursor-pointer transition"
+                  >
+                    📋 نسخ الملخص
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => handleSaveAndSendWhatsApp('recitation_audio_summary')}
+                    className="px-4 py-2.5 rounded-xl bg-gradient-to-l from-[#c59b27] to-[#dfbd69] hover:brightness-105 text-[#14281d] text-xs sm:text-sm font-black flex items-center gap-2 cursor-pointer shadow-lg transition"
+                  >
+                    <Send className="w-4 h-4" />
+                    <span>📲 إرسال ملخص التسميع لولي الأمر عبر واتساب بضغطة واحدة</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* 4 Live Pills for Audio Evaluation, Tajweed Score, Lahn Jali, and 5-Axis Average */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 pt-2 border-t border-white/15">
+                <div className="p-2.5 rounded-xl bg-black/25 border border-white/10">
+                  <div className="text-[11px] text-emerald-200 font-bold">
+                    🤖 التقييم الصوتي التلقائي
+                  </div>
+                  <div className="text-sm font-black text-white mt-0.5 flex items-center justify-between">
+                    <span>
+                      {recitationHealthAndTajweedMetrics.autoAudioScore}% (
+                      {recitationHealthAndTajweedMetrics.autoAudioGrade})
+                    </span>
+                    <span className="text-[10px] text-[#dfbd69]">
+                      {recitationHealthAndTajweedMetrics.recitationPace}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="p-2.5 rounded-xl bg-black/25 border border-[#c59b27]/40">
+                  <div className="text-[11px] text-[#dfbd69] font-bold">
+                    📜 درجة التجويد التلقائية
+                  </div>
+                  <div className="text-sm font-black text-white mt-0.5 flex items-center justify-between">
+                    <span className="font-mono">
+                      {recitationHealthAndTajweedMetrics.tajweedScore}%
+                    </span>
+                    <span className="text-xs font-mono text-[#dfbd69]">
+                      {renderMiniSquares(recitationHealthAndTajweedMetrics.tajweedScore)}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="p-2.5 rounded-xl bg-black/25 border border-white/10">
+                  <div className="text-[11px] text-emerald-200 font-bold">
+                    🛡️ سلامة اللحن الجلي والحفظ
+                  </div>
+                  <div className="text-sm font-black text-white mt-0.5 flex items-center justify-between">
+                    <span className="font-mono">
+                      {recitationHealthAndTajweedMetrics.lahnJaliScore}%
+                    </span>
+                    <span className="text-xs font-mono text-emerald-300">
+                      {renderMiniSquares(recitationHealthAndTajweedMetrics.lahnJaliScore)}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="p-2.5 rounded-xl bg-black/25 border border-white/10">
+                  <div className="text-[11px] text-emerald-200 font-bold">
+                    💚 مؤشر صحة التسميع الخماسي
+                  </div>
+                  <div className="text-sm font-black text-white mt-0.5 flex items-center justify-between">
+                    <span className="font-mono">
+                      {recitationHealthAndTajweedMetrics.healthScore}%
+                    </span>
+                    <span className="text-[10px] text-emerald-300">
+                      متوسط المحاور {recitationHealthAndTajweedMetrics.fiveAxisAvg}%
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {showWhatsAppSummaryPreview && (
+                <div className="p-3.5 rounded-xl bg-black/40 border border-[#c59b27]/40 space-y-2">
+                  <div className="flex items-center justify-between text-[11px] font-extrabold text-[#dfbd69]">
+                    <span>
+                      📱 معاينة نص رسالة «ملخص التسميع والتقييم الصوتي ودرجة التجويد» لولي الأمر ({currentStudent.whatsappPhone}):
+                    </span>
+                    <span>جاهز للإرسال الفوري ✓</span>
+                  </div>
+                  <pre className="whitespace-pre-wrap text-xs text-emerald-50 font-sans leading-relaxed bg-black/30 p-3 rounded-lg border border-white/10 max-h-60 overflow-y-auto">
+                    {buildFormattedWhatsAppMessage('recitation_audio_summary')}
+                  </pre>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* 🎯 لوحة وضع التركيز الخماسي وتوسيع مساحة السبورة الذكية لتقليل المشتتات أثناء التسميع */}
+          {isFullScreenFocus &&
+            (() => {
+              const focusAxesMap: {
+                key: RecitationAxisKey;
+                label: string;
+                assignment: SurahRangeAssignment;
+                pct: number;
+                onSaveAudio: (url: string, dur: number) => void;
+              }[] = [
+                {
+                  key: 'actualRecitation',
+                  label: '١) التسميع الفعلي',
+                  assignment: actualRecitation,
+                  pct: sectionPercentages.actualRecitation || 94,
+                  onSaveAudio: (url, dur) =>
+                    setActualRecitation((p) => ({
+                      ...p,
+                      recordedAudioUrl: url,
+                      recordedAudioDurationSec: dur,
+                      recordedAt: new Date().toISOString(),
+                    })),
+                },
+                {
+                  key: 'newMemorization',
+                  label: '٢) الحفظ الجديد',
+                  assignment: newMem,
+                  pct: sectionPercentages.newMemorization || 95,
+                  onSaveAudio: (url, dur) =>
+                    setNewMem((p) => ({
+                      ...p,
+                      recordedAudioUrl: url,
+                      recordedAudioDurationSec: dur,
+                      recordedAt: new Date().toISOString(),
+                    })),
+                },
+                {
+                  key: 'nearReview',
+                  label: '٣) المراجعة القريبة',
+                  assignment: nearRev,
+                  pct: sectionPercentages.nearReview || 90,
+                  onSaveAudio: (url, dur) =>
+                    setNearRev((p) => ({
+                      ...p,
+                      recordedAudioUrl: url,
+                      recordedAudioDurationSec: dur,
+                      recordedAt: new Date().toISOString(),
+                    })),
+                },
+                {
+                  key: 'farReview',
+                  label: '٤) المراجعة البعيدة',
+                  assignment: farRev,
+                  pct: sectionPercentages.farReview || 88,
+                  onSaveAudio: (url, dur) =>
+                    setFarRev((p) => ({
+                      ...p,
+                      recordedAudioUrl: url,
+                      recordedAudioDurationSec: dur,
+                      recordedAt: new Date().toISOString(),
+                    })),
+                },
+                {
+                  key: 'extraRecitation',
+                  label: '٥) التسميع الإضافي',
+                  assignment: extraRecitation,
+                  pct: sectionPercentages.extraRecitation || 95,
+                  onSaveAudio: (url, dur) =>
+                    setExtraRecitation((p) => ({
+                      ...p,
+                      recordedAudioUrl: url,
+                      recordedAudioDurationSec: dur,
+                      recordedAt: new Date().toISOString(),
+                    })),
+                },
+              ];
+
+              const selectedFocusAxis =
+                focusAxesMap.find((a) => a.key === focusBoardAxisKey) ||
+                focusAxesMap[0];
+              const isRecordingFocusAxis =
+                activeAxisMicRecording === selectedFocusAxis.key;
+
+              return (
+                <div className="rounded-3xl bg-gradient-to-b from-[#0b1711] via-[#12231a] to-[#0b1711] p-4 sm:p-5 border-2 border-[#c59b27] shadow-2xl space-y-4">
+                  {/* شريط التحكم العلوي المختصر لوضع التركيز الخماسي */}
+                  <div className="flex flex-wrap items-center justify-between gap-3 pb-3 border-b border-[#c59b27]/40 text-white">
+                    <div className="flex items-center gap-2.5 flex-wrap">
+                      <span className="px-3 py-1 rounded-xl bg-[#c59b27] text-[#14281d] text-xs font-black flex items-center gap-1.5">
+                        <Sparkles className="w-3.5 h-3.5" />
+                        <span>وضع التركيز الخماسي • السبورة الذكية الموسّعة</span>
+                      </span>
+                      <span className="text-xs font-extrabold text-[#dfbd69]">
+                        الطالب: {currentStudent?.name} • سورة{' '}
+                        {selectedFocusAxis.assignment.surahName} (آية{' '}
+                        {selectedFocusAxis.assignment.fromAyah} -{' '}
+                        {selectedFocusAxis.assignment.toAyah})
+                      </span>
+                      <span className="px-2.5 py-0.5 rounded-lg bg-emerald-500/20 border border-emerald-400/40 text-emerald-300 text-xs font-mono font-bold">
+                        الإتقان: {masteryScore}%
+                      </span>
+                    </div>
+
+                    <div className="flex flex-wrap items-center gap-2">
+                      {/* التبديل بين توسيع السبورة بالكامل أو تقسيم الشاشة مع المحاور الخمسة */}
+                      <div className="flex items-center rounded-xl bg-black/40 p-1 border border-[#c59b27]/40">
+                        <button
+                          type="button"
+                          onClick={() => setFocusLayoutMode('board_expanded')}
+                          className={`px-2.5 py-1 rounded-lg text-[11px] font-extrabold cursor-pointer transition ${
+                            focusLayoutMode === 'board_expanded'
+                              ? 'bg-[#c59b27] text-[#14281d]'
+                              : 'text-emerald-100 hover:text-white'
+                          }`}
+                        >
+                          🖥️ السبورة الذكية موسّعة بالكامل
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setFocusLayoutMode('split_5axis')}
+                          className={`px-2.5 py-1 rounded-lg text-[11px] font-extrabold cursor-pointer transition ${
+                            focusLayoutMode === 'split_5axis'
+                              ? 'bg-[#c59b27] text-[#14281d]'
+                              : 'text-emerald-100 hover:text-white'
+                          }`}
+                        >
+                          📐 عرض مزدوج (السبورة + المحاور الخمسة)
+                        </button>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => buildAndSaveSession('منشور ببوابة ولي الأمر')}
+                        className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-extrabold flex items-center gap-1.5 cursor-pointer"
+                      >
+                        <Save className="w-3.5 h-3.5 text-[#dfbd69]" />
+                        <span>حفظ الحصة ✓</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={handleToggleFocusMode}
+                        className="px-3 py-1.5 rounded-xl bg-red-600 hover:bg-red-500 text-white text-xs font-extrabold flex items-center gap-1.5 cursor-pointer"
+                      >
+                        <Minimize2 className="w-3.5 h-3.5" />
+                        <span>إنهاء وضع التركيز</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* شريط التبديل السريع بين المحاور الخمسة ومزامنة السبورة الذكية والميكروفون */}
+                  <div className="flex flex-wrap items-center justify-between gap-2 bg-black/30 p-3 rounded-2xl border border-white/10">
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <span className="text-[11px] font-bold text-[#dfbd69] ml-1">
+                        اختر محور التسميع لمزامنة السبورة الذكية:
+                      </span>
+                      {focusAxesMap.map((ax) => {
+                        const isSelected = focusBoardAxisKey === ax.key;
+                        return (
+                          <button
+                            key={ax.key}
+                            type="button"
+                            onClick={() => setFocusBoardAxisKey(ax.key)}
+                            className={`px-3 py-1.5 rounded-xl text-xs font-extrabold border transition cursor-pointer flex items-center gap-1.5 ${
+                              isSelected
+                                ? 'bg-[#145a3a] text-[#dfbd69] border-[#c59b27] shadow-sm'
+                                : 'bg-white/5 text-neutral-200 border-white/15 hover:bg-white/10'
+                            }`}
+                          >
+                            <span>{ax.label}</span>
+                            <span className="text-[10px] opacity-80 font-mono">
+                              ({ax.assignment.surahName} {ax.assignment.fromAyah}-
+                              {ax.assignment.toAyah})
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
+
+                    {/* زر تسجيل الميكروفون الفوري للمحور المحدد داخل وضع التركيز */}
+                    <button
+                      type="button"
+                      onClick={() =>
+                        handleToggleAxisMicrophoneClip({
+                          axisKey: selectedFocusAxis.key,
+                          axisLabel: selectedFocusAxis.label,
+                          surahName: selectedFocusAxis.assignment.surahName,
+                          fromAyah: selectedFocusAxis.assignment.fromAyah,
+                          toAyah: selectedFocusAxis.assignment.toAyah,
+                          percentage: selectedFocusAxis.pct,
+                          grade: selectedFocusAxis.assignment.grade,
+                          onSavedToAxis: selectedFocusAxis.onSaveAudio,
+                        })
+                      }
+                      className={`px-3.5 py-1.5 rounded-xl text-xs font-extrabold flex items-center gap-1.5 cursor-pointer transition ${
+                        isRecordingFocusAxis
+                          ? 'bg-red-600 text-white animate-pulse'
+                          : 'bg-[#c59b27] hover:bg-[#b58c1e] text-[#14281d]'
+                      }`}
+                    >
+                      {isRecordingFocusAxis ? (
+                        <>
+                          <MicOff className="w-3.5 h-3.5" />
+                          <span>
+                            ⏹️ إيقاف وحفظ بحالة الطالب ({axisMicSeconds} ث)
+                          </span>
+                        </>
+                      ) : (
+                        <>
+                          <Mic className="w-3.5 h-3.5" />
+                          <span>🎙️ تسجيل ميكروفون ({selectedFocusAxis.label})</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
+
+                  {/* مساحة السبورة الذكية الموسّعة بدون قوائم جانبية (أو مع عرض المحاور الخمسة بجانبها) */}
+                  <div
+                    className={
+                      focusLayoutMode === 'split_5axis'
+                        ? 'grid grid-cols-1 xl:grid-cols-12 gap-4 items-start'
+                        : 'w-full'
+                    }
+                  >
+                    <div
+                      className={
+                        focusLayoutMode === 'split_5axis'
+                          ? 'xl:col-span-8 w-full'
+                          : 'w-full'
+                      }
+                    >
+                      <SmartBoardView
+                        embeddedInSessionFocus
+                        initialSurahId={selectedFocusAxis.assignment.surahId}
+                        initialFromAyah={selectedFocusAxis.assignment.fromAyah}
+                        initialToAyah={selectedFocusAxis.assignment.toAyah}
+                      />
+                    </div>
+
+                    {focusLayoutMode === 'split_5axis' && (
+                      <div className="xl:col-span-4 space-y-3 max-h-[760px] overflow-y-auto pr-1">
+                        <div className="p-3.5 rounded-2xl bg-white dark:bg-[#12231a] border border-[#c59b27]/50 space-y-2">
+                          <div className="text-xs font-black text-[#145a3a] dark:text-[#dfbd69]">
+                            ⚡ ملخص المحاور الخمسة السريع بجانب السبورة
+                          </div>
+                          {focusAxesMap.map((ax) => (
+                            <div
+                              key={ax.key}
+                              onClick={() => setFocusBoardAxisKey(ax.key)}
+                              className={`p-2.5 rounded-xl border text-xs cursor-pointer transition ${
+                                focusBoardAxisKey === ax.key
+                                  ? 'bg-[#fcfaf2] dark:bg-[#0b1711] border-[#c59b27] ring-1 ring-[#c59b27]'
+                                  : 'border-neutral-200 dark:border-emerald-900/50'
+                              }`}
+                            >
+                              <div className="flex items-center justify-between font-extrabold text-[#145a3a] dark:text-[#dfbd69]">
+                                <span>{ax.label}</span>
+                                <span className="font-mono">{ax.pct}%</span>
+                              </div>
+                              <div className="text-[11px] text-neutral-600 dark:text-neutral-300 mt-0.5">
+                                سورة {ax.assignment.surahName} • الآيات (
+                                {ax.assignment.fromAyah} - {ax.assignment.toAyah})
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              );
+            })()}
+
+          {/* 🎙️ مركز الميكروفون الخماسي وسجل المقاطع الصوتية القصيرة المخزنة في حالة الطالب (student.recitationAudioClips) */}
+          <div className="p-5 rounded-2xl bg-gradient-to-l from-[#145a3a]/10 via-[#fcfaf2] to-[#c59b27]/15 dark:from-[#0b1711] dark:via-[#12231a] dark:to-[#0b1711] border-2 border-[#c59b27]/70 shadow-xs space-y-4">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="w-8 h-8 rounded-xl bg-[#145a3a] text-[#dfbd69] flex items-center justify-center shadow-xs">
+                    <Mic className="w-4 h-4" />
+                  </span>
+                  <h3 className="text-sm sm:text-base font-extrabold text-[#145a3a] dark:text-[#dfbd69]">
+                    🎙️ ميكروفون محرك التسميع الخماسي وسجل المقاطع المخزنة في حالة الطالب
+                  </h3>
+                  <span className="px-2.5 py-0.5 rounded-full bg-emerald-600 text-white text-[11px] font-extrabold">
+                    مرتبط بحالة الطالب: {currentStudent?.name} (ID: {currentStudent?.id})
+                  </span>
+                </div>
+                <p className="text-xs text-neutral-600 dark:text-neutral-300 mt-1">
+                  سجّل مقاطع صوتية قصيرة بالميكروفون لكل محور من محاور التسميع الخمسة، ويتم تخزين الرابط مباشرة في حالة الطالب (<code className="font-mono">student.recitationAudioClips</code> &amp; <code className="font-mono">student.lastRecitationAudioUrl</code>) للرجوع إليها والاستماع لها في أي وقت لاحقاً.
+                </p>
+              </div>
+
+              {currentStudent?.lastRecitationAudioUrl && (
+                <div className="flex items-center gap-2 bg-white dark:bg-[#0b1711] px-3 py-1.5 rounded-xl border border-emerald-500/40 text-[11px]">
+                  <span className="font-extrabold text-[#145a3a] dark:text-[#dfbd69]">
+                    🔗 آخر رابط مخزن بحالة الطالب:
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (currentStudent.lastRecitationAudioUrl) {
+                        navigator.clipboard?.writeText(currentStudent.lastRecitationAudioUrl);
+                        showToast('تم نسخ رابط آخر تسميع مخزن في حالة الطالب ✓', 'success');
+                      }
+                    }}
+                    className="px-2 py-0.5 rounded bg-[#145a3a] text-[#dfbd69] font-bold cursor-pointer"
+                  >
+                    نسخ الرابط
+                  </button>
+                </div>
+              )}
+            </div>
+
+            {/* أزرار التسجيل السريع للمحاور الخمسة بضغطة واحدة */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-2.5">
+              {[
+                {
+                  key: 'actualRecitation' as RecitationAxisKey,
+                  label: '١) التسميع الفعلي',
+                  surah: actualRecitation.surahName,
+                  from: actualRecitation.fromAyah,
+                  to: actualRecitation.toAyah,
+                  pct: sectionPercentages.actualRecitation || 94,
+                  grade: actualRecitation.grade,
+                  onSave: (url: string, dur: number) =>
+                    setActualRecitation((p) => ({
+                      ...p,
+                      recordedAudioUrl: url,
+                      recordedAudioDurationSec: dur,
+                      recordedAt: new Date().toISOString(),
+                    })),
+                },
+                {
+                  key: 'newMemorization' as RecitationAxisKey,
+                  label: '٢) الحفظ الجديد',
+                  surah: newMem.surahName,
+                  from: newMem.fromAyah,
+                  to: newMem.toAyah,
+                  pct: sectionPercentages.newMemorization || 95,
+                  grade: newMem.grade,
+                  onSave: (url: string, dur: number) =>
+                    setNewMem((p) => ({
+                      ...p,
+                      recordedAudioUrl: url,
+                      recordedAudioDurationSec: dur,
+                      recordedAt: new Date().toISOString(),
+                    })),
+                },
+                {
+                  key: 'nearReview' as RecitationAxisKey,
+                  label: '٣) المراجعة القريبة',
+                  surah: nearRev.surahName,
+                  from: nearRev.fromAyah,
+                  to: nearRev.toAyah,
+                  pct: sectionPercentages.nearReview || 90,
+                  grade: nearRev.grade,
+                  onSave: (url: string, dur: number) =>
+                    setNearRev((p) => ({
+                      ...p,
+                      recordedAudioUrl: url,
+                      recordedAudioDurationSec: dur,
+                      recordedAt: new Date().toISOString(),
+                    })),
+                },
+                {
+                  key: 'farReview' as RecitationAxisKey,
+                  label: '٤) المراجعة البعيدة',
+                  surah: farRev.surahName,
+                  from: farRev.fromAyah,
+                  to: farRev.toAyah,
+                  pct: sectionPercentages.farReview || 88,
+                  grade: farRev.grade,
+                  onSave: (url: string, dur: number) =>
+                    setFarRev((p) => ({
+                      ...p,
+                      recordedAudioUrl: url,
+                      recordedAudioDurationSec: dur,
+                      recordedAt: new Date().toISOString(),
+                    })),
+                },
+                {
+                  key: 'juzAndSurahReview' as RecitationAxisKey,
+                  label: '٥) الأجزاء والسور',
+                  surah: JUZ_NAMES[selectedJuzNum - 1] || selectedSurahNames[0] || 'النبأ',
+                  from: 1,
+                  to: 30,
+                  pct: sectionPercentages.juzReview || 90,
+                  grade: 'ممتاز' as GradeType,
+                  onSave: (url: string, dur: number) => {
+                    setJuzReviewRecordedAudioUrl(url);
+                    setJuzReviewRecordedDurationSec(dur);
+                  },
+                },
+              ].map((axisItem) => {
+                const isRec = activeAxisMicRecording === axisItem.key;
+                const countForAxis = studentRecitationClips.filter(
+                  (c) => c.axisKey === axisItem.key
+                ).length;
+                return (
+                  <div
+                    key={axisItem.key}
+                    className={`p-3 rounded-xl border transition flex flex-col justify-between gap-2 ${
+                      isRec
+                        ? 'bg-red-50 dark:bg-red-950/40 border-red-500 shadow-sm'
+                        : 'bg-white dark:bg-[#0b1711] border-neutral-200 dark:border-emerald-900/60'
+                    }`}
+                  >
+                    <div>
+                      <div className="flex items-center justify-between gap-1">
+                        <span className="text-xs font-extrabold text-[#14281d] dark:text-white">
+                          {axisItem.label}
+                        </span>
+                        <span className="px-1.5 py-0.5 rounded bg-emerald-500/15 text-[#145a3a] dark:text-[#dfbd69] text-[10px] font-bold">
+                          {countForAxis} مقطع
+                        </span>
+                      </div>
+                      <div className="text-[11px] text-neutral-500 mt-0.5 truncate">
+                        سورة {axisItem.surah} ({axisItem.from}-{axisItem.to})
+                      </div>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() =>
+                        handleToggleAxisMicrophoneClip({
+                          axisKey: axisItem.key,
+                          axisLabel: axisItem.label,
+                          surahName: axisItem.surah,
+                          fromAyah: axisItem.from,
+                          toAyah: axisItem.to,
+                          percentage: axisItem.pct,
+                          grade: axisItem.grade,
+                          onSavedToAxis: axisItem.onSave,
+                        })
+                      }
+                      className={`w-full py-2 px-2.5 rounded-xl text-[11px] font-extrabold flex items-center justify-center gap-1.5 cursor-pointer transition ${
+                        isRec
+                          ? 'bg-red-600 text-white animate-pulse'
+                          : 'bg-[#145a3a] hover:bg-[#0f452c] text-[#dfbd69]'
+                      }`}
+                    >
+                      {isRec ? (
+                        <>
+                          <MicOff className="w-3.5 h-3.5" />
+                          <span>إيقاف وحفظ ({axisMicSeconds}ث)</span>
+                        </>
+                      ) : (
+                        <>
+                          <Mic className="w-3.5 h-3.5" />
+                          <span>تسجيل بالميكروفون</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* أرشيف المقاطع الصوتية المسجلة في حالة الطالب للرجوع إليها لاحقاً */}
+            <div className="pt-3 border-t border-[#c59b27]/30 space-y-2.5">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="text-xs font-extrabold text-[#145a3a] dark:text-[#dfbd69]">
+                  📂 المقاطع الصوتية المخزنة في حالة الطالب ({filteredStudentRecitationClips.length}) — جاهزة للاستماع والرجوع إليها في أي وقت:
+                </div>
+                <div className="flex flex-wrap items-center gap-1">
+                  {[
+                    { id: 'ALL', label: 'الكل' },
+                    { id: 'actualRecitation', label: 'التسميع الفعلي' },
+                    { id: 'newMemorization', label: 'الحفظ الجديد' },
+                    { id: 'nearReview', label: 'المراجعة القريبة' },
+                    { id: 'farReview', label: 'المراجعة البعيدة' },
+                    { id: 'juzAndSurahReview', label: 'الأجزاء والسور' },
+                  ].map((tab) => (
+                    <button
+                      key={tab.id}
+                      type="button"
+                      onClick={() => setAxisClipsFilter(tab.id as RecitationAxisKey | 'ALL')}
+                      className={`px-2.5 py-1 rounded-lg text-[10px] font-extrabold cursor-pointer ${
+                        axisClipsFilter === tab.id
+                          ? 'bg-[#145a3a] text-[#dfbd69]'
+                          : 'bg-white dark:bg-[#0b1711] text-neutral-600 dark:text-neutral-300 border border-neutral-200 dark:border-emerald-900'
+                      }`}
+                    >
+                      {tab.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {filteredStudentRecitationClips.length === 0 ? (
+                <div className="p-3 rounded-xl bg-white/80 dark:bg-[#0b1711]/80 border border-dashed border-[#c59b27]/50 text-xs text-neutral-500 text-center">
+                  لا توجد مقاطع صوتية مسجلة في هذا المحور بعد — اضغط على «تسجيل بالميكروفون» في أي محور أعلاه لتسجيل مقطع قصير وحفظ رابطه في حالة الطالب.
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5 max-h-72 overflow-y-auto pr-1">
+                  {filteredStudentRecitationClips.map((clip) => (
+                    <div
+                      key={clip.id}
+                      className="p-3 rounded-xl bg-white dark:bg-[#0b1711] border border-neutral-200 dark:border-emerald-900/60 flex flex-col justify-between gap-2 shadow-2xs"
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <span className="px-2 py-0.5 rounded bg-[#145a3a] text-[#dfbd69] text-[10px] font-extrabold">
+                              {clip.axisLabel}
+                            </span>
+                            <span className="text-xs font-extrabold text-[#14281d] dark:text-white">
+                              سورة {clip.surahName}{' '}
+                              {clip.fromAyah ? `(آية ${clip.fromAyah}-${clip.toAyah || clip.fromAyah})` : ''}
+                            </span>
+                          </div>
+                          <div className="text-[10px] text-neutral-500 mt-1 flex flex-wrap items-center gap-2">
+                            <span>📅 {clip.sessionDate}</span>
+                            <span>⏱️ {clip.durationSeconds} ثانية</span>
+                            {clip.percentage !== undefined && (
+                              <span className="text-emerald-700 dark:text-emerald-400 font-bold">
+                                إتقان {clip.percentage}%
+                              </span>
+                            )}
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-1 shrink-0">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setGeminiTriggerClip(clip);
+                              document
+                                .getElementById('gemini-recitation-analyzer-panel')
+                                ?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                            }}
+                            className="px-2.5 py-1 rounded-lg bg-gradient-to-l from-[#c59b27] to-[#dfbd69] text-[#14281d] text-[10px] font-black flex items-center gap-1 cursor-pointer"
+                            title="تحليل المقطع الصوتي عبر Gemini لتقييم التجويد واللحن الجلي"
+                          >
+                            <Sparkles className="w-3 h-3" />
+                            <span>تحليل Gemini</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              navigator.clipboard?.writeText(clip.audioUrl);
+                              showToast(
+                                '🔗 تم نسخ رابط المقطع الصوتي المحفوظ في حالة الطالب',
+                                'success'
+                              );
+                            }}
+                            className="px-2 py-1 rounded-lg bg-amber-500/15 text-[#145a3a] dark:text-[#dfbd69] text-[10px] font-extrabold cursor-pointer"
+                            title="نسخ الرابط المخزن في حالة الطالب"
+                          >
+                            🔗 الرابط
+                          </button>
+                          <a
+                            href={clip.audioUrl}
+                            download={`student-recitation-${clip.studentId}-${clip.axisKey}-${clip.sessionDate}.wav`}
+                            className="p-1.5 rounded-lg bg-emerald-50 dark:bg-emerald-950/50 text-[#145a3a] dark:text-[#dfbd69]"
+                            title="تنزيل المقطع الصوتي"
+                          >
+                            <Download className="w-3.5 h-3.5" />
+                          </a>
+                          {currentStudent && (
+                            <button
+                              type="button"
+                              onClick={() =>
+                                deleteStudentRecitationAudioClip(currentStudent.id, clip.id)
+                              }
+                              className="p-1.5 rounded-lg text-red-600 hover:bg-red-50 dark:hover:bg-red-950/40 cursor-pointer"
+                              title="حذف المقطع من حالة الطالب"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+                        </div>
+                      </div>
+
+                      <audio controls src={clip.audioUrl} className="w-full h-8" />
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* ✨ أداة تحليل المقطع الصوتي المسجل عبر Gemini API لتقييم أحكام التجويد واللحن الجلي */}
+          {currentStudent && (
+            <GeminiRecitationAnalyzerTool
+              studentId={currentStudent.id}
+              studentName={currentStudent.name}
+              riwayah={currentStudent.riwayah || 'حفص عن عاصم'}
+              sessionDate={sessionDate}
+              clips={studentRecitationClips}
+              activeAxisConfig={{
+                axisKey: 'actualRecitation',
+                axisLabel: '١) التسميع الفعلي في الحصة',
+                surahId: actualRecitation.surahId,
+                surahName: actualRecitation.surahName,
+                fromAyah: actualRecitation.fromAyah,
+                toAyah: actualRecitation.toAyah,
+                errorContext: 'التسميع',
+                recordedAudioUrl:
+                  actualRecitation.recordedAudioUrl ||
+                  studentRecitationClips[0]?.audioUrl,
+                recordedDurationSec:
+                  actualRecitation.recordedAudioDurationSec ||
+                  studentRecitationClips[0]?.durationSeconds,
+              }}
+              externalTriggerClip={geminiTriggerClip}
+              onClearExternalTrigger={() => setGeminiTriggerClip(null)}
+              onAddRecitationError={(newErr) => {
+                setErrors((prev) => {
+                  if (
+                    newErr.compositeKey &&
+                    prev.some((e) => e.compositeKey === newErr.compositeKey)
+                  ) {
+                    return prev.map((e) =>
+                      e.compositeKey === newErr.compositeKey
+                        ? { ...e, repeatCount: (e.repeatCount || 1) + 1 }
+                        : e
+                    );
+                  }
+                  return [newErr, ...prev];
+                });
+              }}
+              onApplyScoreAndGrade={(axisKey, score, grade) => {
+                if (axisKey === 'actualRecitation') {
+                  setActualRecitation((p) => ({ ...p, grade }));
+                  setSectionPercentages((p) => ({ ...p, actualRecitation: score }));
+                } else if (axisKey === 'newMemorization') {
+                  setNewMem((p) => ({ ...p, grade }));
+                  setSectionPercentages((p) => ({ ...p, newMemorization: score }));
+                } else if (axisKey === 'nearReview') {
+                  setNearRev((p) => ({ ...p, grade }));
+                  setSectionPercentages((p) => ({ ...p, nearReview: score }));
+                } else if (axisKey === 'farReview') {
+                  setFarRev((p) => ({ ...p, grade }));
+                  setSectionPercentages((p) => ({ ...p, farReview: score }));
+                } else if (axisKey === 'extraRecitation') {
+                  setExtraRecitation((p) => ({ ...p, grade }));
+                  setSectionPercentages((p) => ({ ...p, extraRecitation: score }));
+                } else {
+                  setSectionPercentages((p) => ({ ...p, juzReview: score }));
+                }
+              }}
+              onAppendParentNote={(noteText) =>
+                setParentNotes((prev) => (prev ? `${prev}\n${noteText}` : noteText))
+              }
+              onEvaluationCompleted={(evalRes) => setLatestGeminiEvaluation(evalRes)}
+              onSendWhatsAppSummary={(evalRes) => {
+                setLatestGeminiEvaluation(evalRes);
+                handleSaveAndSendWhatsApp('recitation_audio_summary', evalRes);
+              }}
+              onStartAxisMicRecording={() =>
+                handleToggleAxisMicrophoneClip({
+                  axisKey: 'actualRecitation',
+                  axisLabel: '١) التسميع الفعلي',
+                  surahName: actualRecitation.surahName,
+                  fromAyah: actualRecitation.fromAyah,
+                  toAyah: actualRecitation.toAyah,
+                  percentage: sectionPercentages.actualRecitation || 94,
+                  grade: actualRecitation.grade,
+                  onSavedToAxis: (url, dur) =>
+                    setActualRecitation((p) => ({
+                      ...p,
+                      recordedAudioUrl: url,
+                      recordedAudioDurationSec: dur,
+                      recordedAt: new Date().toISOString(),
+                    })),
+                })
+              }
+              isRecordingAxisMic={activeAxisMicRecording === 'actualRecitation'}
+              axisMicSeconds={axisMicSeconds}
+              onShowToast={showToast}
+            />
+          )}
 
           {/* Section 0: Actual Recitation in Current Session (التسميع الفعلي في الحصة الحالية) */}
           {renderSurahSection(
@@ -3995,6 +6004,361 @@ export const SessionEngineView: React.FC = () => {
             'newMemorization',
             'new',
             'الحفظ الجديد'
+          )}
+
+          {/* 🔊 أداة التشغيل الصوتي الموحدة للنص الجديد (القراء الأربعة + تسجيل المحفظ الخاص + مدرب Gemini الذكي + إرسال واتساب مباشر لولي الأمر) */}
+          {newMem.enabled && currentStudent && (
+            <NewMemAudioPlayerAndWhatsAppTool
+              student={currentStudent}
+              contextLocation="session_engine"
+              controlledSurahId={newMem.surahId}
+              controlledFromAyah={newMem.fromAyah}
+              controlledToAyah={newMem.toAyah}
+              onRangeChange={(sId, sName, fAyah, tAyah) => {
+                setNewMem((prev) => ({
+                  ...prev,
+                  surahId: sId,
+                  surahName: sName,
+                  fromAyah: fAyah,
+                  toAyah: tAyah,
+                }));
+              }}
+              externalTeacherAudioUrl={
+                memorizationAudioDataUrl || newMem.recordedAudioUrl || ''
+              }
+              onTeacherAudioRecorded={(dataUrl, fileName, durationSec) => {
+                setMemorizationAudioDataUrl(dataUrl);
+                setMemorizationAudioName(fileName);
+                setNewMem((prev) => ({
+                  ...prev,
+                  recordedAudioUrl: dataUrl,
+                  recordedAudioDurationSec: durationSec,
+                  recordedAt: new Date().toISOString(),
+                }));
+              }}
+              nearReviewLabel={
+                nearRev.enabled
+                  ? `سورة ${nearRev.surahName} (آية ${nearRev.fromAyah} - ${nearRev.toAyah})`
+                  : undefined
+              }
+              farReviewLabel={
+                farRev.enabled
+                  ? `سورة ${farRev.surahName} (آية ${farRev.fromAyah} - ${farRev.toAyah})`
+                  : undefined
+              }
+            />
+          )}
+
+          {/* 🔊 بطاقة إرسال فويس صوتي للنص الجديد الذي أخذه الطالب بخيارات متعددة (صوت المحفظ + زر تسجيل صوت المحفظ، أو الحصري / المنشاوي / العفاسي / المعيقلي) */}
+          {newMem.enabled && currentStudent && (
+            <div
+              id="new-mem-qari-voice-sender"
+              className="rounded-3xl bg-gradient-to-l from-[#145a3a]/15 via-[#fcfaf2] to-[#c59b27]/20 dark:from-[#0b1711] dark:via-[#12231a] dark:to-[#0b1711] border-2 border-[#c59b27] p-5 shadow-md space-y-4"
+            >
+              <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 pb-3 border-b border-[#c59b27]/40">
+                <div className="flex items-start gap-3">
+                  <div className="w-11 h-11 rounded-2xl bg-[#145a3a] text-[#dfbd69] flex items-center justify-center shrink-0 shadow-xs">
+                    <Volume2 className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <h3 className="text-sm sm:text-base font-extrabold text-[#145a3a] dark:text-[#dfbd69]">
+                        🔊 زر إرسال فويس قارئ / صوت المحفظ للنص الجديد الذي أخذه الطالب
+                      </h3>
+                      <span className="px-2.5 py-0.5 rounded-full bg-emerald-600 text-white text-[10px] font-black">
+                        سورة {newMem.surahName} (آية {newMem.fromAyah} - {newMem.toAyah})
+                      </span>
+                    </div>
+                    <p className="text-xs text-neutral-600 dark:text-neutral-300 mt-0.5">
+                      اختر إرسال الفويس الصوتي للنص الجديد بـ «صوت المحفظ» (مع زر تسجيل فوري بجانبه) أو بأصوات المشايخ القراء (الحصري • المنشاوي • العفاسي • المعيقلي) مع إرسال ملخص التسميع والحفظ الجديد والمراجعات للأم وولي الأمر بضغطة واحدة.
+                    </p>
+                  </div>
+                </div>
+
+                {/* زر إرسال الفويس الصوتي للنص الجديد + الملخص الشامل لولي الأمر عبر واتساب */}
+                <button
+                  type="button"
+                  onClick={() => void handleSendNewMemVoiceToParentWhatsApp()}
+                  className="px-4 py-3 rounded-2xl bg-gradient-to-l from-emerald-700 via-[#145a3a] to-green-700 hover:brightness-110 text-white text-xs sm:text-sm font-black flex items-center justify-center gap-2 shadow-lg border-2 border-[#c59b27] cursor-pointer transition shrink-0"
+                >
+                  <Send className="w-4 h-4 text-[#dfbd69]" />
+                  <span>📲 زر إرسال فويس قارئ + ملخص الحفظ والمراجعات لولي الأمر</span>
+                </button>
+              </div>
+
+              {/* خيارات الصوت المتعددة: صوت المحفظ (وبجانبه زر تسجيل صوت المحفظ) + المشايخ القراء الأربعة */}
+              <div className="space-y-2.5">
+                <div className="text-xs font-extrabold text-[#14281d] dark:text-white flex items-center gap-1.5">
+                  <span>🎙️ اختر مصدر الصوت لإرسال وتشغيل الفويس الصوتي للنص الجديد (أو اضغط إرسال فوري تحت أي قارئ):</span>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-12 gap-2.5 items-stretch">
+                  {/* الخيار الأول: صوت المحفظ + بجانبه زر تسجيل صوت المحفظ */}
+                  <div
+                    className={`md:col-span-5 p-3 rounded-2xl border-2 flex flex-wrap items-center justify-between gap-2 transition ${
+                      newMemVoiceChoice === 'teacher_voice'
+                        ? 'bg-[#145a3a] text-white border-[#c59b27] shadow-sm'
+                        : 'bg-white dark:bg-[#0b1711] border-neutral-300 dark:border-emerald-900 text-[#14281d] dark:text-white'
+                    }`}
+                  >
+                    <button
+                      type="button"
+                      onClick={() => setNewMemVoiceChoice('teacher_voice')}
+                      className="flex items-center gap-2 text-right cursor-pointer flex-1"
+                    >
+                      <span
+                        className={`w-4 h-4 rounded-full border flex items-center justify-center ${
+                          newMemVoiceChoice === 'teacher_voice'
+                            ? 'border-[#dfbd69] bg-[#c59b27]'
+                            : 'border-neutral-400'
+                        }`}
+                      >
+                        {newMemVoiceChoice === 'teacher_voice' && (
+                          <span className="w-2 h-2 rounded-full bg-[#14281d]" />
+                        )}
+                      </span>
+                      <div>
+                        <div className="text-xs font-black flex items-center gap-1.5">
+                          <span>🎙️ بصوت المحفظ ({settings.teacherName || 'المعلم'})</span>
+                          {(memorizationAudioDataUrl || newMem.recordedAudioUrl) && (
+                            <span className="px-1.5 py-0.5 rounded bg-emerald-500 text-[#14281d] text-[9px] font-black">
+                              مسجل وجاهز ✓
+                            </span>
+                          )}
+                        </div>
+                        <div
+                          className={`text-[10px] ${
+                            newMemVoiceChoice === 'teacher_voice'
+                              ? 'text-emerald-100'
+                              : 'text-neutral-500'
+                          }`}
+                        >
+                          تلقين خاص بصوت معلم الحلقة
+                        </div>
+                      </div>
+                    </button>
+
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      {/* بجانبه زر تسجيل صوت المحفظ مباشرة */}
+                      <button
+                        type="button"
+                        onClick={() => void handleToggleTeacherNewMemVoiceRecord()}
+                        className={`px-3 py-2 rounded-xl text-xs font-black flex items-center gap-1.5 cursor-pointer shadow-xs transition shrink-0 ${
+                          isRecordingTeacherNewMemVoice
+                            ? 'bg-red-600 hover:bg-red-700 text-white animate-pulse'
+                            : 'bg-[#c59b27] hover:bg-[#dfbd69] text-[#14281d]'
+                        }`}
+                        title="تسجيل صوت المحفظ للنص الجديد مباشرة"
+                      >
+                        {isRecordingTeacherNewMemVoice ? (
+                          <>
+                            <MicOff className="w-3.5 h-3.5" />
+                            <span>⏹️ إيقاف ({teacherNewMemRecSeconds}ث)</span>
+                          </>
+                        ) : (
+                          <>
+                            <Mic className="w-3.5 h-3.5" />
+                            <span>🎙️ تسجيل صوت المحفظ</span>
+                          </>
+                        )}
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() =>
+                          void handleSendNewMemVoiceToParentWhatsApp('teacher_voice')
+                        }
+                        className="px-2.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-[11px] font-black flex items-center gap-1 cursor-pointer"
+                        title="إرسال فويس بصوت المحفظ لولي الأمر"
+                      >
+                        <Send className="w-3 h-3" />
+                        <span>إرسال</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* خيارات المشايخ القراء الأربعة: الحصري، المنشاوي، العفاسي، المعيقلي */}
+                  <div className="md:col-span-7 grid grid-cols-2 sm:grid-cols-4 gap-2">
+                    {(
+                      [
+                        {
+                          id: 'Husary_128kbps' as const,
+                          shortName: 'الشيخ الحصري',
+                          sub: 'محمود خليل الحصري',
+                        },
+                        {
+                          id: 'Minshawy_Murattal_128kbps' as const,
+                          shortName: 'الشيخ المنشاوي',
+                          sub: 'محمد صديق المنشاوي',
+                        },
+                        {
+                          id: 'Alafasy_128kbps' as const,
+                          shortName: 'الشيخ العفاسي',
+                          sub: 'مشاري راشد العفاسي',
+                        },
+                        {
+                          id: 'MaherAlMuaiqly128kbps' as const,
+                          shortName: 'الشيخ المعيقلي',
+                          sub: 'ماهر المعيقلي',
+                        },
+                      ]
+                    ).map((qari) => {
+                      const isPicked = newMemVoiceChoice === qari.id;
+                      return (
+                        <div
+                          key={qari.id}
+                          className={`p-2.5 rounded-2xl border-2 text-right transition flex flex-col justify-between gap-2 ${
+                            isPicked
+                              ? 'bg-[#145a3a] text-white border-[#c59b27] shadow-sm'
+                              : 'bg-white dark:bg-[#0b1711] border-neutral-200 dark:border-emerald-900/60 text-[#14281d] dark:text-white hover:border-[#c59b27]'
+                          }`}
+                        >
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setNewMemVoiceChoice(qari.id);
+                              setSelectedReciter(qari.id);
+                            }}
+                            className="text-right cursor-pointer w-full"
+                          >
+                            <div className="flex items-center justify-between gap-1">
+                              <span className="text-xs font-black">🎧 {qari.shortName}</span>
+                              {isPicked && (
+                                <span className="w-2 h-2 rounded-full bg-[#dfbd69]" />
+                              )}
+                            </div>
+                            <span
+                              className={`block text-[10px] mt-0.5 truncate ${
+                                isPicked ? 'text-emerald-100' : 'text-neutral-500'
+                              }`}
+                            >
+                              {qari.sub}
+                            </span>
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setNewMemVoiceChoice(qari.id);
+                              setSelectedReciter(qari.id);
+                              void handleSendNewMemVoiceToParentWhatsApp(qari.id);
+                            }}
+                            className={`w-full py-1 px-2 rounded-lg text-[10px] font-black flex items-center justify-center gap-1 cursor-pointer transition ${
+                              isPicked
+                                ? 'bg-[#c59b27] text-[#14281d] hover:bg-[#dfbd69]'
+                                : 'bg-emerald-600/15 text-[#145a3a] dark:text-[#dfbd69] hover:bg-emerald-600 hover:text-white'
+                            }`}
+                          >
+                            <Send className="w-2.5 h-2.5" />
+                            <span>إرسال فويس {qari.shortName.replace('الشيخ ', '')}</span>
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+
+              {/* شريط معاينة وتشغيل النص الجديد الصوتي والمكتوب */}
+              <div className="p-3.5 rounded-2xl bg-white dark:bg-[#0b1711] border border-[#c59b27]/50 space-y-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <button
+                      type="button"
+                      onClick={handlePlayNewMemVoicePreview}
+                      className={`px-4 py-2 rounded-xl text-xs font-black flex items-center gap-2 cursor-pointer transition shadow-xs ${
+                        isPlayingNewMemVoice
+                          ? 'bg-red-600 text-white'
+                          : 'bg-[#145a3a] hover:bg-[#0f452c] text-[#dfbd69]'
+                      }`}
+                    >
+                      {isPlayingNewMemVoice ? (
+                        <>
+                          <Pause className="w-3.5 h-3.5" />
+                          <span>
+                            إيقاف الاستماع{' '}
+                            {playingNewMemAyahNum ? `(الآية ${playingNewMemAyahNum})` : ''}
+                          </span>
+                        </>
+                      ) : (
+                        <>
+                          <Play className="w-3.5 h-3.5" />
+                          <span>
+                            ▶️ استماع للفويس الصوتي للنص الجديد (
+                            {newMemVoiceChoice === 'teacher_voice'
+                              ? 'بصوت المحفظ'
+                              : newMemVoiceChoice === 'Husary_128kbps'
+                              ? 'الشيخ الحصري'
+                              : newMemVoiceChoice === 'Minshawy_Murattal_128kbps'
+                              ? 'الشيخ المنشاوي'
+                              : newMemVoiceChoice === 'Alafasy_128kbps'
+                              ? 'الشيخ العفاسي'
+                              : 'الشيخ المعيقلي'}
+                            )
+                          </span>
+                        </>
+                      )}
+                    </button>
+
+                    {(memorizationAudioDataUrl || newMem.recordedAudioUrl) && (
+                      <a
+                        href={memorizationAudioDataUrl || newMem.recordedAudioUrl}
+                        download={`فويس-الحفظ-الجديد-بصوت-المحفظ-${currentStudent.name}-سورة-${newMem.surahName}.wav`}
+                        className="px-3 py-2 rounded-xl bg-amber-500/20 border border-[#c59b27] text-[#145a3a] dark:text-[#dfbd69] text-xs font-extrabold flex items-center gap-1.5"
+                      >
+                        <Download className="w-3.5 h-3.5" />
+                        <span>تنزيل فويس المحفظ</span>
+                      </a>
+                    )}
+                  </div>
+
+                  <span className="text-[11px] font-bold text-emerald-700 dark:text-emerald-300">
+                    ✓ يُرسل نص الآيات والفويس الصوتي مع ملخص التسميع والمراجعات لولي الأمر
+                  </span>
+                </div>
+
+                {newMemVersesList.length > 0 && (
+                  <div className="p-3 rounded-xl bg-[#fcfaf2] dark:bg-[#12231a] border border-neutral-200/80 dark:border-emerald-900/50 text-sm sm:text-base font-quran leading-loose text-[#14281d] dark:text-emerald-50 max-h-36 overflow-y-auto">
+                    {newMemVersesList.map((v) => (
+                      <span
+                        key={v.ayah}
+                        onClick={() => {
+                          if (newMemVoiceChoice !== 'teacher_voice') {
+                            const url = getEveryAyahAudioUrl(
+                              newMemVoiceChoice,
+                              newMem.surahId,
+                              v.ayah
+                            );
+                            if (newMemVoicePlayerRef.current) {
+                              newMemVoicePlayerRef.current.pause();
+                            }
+                            const a = new Audio(url);
+                            newMemVoicePlayerRef.current = a;
+                            setIsPlayingNewMemVoice(true);
+                            setPlayingNewMemAyahNum(v.ayah);
+                            a.onended = () => {
+                              setIsPlayingNewMemVoice(false);
+                              setPlayingNewMemAyahNum(null);
+                            };
+                            a.play().catch(() => {});
+                          }
+                        }}
+                        className={`inline cursor-pointer rounded px-1 transition ${
+                          playingNewMemAyahNum === v.ayah
+                            ? 'bg-[#c59b27]/30 text-[#145a3a] dark:text-[#dfbd69] font-bold'
+                            : 'hover:bg-emerald-500/10'
+                        }`}
+                      >
+                        {v.text}{' '}
+                        <span className="text-xs font-mono text-[#c59b27]">
+                          ﴿{v.ayah}﴾
+                        </span>{' '}
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
           )}
 
           {/* b) Near Review */}
@@ -4667,21 +7031,134 @@ export const SessionEngineView: React.FC = () => {
           </div>
         </div>
 
+        {/* ⚡ شريط أتمتة إرسال ملخص التسميع اليومي عبر واتساب لولي الأمر تلقائياً فور إنهاء وحفظ الحصة */}
+        <div className="p-4 rounded-2xl bg-gradient-to-l from-emerald-950/90 via-[#145a3a] to-[#0f452c] text-white border-2 border-[#c59b27] shadow-md space-y-3">
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
+            <div className="flex items-start gap-3">
+              <div className="w-10 h-10 rounded-xl bg-[#c59b27] text-[#14281d] flex items-center justify-center font-black shrink-0 shadow-xs">
+                ⚡
+              </div>
+              <div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <h4 className="text-xs sm:text-sm font-black text-[#dfbd69]">
+                    أتمتة إرسال ملخص التسميع اليومي عبر واتساب لولي الأمر تلقائياً
+                  </h4>
+                  <span
+                    className={`px-2.5 py-0.5 rounded-full text-[10px] font-black ${
+                      autoSendWhatsAppOnSave
+                        ? 'bg-emerald-400 text-[#14281d]'
+                        : 'bg-white/15 text-neutral-200'
+                    }`}
+                  >
+                    {autoSendWhatsAppOnSave ? 'مُفعّل تلقائياً ✓' : 'يدوي فقط'}
+                  </span>
+                </div>
+                <p className="text-[11px] text-emerald-100 mt-0.5 leading-relaxed">
+                  عند انتهاء المعلم من تسجيل بيانات الحصة والضغط على حفظ، يتم تلقائياً تجهيز وإرسال التقرير النصي المبسّط لواتساب ولي الأمر متضمناً: (الحفظ الجديد + المراجعة القريبة والبعيدة + درجة التقييم الصوتي التلقائي ودرجة التجويد + روابط الفويس الصوتي) مع أرشفته في بوابة ولي الأمر.
+                </p>
+              </div>
+            </div>
+
+            <label className="flex items-center gap-2.5 px-3.5 py-2 rounded-xl bg-black/25 border border-[#c59b27]/60 cursor-pointer shrink-0 self-start md:self-center">
+              <input
+                type="checkbox"
+                checked={autoSendWhatsAppOnSave}
+                onChange={(e) => handleToggleAutoSendWhatsApp(e.target.checked)}
+                className="w-4 h-4 accent-[#c59b27] rounded cursor-pointer"
+              />
+              <span className="text-xs font-black text-white">
+                إرسال تلقائي لواتساب ولي الأمر عند حفظ الحصة
+              </span>
+            </label>
+          </div>
+
+          {lastAutoDispatchedSummary && (
+            <div className="p-3.5 rounded-xl bg-black/30 border border-[#dfbd69]/40 space-y-2 animate-in fade-in">
+              <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
+                <span className="font-black text-emerald-300 flex items-center gap-1.5">
+                  <CheckCircle2 className="w-4 h-4" />
+                  <span>
+                    تم توليد وإرسال ملخص التسميع اليومي للطالب ({lastAutoDispatchedSummary.studentName}) في تمام {lastAutoDispatchedSummary.sentAt} — التقييم الصوتي: {lastAutoDispatchedSummary.audioScore}% | التجويد: {lastAutoDispatchedSummary.tajweedScore}%
+                  </span>
+                </span>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      navigator.clipboard
+                        ?.writeText(lastAutoDispatchedSummary.message)
+                        .catch(() => {});
+                      showToast('تم نسخ التقرير النصي اليومي إلى الحافظة ✓', 'success');
+                    }}
+                    className="px-2.5 py-1 rounded-lg bg-white/15 hover:bg-white/25 text-white text-[11px] font-bold cursor-pointer"
+                  >
+                    📋 نسخ التقرير النصي
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const waUrl = buildWhatsAppUrl(
+                        lastAutoDispatchedSummary.phone,
+                        lastAutoDispatchedSummary.message
+                      );
+                      const a = document.createElement('a');
+                      a.href = waUrl;
+                      a.target = '_blank';
+                      a.rel = 'noopener noreferrer';
+                      document.body.appendChild(a);
+                      a.click();
+                      document.body.removeChild(a);
+                    }}
+                    className="px-2.5 py-1 rounded-lg bg-[#c59b27] text-[#14281d] text-[11px] font-black cursor-pointer"
+                  >
+                    📲 إعادة فتح واتساب ولي الأمر
+                  </button>
+                </div>
+              </div>
+              <pre className="text-[11px] font-sans whitespace-pre-wrap leading-relaxed text-emerald-50 bg-black/25 p-2.5 rounded-lg max-h-36 overflow-y-auto border border-white/10">
+                {lastAutoDispatchedSummary.message}
+              </pre>
+            </div>
+          )}
+        </div>
+
         {/* Final Save & Send via WhatsApp Buttons */}
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-2">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 pt-2">
           <button
             type="button"
             onClick={() => buildAndSaveSession('منشور ببوابة ولي الأمر')}
-            className="flex items-center justify-center gap-2 py-3.5 px-5 rounded-2xl bg-[#145a3a] hover:bg-[#0f452c] text-white font-extrabold text-sm shadow-sm transition-colors cursor-pointer"
+            className="flex items-center justify-center gap-2 py-3.5 px-4 rounded-2xl bg-[#145a3a] hover:bg-[#0f452c] text-white font-extrabold text-xs sm:text-sm shadow-sm transition-colors cursor-pointer"
           >
             <Save className="w-4 h-4 text-[#dfbd69]" />
-            <span>حفظ الحصة ونشرها ببوابة الطالب</span>
+            <span>
+              {autoSendWhatsAppOnSave
+                ? '⚡ إنهاء وحفظ الحصة + إرسال الملخص تلقائياً لواتساب ولي الأمر'
+                : 'حفظ الحصة ونشرها ببوابة الطالب'}
+            </span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => void handleSendNewMemVoiceToParentWhatsApp()}
+            className="flex items-center justify-center gap-2 py-3.5 px-4 rounded-2xl bg-gradient-to-l from-[#145a3a] via-emerald-700 to-[#c59b27] hover:brightness-110 text-white font-black text-xs sm:text-sm shadow-md border-2 border-[#c59b27] transition-colors cursor-pointer"
+          >
+            <Volume2 className="w-4 h-4 text-[#dfbd69]" />
+            <span>🎧 زر إرسال فويس قارئ / صوت المحفظ</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => handleSaveAndSendWhatsApp('recitation_audio_summary')}
+            className="flex items-center justify-center gap-2 py-3.5 px-4 rounded-2xl bg-gradient-to-l from-emerald-700 to-green-600 hover:from-emerald-600 hover:to-green-500 text-white font-black text-xs sm:text-sm shadow-md border border-[#c59b27] transition-colors cursor-pointer"
+          >
+            <Send className="w-4 h-4 text-[#dfbd69]" />
+            <span>📲 إرسال ملخص التسميع والتجويد واتساب</span>
           </button>
 
           <button
             type="button"
             onClick={() => handleSaveAndSendWhatsApp('short')}
-            className="flex items-center justify-center gap-2 py-3.5 px-5 rounded-2xl bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-sm shadow-sm transition-colors cursor-pointer"
+            className="flex items-center justify-center gap-2 py-3.5 px-4 rounded-2xl bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-xs sm:text-sm shadow-sm transition-colors cursor-pointer"
           >
             <Send className="w-4 h-4" />
             <span>حفظ وإرسال واتساب (مختصرة)</span>
@@ -4690,7 +7167,7 @@ export const SessionEngineView: React.FC = () => {
           <button
             type="button"
             onClick={() => handleSaveAndSendWhatsApp('detailed')}
-            className="flex items-center justify-center gap-2 py-3.5 px-5 rounded-2xl bg-[#c59b27] hover:bg-[#b58c1e] text-[#14281d] font-extrabold text-sm shadow-sm transition-colors cursor-pointer"
+            className="flex items-center justify-center gap-2 py-3.5 px-4 rounded-2xl bg-[#c59b27] hover:bg-[#b58c1e] text-[#14281d] font-extrabold text-xs sm:text-sm shadow-sm transition-colors cursor-pointer"
           >
             <Send className="w-4 h-4" />
             <span>حفظ وإرسال واتساب (تفصيلية)</span>

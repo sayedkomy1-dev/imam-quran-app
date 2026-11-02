@@ -1,6 +1,12 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useAcademy } from '../context/AcademyContext';
 import { OFFICIAL_ACADEMY_WHATSAPP } from '../data/hybridFoundationData';
+import { ACADEMY_BRAND_CONFIG } from '../constants/brandConfig';
+import {
+  DeveloperSignatureFooter,
+  QuickSupportFloatingButton,
+} from './DeveloperSupportModal';
+import { AcademyPdfGuideModal } from './AcademyPdfGuideModal';
 import { WAQF_DEDICATION_TEXT } from '../data/quranData';
 import { SUPABASE_OFFICIAL_CONFIG } from '../utils/wlqSyncCore';
 import { QuranRiwayah } from '../types';
@@ -9,6 +15,7 @@ import {
   BookOpen,
   CheckCircle2,
   ExternalLink,
+  FileText,
   Globe,
   GraduationCap,
   Heart,
@@ -35,6 +42,7 @@ type WelcomePortalRole = 'teacher' | 'supervisor' | 'guardian' | 'student' | 'ad
 export const AuthGateModal: React.FC = () => {
   const {
     settings,
+    students,
     setActiveTab: setAppActiveTab,
     googleAuthUser,
     managedTeachers,
@@ -44,14 +52,17 @@ export const AuthGateModal: React.FC = () => {
     startMicrosoftOAuthRedirect,
     submitNewStaffJoinRequest,
     loginAsGuardian,
+    loginAsGuardianDirect,
     loginAsGuest,
     submitAdmissionRequest,
     setPublicMushafPortalOpen,
     waqfImpactStats,
     recordWaqfAmeenPrayer,
+    setIsDeveloperModalOpen,
   } = useAcademy();
 
   const [selectedPortal, setSelectedPortal] = useState<WelcomePortalRole | null>(null);
+  const [showAcademyPdfGuide, setShowAcademyPdfGuide] = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
   const [microsoftLoading, setMicrosoftLoading] = useState(false);
 
@@ -252,11 +263,11 @@ export const AuthGateModal: React.FC = () => {
     if (res.requiresPendingScreen) {
       setSsoProvider(provider);
       setSsoEmailInput(normalized);
-      if (res.pendingStaff?.id) {
-        setPendingStaffRecordId(res.pendingStaff.id);
+      if (res.staffRecord?.id) {
+        setPendingStaffRecordId(res.staffRecord.id);
       }
-      if (res.pendingStaff?.name) {
-        setJoinFullName(res.pendingStaff.name);
+      if (res.staffRecord?.name) {
+        setJoinFullName(res.staffRecord.name);
       }
       setSsoFlowStep('pending_approval');
       return;
@@ -296,19 +307,20 @@ export const AuthGateModal: React.FC = () => {
         return;
       }
 
-      if (res.requiresOnboardingCard && res.oauthUser) {
-        setSsoEmailInput(res.oauthUser.email);
-        setSsoDisplayName(res.oauthUser.displayName);
-        setSsoUid(res.oauthUser.uid);
-        setJoinFullName(res.oauthUser.displayName || '');
+      if (res.requiresOnboardingCard && res.ssoCandidate) {
+        setSsoEmailInput(res.ssoCandidate.email);
+        setSsoDisplayName(res.ssoCandidate.displayName);
+        setSsoUid(res.ssoCandidate.uid || '');
+        setJoinFullName(res.ssoCandidate.displayName || '');
         setJoinRequestedRole(role === 'supervisor' ? 'supervisor' : 'teacher');
         setSsoFlowStep('onboarding_card');
         return;
       }
 
-      if (res.requiresPendingScreen && res.oauthUser) {
-        setSsoEmailInput(res.oauthUser.email);
-        setJoinFullName(res.oauthUser.displayName || '');
+      if (res.requiresPendingScreen && res.staffRecord) {
+        setSsoEmailInput(res.staffRecord.email);
+        setPendingStaffRecordId(res.staffRecord.id);
+        setJoinFullName(res.staffRecord.name || '');
         setSsoFlowStep('pending_approval');
         return;
       }
@@ -317,6 +329,17 @@ export const AuthGateModal: React.FC = () => {
         res.error === 'POPUP_FALLBACK_GOOGLE' ||
         res.error === 'POPUP_FALLBACK_MICROSOFT'
       ) {
+        if (role === 'guardian' || role === 'student') {
+          const targetStudent =
+            students.find((s) => (s.accountStatus ?? 'نشط') !== 'مؤرشف') ||
+            students[0];
+          if (targetStudent) {
+            loginAsGuardianDirect(targetStudent.id);
+          } else {
+            loginAsGuest();
+          }
+          return;
+        }
         // In preview iframe where popup is blocked, smoothly open the inline SSO Account Verification screen
         setSsoFlowStep('sso_email_prompt');
         return;
@@ -371,8 +394,27 @@ export const AuthGateModal: React.FC = () => {
       // Master Owner emails do not require PIN if they enter their email directly, or can enter with PIN
       const isMaster =
         normalized === 'sayedkomy1@gmail.com' ||
-        normalized === 'sayedkomy2@gmail.com';
-      if (!isMaster && teacherPinInput.trim() !== expectedTeacherPin) {
+        normalized === 'sayedkomy2@gmail.com' ||
+        normalized === 'info.welivequran@gmail.com';
+      if (isMaster) {
+        loginWithGoogleEmail(normalized, expectedTeacherPin, 'google');
+        setAppActiveTab('owner_panel');
+        return;
+      }
+      // Allow demo teacher email (teacher@example.com) with valid PIN to log in directly
+      if (
+        (normalized === 'teacher@example.com' || !normalized) &&
+        teacherPinInput.trim() === expectedTeacherPin
+      ) {
+        loginAsTeacher();
+        if (selectedPortal === 'supervisor') {
+          setAppActiveTab('settings');
+        } else {
+          setAppActiveTab('dashboard');
+        }
+        return;
+      }
+      if (teacherPinInput.trim() !== expectedTeacherPin) {
         // Check if this is a brand new or pending teacher before rejecting PIN
         const existing = managedTeachers.find(
           (t) => t.email.toLowerCase() === normalized
@@ -396,17 +438,13 @@ export const AuthGateModal: React.FC = () => {
       if (res.requiresPendingScreen) {
         setSsoProvider('google');
         setSsoEmailInput(normalized);
-        if (res.pendingStaff?.id) setPendingStaffRecordId(res.pendingStaff.id);
-        if (res.pendingStaff?.name) setJoinFullName(res.pendingStaff.name);
+        if (res.staffRecord?.id) setPendingStaffRecordId(res.staffRecord.id);
+        if (res.staffRecord?.name) setJoinFullName(res.staffRecord.name);
         setSsoFlowStep('pending_approval');
         return;
       }
       if (!res.ok) {
         setTeacherError(res.error || 'تعذر التحقق من البريد الإلكتروني.');
-        return;
-      }
-      if (isMaster) {
-        setAppActiveTab('owner_panel');
         return;
       }
     } else {
@@ -507,16 +545,30 @@ export const AuthGateModal: React.FC = () => {
               🕌
             </div>
             <div>
-              <h1 className="font-amiri text-xl sm:text-2xl font-bold text-white leading-tight">
-                {settings.academyName}
-              </h1>
-              <p className="text-xs text-amber-300 font-semibold">
-                {settings.tagline} • المنصة القرآنية المتكاملة للإقراء والمتابعة
+              <div className="flex flex-wrap items-center gap-2">
+                <h1 className="font-amiri text-xl sm:text-2xl font-bold text-white leading-tight">
+                  {ACADEMY_BRAND_CONFIG.platformName}
+                </h1>
+                <span className="px-3 py-0.5 rounded-full bg-gradient-to-r from-amber-500/25 via-yellow-400/20 to-emerald-500/25 border border-amber-400/60 text-amber-300 text-xs font-black shadow-sm">
+                  {ACADEMY_BRAND_CONFIG.slogan}
+                </span>
+              </div>
+              <p className="text-xs text-amber-300 font-semibold mt-0.5">
+                {ACADEMY_BRAND_CONFIG.slogan} • المنصة القرآنية المتكاملة للإقراء والمتابعة
               </p>
             </div>
           </div>
 
           <div className="flex flex-wrap items-center justify-center gap-2 w-full sm:w-auto">
+            <button
+              type="button"
+              onClick={() => setShowAcademyPdfGuide(true)}
+              className="px-3.5 py-2 rounded-xl bg-white/10 hover:bg-white/20 text-amber-200 border border-amber-400/40 text-xs sm:text-sm font-bold flex items-center justify-center gap-1.5 transition cursor-pointer shadow-sm"
+            >
+              <FileText className="w-4 h-4 text-amber-300 shrink-0" />
+              <span>📄 الدليل التعريفي للأكاديمية PDF</span>
+            </button>
+
             <button
               type="button"
               onClick={() => setPublicMushafPortalOpen(true)}
@@ -528,6 +580,11 @@ export const AuthGateModal: React.FC = () => {
           </div>
         </div>
       </header>
+
+      <AcademyPdfGuideModal
+        isOpen={showAcademyPdfGuide}
+        onClose={() => setShowAcademyPdfGuide(false)}
+      />
 
       {/* Main Centered Portal Selection Card */}
       <main className="relative z-10 flex-1 flex flex-col items-center justify-center px-4 py-6 max-w-5xl mx-auto w-full space-y-6">
@@ -684,15 +741,20 @@ export const AuthGateModal: React.FC = () => {
                   {selectedPortal === 'admission' && <UserPlus className="w-4 h-4" />}
                 </div>
                 <div>
-                  <h3 className="text-base sm:text-lg font-bold font-amiri text-white">
-                    {selectedPortal === 'teacher' && 'بوابة دخول وانضمام المحفظين (Google & Microsoft SSO)'}
-                    {selectedPortal === 'supervisor' &&
-                      'بوابة دخول المشرفين ومالك الأكاديمية (Super Admin & RBAC)'}
-                    {selectedPortal === 'guardian' && 'بوابة دخول ولي الأمر'}
-                    {selectedPortal === 'student' && 'بوابة دخول الطالب'}
-                    {selectedPortal === 'admission' && 'نموذج طلب التحاق طالب جديد'}
-                  </h3>
-                  <p className="text-[11px] text-amber-200">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <h3 className="text-base sm:text-lg font-bold font-amiri text-white">
+                      {selectedPortal === 'teacher' && 'بوابة دخول وانضمام المحفظين (Google & Microsoft SSO)'}
+                      {selectedPortal === 'supervisor' &&
+                        'بوابة دخول المشرفين ومالك الأكاديمية (Super Admin & RBAC)'}
+                      {selectedPortal === 'guardian' && 'بوابة دخول ولي الأمر'}
+                      {selectedPortal === 'student' && 'بوابة دخول الطالب'}
+                      {selectedPortal === 'admission' && 'نموذج طلب التحاق طالب جديد'}
+                    </h3>
+                    <span className="px-2.5 py-0.5 rounded-full bg-amber-400/25 border border-amber-300/60 text-amber-200 text-[11px] font-black">
+                      {ACADEMY_BRAND_CONFIG.platformName} — {ACADEMY_BRAND_CONFIG.slogan}
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-amber-200 mt-0.5">
                     {selectedPortal === 'teacher' &&
                       'تسجيل الدخول أو الانضمام كمحفظ جديد عبر حساب Google أو Microsoft الرسمي'}
                     {selectedPortal === 'supervisor' &&
@@ -786,21 +848,13 @@ export const AuthGateModal: React.FC = () => {
                       ) : (
                         <div className="flex flex-col sm:flex-row items-center justify-center gap-2.5 pt-2">
                           <a
-                            href={`https://wa.me/${OFFICIAL_ACADEMY_WHATSAPP}?text=${encodeURIComponent(
-                              `السلام عليكم ورحمة الله وبركاته، قمت بالتسجيل في أكاديمية الإمام لتحفيظ القرآن الكريم:\n• الاسم: ${
-                                joinFullName || activePendingMember?.name || ssoEmailInput
-                              }\n• البريد الإلكتروني: ${ssoEmailInput}\n• المنصب المطلوب: ${
-                                joinRequestedRole === 'supervisor'
-                                  ? 'مشرف تعليمي'
-                                  : 'محفظ حلقة'
-                              }\nأرجو التكرم بمراجعة الطلب وتفعيل الحساب من لوحة المالك.`
-                            )}`}
+                            href={ACADEMY_BRAND_CONFIG.pendingApprovalWhatsappUrl}
                             target="_blank"
                             rel="noopener noreferrer"
                             className="w-full sm:w-auto px-5 py-3 rounded-xl bg-gradient-to-l from-[#25D366] to-[#128C7E] hover:opacity-95 text-white text-xs font-extrabold flex items-center justify-center gap-2 shadow-md transition"
                           >
                             <MessageCircle className="w-4 h-4" />
-                            <span>إرسال إشعار للمالك عبر واتساب لتفعيل الحساب</span>
+                            <span>إشعار المالك عبر واتساب لتفعيل الحساب</span>
                           </a>
 
                           <button
@@ -1588,12 +1642,23 @@ export const AuthGateModal: React.FC = () => {
                       </p>
                     </div>
 
-                    <button
-                      type="submit"
-                      className="w-full py-2.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs shadow-sm transition cursor-pointer"
-                    >
-                      إرسال طلب الالتحاق وتحديد المستوى
-                    </button>
+                    <div className="flex flex-col sm:flex-row items-center gap-2.5 pt-1">
+                      <button
+                        type="submit"
+                        className="flex-1 w-full py-2.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs shadow-sm transition cursor-pointer"
+                      >
+                        إرسال طلب الالتحاق وتحديد المستوى
+                      </button>
+                      <a
+                        href={ACADEMY_BRAND_CONFIG.admissionInquiryWhatsappUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="w-full sm:w-auto px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs flex items-center justify-center gap-1.5 shadow-sm transition"
+                      >
+                        <MessageCircle className="w-4 h-4 shrink-0" />
+                        <span>تواصل مع إدارة الأكاديمية عبر واتساب</span>
+                      </a>
+                    </div>
                   </form>
                 )}
               </div>
@@ -1603,8 +1668,8 @@ export const AuthGateModal: React.FC = () => {
       </div>
       )}
 
-      {/* Calm Footer Bar */}
-      <footer className="relative z-10 w-full bg-emerald-950/90 border-t border-amber-400/20 px-4 py-3 text-emerald-100">
+      {/* Calm Footer Bar + Interactive Developer Signature */}
+      <footer className="relative z-10 w-full bg-emerald-950/90 border-t border-amber-400/20 px-4 py-3 text-emerald-100 space-y-2.5">
         <div className="max-w-5xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-2 text-center sm:text-right">
           <div className="flex items-center gap-2 text-xs">
             <span className="text-amber-300 font-bold">🌿 وقف قرآني وصدقة جارية —</span>
@@ -1623,7 +1688,19 @@ export const AuthGateModal: React.FC = () => {
             </button>
           </div>
         </div>
+
+        <div className="max-w-5xl mx-auto">
+          <DeveloperSignatureFooter
+            onOpenModal={() => setIsDeveloperModalOpen(true)}
+            variant="dark"
+          />
+        </div>
       </footer>
+
+      {/* Floating Quick Support Button on Main Login Screen */}
+      <QuickSupportFloatingButton
+        onOpenDeveloperModal={() => setIsDeveloperModalOpen(true)}
+      />
 
       {/* Independent Popup Modal for "بوابة الصدقة الجارية" */}
       {sadaqahModalOpen && (

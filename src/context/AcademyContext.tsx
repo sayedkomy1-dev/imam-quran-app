@@ -30,6 +30,7 @@ import {
   StudentLevel,
   StudentPedagogicalProfile,
   StudentPrivacyPreference,
+  StudentRecitationAudioClip,
   SupervisorPermissions,
   TaskItem,
   TeacherAccessRecord,
@@ -88,6 +89,10 @@ import {
   deleteStaffRegistrationFromFirestore,
   subscribeToStaffRegistrationsFromFirestore,
 } from '../utils/firebaseClient';
+import { ACADEMY_BRAND_CONFIG } from '../constants/brandConfig';
+import { DeveloperSupportModal } from '../components/DeveloperSupportModal';
+
+export { ACADEMY_BRAND_CONFIG };
 
 export interface OutboxMessage {
   id: string;
@@ -174,12 +179,19 @@ interface AcademyStore {
     staffRecord?: TeacherAccessRecord;
   }>;
   submitNewStaffJoinRequest: (input: {
-    fullName: string;
+    fullName?: string;
+    name?: string;
     email: string;
     whatsappPhone: string;
     specialization: string;
-    requestedPosition: 'محفظ حلقة' | 'مشرف تعليمي' | 'مسؤول مالي / إداري';
-    provider: StaffAuthProvider;
+    requestedPosition:
+      | 'محفظ حلقة'
+      | 'مشرف تعليمي'
+      | 'مسؤول مالي / إداري'
+      | 'teacher'
+      | 'supervisor';
+    provider?: StaffAuthProvider;
+    authProvider?: StaffAuthProvider;
     uid?: string;
     photoURL?: string | null;
   }) => TeacherAccessRecord;
@@ -204,6 +216,8 @@ interface AcademyStore {
   setQuickSearchOpen: (open: boolean) => void;
   isFullScreenFocus: boolean;
   setIsFullScreenFocus: (v: boolean) => void;
+  isDeveloperModalOpen: boolean;
+  setIsDeveloperModalOpen: (v: boolean) => void;
 
   // Entities
   students: Student[];
@@ -224,6 +238,7 @@ interface AcademyStore {
   activeStaffEmail: string;
   setActiveStaffEmail: (email: string) => void;
   currentTeacherPermissions: TeacherPermissions;
+  effectiveTeacherPermissions: TeacherPermissions;
   cloudSyncStatus: 'synced' | 'syncing' | 'local_ready';
   lastSyncTimestamp: string;
   triggerCloudSyncNow: (manualToast?: boolean) => Promise<void>;
@@ -326,7 +341,9 @@ interface AcademyStore {
     errorKeyOrId: string,
     outcome: 'mastered' | 'needs_review' | 'repeated' | 'needs_practice' | 'repeated_error'
   ) => void;
-  saveSession: (session: Omit<SessionRecord, 'id' | 'createdAt'> & { id?: string }) => SessionRecord;
+  saveSession: (
+    session: Omit<SessionRecord, 'id' | 'createdAt'> & { id?: string; createdAt?: string }
+  ) => SessionRecord;
   saveCircle: (
     circle: Omit<CircleGroup, 'id'> & { id?: string },
     assignedStudentIds?: string[]
@@ -452,6 +469,13 @@ interface AcademyStore {
   }) => Promise<StudentAudioBlobRecord>;
   loadStudentAudioBlobs: (studentId: string) => Promise<StudentAudioBlobRecord[]>;
   deleteStudentAudioBlob: (studentId: string, recordId: string) => Promise<void>;
+  saveStudentRecitationAudioClip: (
+    studentId: string,
+    clipInput: Omit<StudentRecitationAudioClip, 'id' | 'createdAt' | 'studentId'> & {
+      blob?: Blob;
+    }
+  ) => Promise<StudentRecitationAudioClip>;
+  deleteStudentRecitationAudioClip: (studentId: string, clipId: string) => void;
   // Public Mushaf & Waqf Portal
   publicMushafPortalOpen: boolean;
   setPublicMushafPortalOpen: (open: boolean) => void;
@@ -460,6 +484,7 @@ interface AcademyStore {
   currentPublicVisitorId: string;
   publicBookmarks: PublicMushafBookmark[];
   recordWaqfAmeenPrayer: (visitorId?: string) => void;
+  recordPublicWaqfActivity: (pagesRead?: number, versesRead?: number) => void;
   recordPwaInstallEvent: () => void;
   recordOfflineDownloadEvent: () => void;
   savePublicBookmark: (
@@ -693,6 +718,7 @@ export const AcademyProvider: React.FC<{ children: React.ReactNode }> = ({ child
   } | null>(null);
   const [quickSearchOpen, setQuickSearchOpen] = useState<boolean>(false);
   const [isFullScreenFocus, setIsFullScreenFocus] = useState<boolean>(false);
+  const [isDeveloperModalOpen, setIsDeveloperModalOpen] = useState<boolean>(false);
 
   const [sessionReminderPreview, setSessionReminderPreview] = useState<
     '1hour' | '60min' | 'now' | null
@@ -700,10 +726,41 @@ export const AcademyProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
   const [cloudSyncStatus, setCloudSyncStatus] = useState<
     'synced' | 'syncing' | 'local_ready'
-  >('synced');
+  >('local_ready');
   const [lastSyncTimestamp, setLastSyncTimestamp] = useState<string>(() =>
     new Date().toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' })
   );
+
+  // Resilient Dynamic Firebase Initialization Engine (3-second timeout + LocalStorage fallback)
+  useEffect(() => {
+    let isMounted = true;
+    const initDynamicFirebaseEngine = async () => {
+      try {
+        setCloudSyncStatus('syncing');
+        const firebaseCdnUrl = 'https://www.gstatic.com/firebasejs/11.0.1/firebase-app.js';
+        const dynamicImportTask = import(/* @vite-ignore */ firebaseCdnUrl);
+        const timeoutTask = new Promise<never>((_, reject) =>
+          window.setTimeout(
+            () => reject(new Error('FIREBASE_INIT_TIMEOUT_3000MS')),
+            3000
+          )
+        );
+        await Promise.race([dynamicImportTask, timeoutTask]);
+        if (isMounted) {
+          setCloudSyncStatus('synced');
+        }
+      } catch {
+        // Immediately stop cloud attempts after 3s or offline error and switch to LocalStorage mode
+        if (isMounted) {
+          setCloudSyncStatus('local_ready');
+        }
+      }
+    };
+    void initDynamicFirebaseEngine();
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
   // Load initial state from sanitized v13 store or clean seed data
   const loadInitialState = () => {
@@ -1828,27 +1885,32 @@ export const AcademyProvider: React.FC<{ children: React.ReactNode }> = ({ child
     };
 
     try {
-      await syncAcademySnapshotToFirestore({
-        academyName: settings.academyName,
-        studentsCount: students.length,
-        sessionsCount: sessions.length,
-        teacherEmail: activeStaffEmail || googleAuthUser?.email || SUPABASE_OFFICIAL_CONFIG.ownerEmail,
-        backupPayload: fullBackupPayload,
+      await Promise.race([
+        syncAcademySnapshotToFirestore({
+          academyName: settings.academyName,
+          studentsCount: students.length,
+          sessionsCount: sessions.length,
+          teacherEmail: activeStaffEmail || googleAuthUser?.email || SUPABASE_OFFICIAL_CONFIG.ownerEmail,
+          backupPayload: fullBackupPayload,
+        }),
+        new Promise<never>((_, reject) =>
+          window.setTimeout(() => reject(new Error('CLOUD_SYNC_TIMEOUT_3000MS')), 3000)
+        ),
+      ]);
+      const nowFormatted = new Date().toLocaleTimeString('ar-EG', {
+        hour: '2-digit',
+        minute: '2-digit',
       });
+      setCloudSyncStatus('synced');
+      setLastSyncTimestamp(nowFormatted);
     } catch {
-      // non-blocking
+      // Fallback immediately to LocalStorage mode if cloud takes > 3s
+      setCloudSyncStatus('local_ready');
     }
-
-    const nowFormatted = new Date().toLocaleTimeString('ar-EG', {
-      hour: '2-digit',
-      minute: '2-digit',
-    });
-    setCloudSyncStatus('synced');
-    setLastSyncTimestamp(nowFormatted);
 
     if (manualToast) {
       showToast(
-        `☁️ تمت مزامنة وحفظ جميع بيانات الحلقات (${circles.length}) والطلاب (${students.length}) والحصص (${sessions.length}) سحابياً بنجاح ✓`,
+        `☁️ تمت مزامنة وحفظ جميع بيانات الحلقات (${circles.length}) والطلاب (${students.length}) والحصص (${sessions.length}) بنجاح ✓`,
         'success'
       );
     }
@@ -1865,7 +1927,12 @@ export const AcademyProvider: React.FC<{ children: React.ReactNode }> = ({ child
       SUPABASE_OFFICIAL_CONFIG.ownerEmail;
     try {
       setCloudSyncStatus('syncing');
-      const result = await fetchAcademyCloudBackupFromFirestore(emailToFetch);
+      const result = await Promise.race([
+        fetchAcademyCloudBackupFromFirestore(emailToFetch),
+        new Promise<never>((_, reject) =>
+          window.setTimeout(() => reject(new Error('CLOUD_RESTORE_TIMEOUT_3000MS')), 3000)
+        ),
+      ]);
       setCloudSyncStatus('synced');
       if (!result.payload || !Array.isArray(result.payload.students)) {
         if (!silent) {
@@ -1925,9 +1992,9 @@ export const AcademyProvider: React.FC<{ children: React.ReactNode }> = ({ child
       }
       return true;
     } catch {
-      setCloudSyncStatus('synced');
+      setCloudSyncStatus('local_ready');
       if (!silent) {
-        showToast('تعذر الاتصال بالسحابة حالياً — تعمل المنصة بالنسخة المحلية المؤمنة', 'info');
+        showToast('تعذر الاتصال بالسحابة حالياً — تعمل المنصة بالنسخة المحلية المؤمنة (LocalStorage)', 'info');
       }
       return false;
     }
@@ -2184,22 +2251,43 @@ export const AcademyProvider: React.FC<{ children: React.ReactNode }> = ({ child
   };
 
   const submitNewStaffJoinRequest = (input: {
-    fullName: string;
+    fullName?: string;
+    name?: string;
     email: string;
     whatsappPhone: string;
     specialization: string;
-    requestedPosition: 'محفظ حلقة' | 'مشرف تعليمي' | 'مسؤول مالي / إداري';
-    provider: StaffAuthProvider;
+    requestedPosition:
+      | 'محفظ حلقة'
+      | 'مشرف تعليمي'
+      | 'مسؤول مالي / إداري'
+      | 'teacher'
+      | 'supervisor';
+    provider?: StaffAuthProvider;
+    authProvider?: StaffAuthProvider;
     uid?: string;
     photoURL?: string | null;
   }): TeacherAccessRecord => {
     const cleanEmail = input.email.trim().toLowerCase();
     const isOwner = isOwnerEmail(cleanEmail);
+    const resolvedFullName = (input.fullName || input.name || '').trim();
+    const resolvedProvider: StaffAuthProvider =
+      input.provider || input.authProvider || 'google';
+    const normalizedPosition:
+      | 'محفظ حلقة'
+      | 'مشرف تعليمي'
+      | 'مسؤول مالي / إداري' =
+      input.requestedPosition === 'supervisor' ||
+      input.requestedPosition === 'مشرف تعليمي'
+        ? 'مشرف تعليمي'
+        : input.requestedPosition === 'مسؤول مالي / إداري'
+        ? 'مسؤول مالي / إداري'
+        : 'محفظ حلقة';
+
     const desiredRole: StaffHierarchyRole = isOwner
       ? 'owner'
-      : input.requestedPosition === 'مشرف تعليمي'
+      : normalizedPosition === 'مشرف تعليمي'
       ? 'supervisor'
-      : input.requestedPosition === 'مسؤول مالي / إداري'
+      : normalizedPosition === 'مسؤول مالي / إداري'
       ? 'financial_manager'
       : 'teacher';
 
@@ -2213,19 +2301,19 @@ export const AcademyProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
     const newRecord: TeacherAccessRecord = {
       id: recordId,
-      name: input.fullName.trim() || cleanEmail.split('@')[0],
+      name: resolvedFullName || cleanEmail.split('@')[0],
       email: cleanEmail,
       roleTitle: isOwner
         ? '👑 مالك الأكاديمية (Super Admin / Owner)'
-        : `${input.requestedPosition} — ${
+        : `${normalizedPosition} — ${
             input.specialization.trim() || 'حلقات القرآن الكريم'
           }`,
       staffRole: desiredRole,
       status: isOwner ? 'active' : 'pending',
-      authProvider: input.provider,
+      authProvider: resolvedProvider,
       whatsappPhone: input.whatsappPhone.trim(),
       specialization: input.specialization.trim(),
-      requestedPosition: input.requestedPosition,
+      requestedPosition: normalizedPosition,
       requestedAt: getLocalDateString(0),
       lastSyncAt: getLocalDateString(0),
       assignedCirclesCount: 1,
@@ -2710,17 +2798,7 @@ export const AcademyProvider: React.FC<{ children: React.ReactNode }> = ({ child
         'success'
       );
       return { ok: true, isFirstGoogleLogin: result.isFirstGoogleLogin };
-    } catch (err) {
-      const rawMessage = err instanceof Error ? err.message : String(err);
-      if (
-        rawMessage.includes('auth/popup-closed-by-user') ||
-        rawMessage.includes('auth/cancelled-popup-request')
-      ) {
-        const cancelMsg = `تم إغلاق نافذة تسجيل الدخول بحساب ${
-          providerType === 'microsoft' ? 'Microsoft' : 'Google'
-        } قبل إتمام العملية.`;
-        return { ok: false, error: cancelMsg };
-      }
+    } catch {
       return {
         ok: false,
         error: `POPUP_FALLBACK_${providerType.toUpperCase()}`,
@@ -3023,7 +3101,7 @@ export const AcademyProvider: React.FC<{ children: React.ReactNode }> = ({ child
   };
 
   const saveSession = (
-    sessionInput: Omit<SessionRecord, 'id' | 'createdAt'> & { id?: string }
+    sessionInput: Omit<SessionRecord, 'id' | 'createdAt'> & { id?: string; createdAt?: string }
   ): SessionRecord => {
     const existingIndex = sessions.findIndex(
       (s) =>
@@ -3038,7 +3116,9 @@ export const AcademyProvider: React.FC<{ children: React.ReactNode }> = ({ child
           ? sessions[existingIndex].id
           : sessionInput.id || `ses-${Date.now()}`,
       createdAt:
-        existingIndex >= 0 ? sessions[existingIndex].createdAt : new Date().toISOString(),
+        existingIndex >= 0
+          ? sessions[existingIndex].createdAt
+          : sessionInput.createdAt || new Date().toISOString(),
     };
 
     if (existingIndex >= 0) {
@@ -3095,6 +3175,21 @@ export const AcademyProvider: React.FC<{ children: React.ReactNode }> = ({ child
               memorizedSurahs: newMemorizedSurahs,
               memorizedJuz: newMemorizedJuz,
               currentStop: newCurrentStop,
+              recitationAudioClips:
+                record.recitationAudioClips && record.recitationAudioClips.length > 0
+                  ? [
+                      ...record.recitationAudioClips.filter(
+                        (c) =>
+                          !(st.recitationAudioClips || []).some((ex) => ex.id === c.id)
+                      ),
+                      ...(st.recitationAudioClips || []),
+                    ].slice(0, 40)
+                  : st.recitationAudioClips,
+              lastRecitationAudioUrl:
+                record.recitationAudioClips?.[0]?.audioUrl ||
+                record.actualRecitation?.recordedAudioUrl ||
+                record.newMemorization?.recordedAudioUrl ||
+                st.lastRecitationAudioUrl,
             };
           })
         );
@@ -3983,6 +4078,88 @@ export const AcademyProvider: React.FC<{ children: React.ReactNode }> = ({ child
     showToast('تم حذف المقطع الصوتي من تخزين الطالب المحلي', 'info');
   };
 
+  const saveStudentRecitationAudioClip = async (
+    studentId: string,
+    clipInput: Omit<StudentRecitationAudioClip, 'id' | 'createdAt' | 'studentId'> & {
+      blob?: Blob;
+    }
+  ): Promise<StudentRecitationAudioClip> => {
+    const nowIso = new Date().toISOString();
+    const targetStudent = students.find((s) => s.id === studentId);
+    const studentName = clipInput.studentName || targetStudent?.name || 'طالب';
+    const clipId = `rec-clip-${studentId}-${Date.now()}-${Math.random()
+      .toString(36)
+      .slice(2, 6)}`;
+
+    const newClip: StudentRecitationAudioClip = {
+      id: clipId,
+      studentId,
+      studentName,
+      sessionDate: clipInput.sessionDate,
+      axisKey: clipInput.axisKey,
+      axisLabel: clipInput.axisLabel,
+      surahName: clipInput.surahName,
+      fromAyah: clipInput.fromAyah,
+      toAyah: clipInput.toAyah,
+      audioUrl: clipInput.audioUrl,
+      durationSeconds: Math.max(1, clipInput.durationSeconds),
+      grade: clipInput.grade,
+      percentage: clipInput.percentage,
+      notes: clipInput.notes,
+      createdAt: nowIso,
+    };
+
+    // Store the audio URL and clip directly in the Student's state (حالة الطالب)
+    setStudents((prev) =>
+      prev.map((st) => {
+        if (st.id !== studentId) return st;
+        const existingClips = st.recitationAudioClips || [];
+        return {
+          ...st,
+          lastRecitationAudioUrl: newClip.audioUrl,
+          recitationAudioClips: [newClip, ...existingClips].slice(0, 40),
+        };
+      })
+    );
+
+    if (clipInput.blob) {
+      try {
+        await saveStudentAudioBlob({
+          studentId,
+          studentName,
+          surahName: clipInput.surahName,
+          fromAyah: clipInput.fromAyah || 1,
+          toAyah: clipInput.toAyah || clipInput.fromAyah || 1,
+          durationSeconds: Math.max(1, clipInput.durationSeconds),
+          blob: clipInput.blob,
+          dataUrl: clipInput.audioUrl,
+          studentNote: `[تسجيل محور: ${clipInput.axisLabel}] سورة ${clipInput.surahName} (${
+            clipInput.fromAyah || 1
+          }-${clipInput.toAyah || 1})`,
+        });
+      } catch {
+        // Already persisted in student state
+      }
+    }
+
+    return newClip;
+  };
+
+  const deleteStudentRecitationAudioClip = (studentId: string, clipId: string) => {
+    setStudents((prev) =>
+      prev.map((st) => {
+        if (st.id !== studentId) return st;
+        const filtered = (st.recitationAudioClips || []).filter((c) => c.id !== clipId);
+        return {
+          ...st,
+          recitationAudioClips: filtered,
+          lastRecitationAudioUrl: filtered[0]?.audioUrl || undefined,
+        };
+      })
+    );
+    showToast('تم حذف المقطع الصوتي المسجل من حالة الطالب', 'info');
+  };
+
   // --- Public Mushaf, Waqf Dedication & Visitor Impact State ---
   const [publicMushafPortalOpen, setPublicMushafPortalOpen] = useState<boolean>(false);
 
@@ -4222,6 +4399,15 @@ export const AcademyProvider: React.FC<{ children: React.ReactNode }> = ({ child
       )
     );
     showToast('تقبل الله طاعتكم ودعاءكم، ولكم بمثل ما دعوتم', 'success');
+  };
+
+  const recordPublicWaqfActivity = (pagesRead = 1, versesRead = 15) => {
+    setWaqfImpactStats((prev) => ({
+      ...prev,
+      totalPagesRead: prev.totalPagesRead + Math.max(0, pagesRead),
+      totalVersesRead: (prev.totalVersesRead || 0) + Math.max(0, versesRead),
+      totalJuzRead: Math.floor((prev.totalPagesRead + Math.max(0, pagesRead)) / 20),
+    }));
   };
 
   const recordPwaInstallEvent = () => {
@@ -4833,7 +5019,9 @@ export const AcademyProvider: React.FC<{ children: React.ReactNode }> = ({ child
     );
 
     const xpEarned =
-      awardedCupLabel === '🏆 الكأس الذهبي' ? comp.xpRewardFirst : comp.xpRewardParticipant;
+      (awardedCupLabel as string) === '🏆 الكأس الذهبي'
+        ? comp.xpRewardFirst
+        : comp.xpRewardParticipant;
     const badgeToAward = `${awardedCupLabel} — ${comp.badgeTitle}`;
 
     // Automatically award XP and Cup/Badge to the student's profile!
@@ -4849,7 +5037,7 @@ export const AcademyProvider: React.FC<{ children: React.ReactNode }> = ({ child
           xpPoints: (s.xpPoints || 120) + xpEarned,
           badges: nextBadges,
           hasGoldenCrown:
-            awardedCupLabel === '🏆 الكأس الذهبي' ? true : s.hasGoldenCrown,
+            (awardedCupLabel as string) === '🏆 الكأس الذهبي' ? true : s.hasGoldenCrown,
         };
       })
     );
@@ -4918,6 +5106,8 @@ export const AcademyProvider: React.FC<{ children: React.ReactNode }> = ({ child
         setQuickSearchOpen,
         isFullScreenFocus,
         setIsFullScreenFocus,
+        isDeveloperModalOpen,
+        setIsDeveloperModalOpen,
         students:
           currentStaffTier === 'teacher' &&
           userRole === 'teacher' &&
@@ -4980,6 +5170,7 @@ export const AcademyProvider: React.FC<{ children: React.ReactNode }> = ({ child
         activeStaffEmail,
         setActiveStaffEmail,
         currentTeacherPermissions,
+        effectiveTeacherPermissions: currentTeacherPermissions,
         cloudSyncStatus,
         lastSyncTimestamp,
         triggerCloudSyncNow,
@@ -5043,6 +5234,8 @@ export const AcademyProvider: React.FC<{ children: React.ReactNode }> = ({ child
         saveStudentAudioBlob,
         loadStudentAudioBlobs,
         deleteStudentAudioBlob,
+        saveStudentRecitationAudioClip,
+        deleteStudentRecitationAudioClip,
         publicMushafPortalOpen,
         setPublicMushafPortalOpen,
         waqfImpactStats,
@@ -5050,6 +5243,7 @@ export const AcademyProvider: React.FC<{ children: React.ReactNode }> = ({ child
         currentPublicVisitorId,
         publicBookmarks,
         recordWaqfAmeenPrayer,
+        recordPublicWaqfActivity,
         recordPwaInstallEvent,
         recordOfflineDownloadEvent,
         savePublicBookmark,
@@ -5074,6 +5268,10 @@ export const AcademyProvider: React.FC<{ children: React.ReactNode }> = ({ child
       }}
     >
       {children}
+      <DeveloperSupportModal
+        isOpen={isDeveloperModalOpen}
+        onClose={() => setIsDeveloperModalOpen(false)}
+      />
     </AcademyContext.Provider>
   );
 };

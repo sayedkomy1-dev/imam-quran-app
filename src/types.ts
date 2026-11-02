@@ -41,10 +41,13 @@ export type GradeType = 'ممتاز' | 'جيد جداً' | 'جيد' | 'ضعيف'
 export type ReciterId =
   | 'Husary_128kbps'
   | 'Husary_Muallim_128kbps'
+  | 'Ayman_Sowaid_64kbps'
   | 'Minshawy_Murattal_128kbps'
   | 'Minshawy_Teacher_128kbps'
+  | 'Abdul_Basit_Murattal_192kbps'
   | 'Alafasy_128kbps'
   | 'MaherAlMuaiqly128kbps'
+  | 'Hudhaify_128kbps'
   | 'Mohamed_Jibreel_128kbps'
   | 'sufi';
 
@@ -59,12 +62,14 @@ export type SessionSyncStatus =
   | 'حصة محفوظة'
   | 'تمت المزامنة'
   | 'منشور ببوابة ولي الأمر'
-  | 'تم فتح محادثة واتساب للمراجعة';
+  | 'تم فتح محادثة واتساب للمراجعة'
+  | 'تم الإرسال لولي الأمر';
 
 export interface RecitationError {
   id: string;
   type: ErrorType;
   context: ErrorContext;
+  surahId?: number;
   surah?: string;
   ayah?: number;
   word?: string;
@@ -85,6 +90,32 @@ export interface RecitationError {
   timestamp: string;
 }
 
+export type RecitationAxisKey =
+  | 'actualRecitation'
+  | 'newMemorization'
+  | 'nearReview'
+  | 'farReview'
+  | 'juzAndSurahReview'
+  | 'extraRecitation';
+
+export interface StudentRecitationAudioClip {
+  id: string;
+  studentId: string;
+  studentName?: string;
+  sessionDate: string;
+  axisKey: RecitationAxisKey;
+  axisLabel: string;
+  surahName: string;
+  fromAyah?: number;
+  toAyah?: number;
+  audioUrl: string;
+  durationSeconds: number;
+  grade?: GradeType;
+  percentage?: number;
+  notes?: string;
+  createdAt: string;
+}
+
 export interface SurahRangeAssignment {
   enabled: boolean;
   surahId: number;
@@ -97,6 +128,9 @@ export interface SurahRangeAssignment {
   direction: 'asc' | 'desc';
   grade?: GradeType;
   percentage?: number;
+  recordedAudioUrl?: string;
+  recordedAudioDurationSec?: number;
+  recordedAt?: string;
 }
 
 export interface JuzAssignmentItem {
@@ -107,6 +141,8 @@ export interface JuzAssignmentItem {
   label: string;
   grade?: GradeType;
   percentage?: number;
+  recordedAudioUrl?: string;
+  recordedAudioDurationSec?: number;
 }
 
 export interface SessionRecord {
@@ -115,6 +151,7 @@ export interface SessionRecord {
   date: string; // YYYY-MM-DD
   status: AttendanceStatus;
   masteryScore: number; // 0-100
+  grade?: number | GradeType;
   previousEvaluation: {
     newGrade?: GradeType;
     nearGrade?: GradeType;
@@ -158,6 +195,8 @@ export interface SessionRecord {
     enabled: boolean;
     items: JuzAssignmentItem[];
     direction: 'asc' | 'desc';
+    recordedAudioUrl?: string;
+    recordedAudioDurationSec?: number;
   };
   hizbQuarterReview?: {
     enabled: boolean;
@@ -166,12 +205,17 @@ export interface SessionRecord {
     direction: 'asc' | 'desc';
     grade?: GradeType;
     percentage?: number;
+    recordedAudioUrl?: string;
+    recordedAudioDurationSec?: number;
   };
   surahReview: {
     enabled: boolean;
     surahNames: string[];
     direction: 'asc' | 'desc';
+    recordedAudioUrl?: string;
+    recordedAudioDurationSec?: number;
   };
+  recitationAudioClips?: StudentRecitationAudioClip[];
   parentNotes: string;
   tarbiyahCardId?: string;
   tarbiyahCardTitle?: string;
@@ -181,6 +225,14 @@ export interface SessionRecord {
   teacherVoiceNotes?: TeacherRecitationVoiceNote[];
   memorizationAudioDataUrl?: string;
   memorizationAudioName?: string;
+  audioEvaluationScore?: number;
+  audioEvaluationGrade?: GradeType;
+  tajweedScore?: number;
+  lahnJaliScore?: number;
+  recitationHealthScore?: number;
+  autoWhatsAppSent?: boolean;
+  autoWhatsAppSentAt?: string;
+  whatsappSummaryText?: string;
   syncStatus?: SessionSyncStatus;
   durationMinutes?: number;
   carriedOverFromDate?: string;
@@ -410,7 +462,10 @@ export interface Student {
   name: string;
   guardianName: string;
   whatsappPhone: string; // Normalized e.g., 201012345678
+  guardianPhone?: string;
   guardianPin: string; // 6-digit PIN for Guardian Portal
+  masteryScore?: number;
+  attendanceStreak?: number;
   googleUid?: string;
   googleEmail?: string;
   googleAvatarUrl?: string | null;
@@ -463,6 +518,8 @@ export interface Student {
   permanentMeetingUrl?: string;
   customMutashabihat?: StudentCustomMutashabih[];
   dailyAudioRecordings?: HomePracticeSubmission[];
+  recitationAudioClips?: StudentRecitationAudioClip[];
+  lastRecitationAudioUrl?: string;
   fiveFortressesLog?: Record<
     string,
     {
@@ -491,6 +548,8 @@ export interface CircleGroup {
   level: string;
   scheduleDays: number[];
   scheduleTime: string;
+  days?: string | number[];
+  time?: string;
   duration: number;
   description: string;
   permanentMeetingUrl?: string;
@@ -696,6 +755,7 @@ export interface WaqfImpactStats {
   totalVisitors: number;
   pwaInstallsCount: number;
   totalPagesRead: number;
+  totalVersesRead?: number;
   totalJuzRead: number;
   completedKhatmahsCount: number;
   ameenPrayersCount: number;

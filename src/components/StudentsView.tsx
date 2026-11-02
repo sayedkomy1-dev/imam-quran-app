@@ -39,6 +39,7 @@ import {
   PedagogicalDiagnosticCard,
 } from './PedagogicalAdvisorModal';
 import { GamificationDashboard } from './GamificationDashboard';
+import { NewMemAudioPlayerAndWhatsAppTool } from './NewMemAudioPlayerAndWhatsAppTool';
 import { ERROR_PEDAGOGICAL_COACHING_MAP } from '../data/pedagogicalAdvisorData';
 import {
   AlertTriangle,
@@ -194,6 +195,7 @@ export const StudentsView: React.FC = () => {
         surahNames: [],
         direction: 'desc',
       },
+      errors: [],
       parentNotes: 'تم تسجيل الحضور الفوري عبر مسح بطاقة الهوية القرآنية (QR Code)',
       syncStatus: 'حصة محفوظة',
       createdAt: new Date().toISOString(),
@@ -1259,6 +1261,12 @@ export const StudentsView: React.FC = () => {
                         </button>
                       </div>
                     </div>
+
+                    {/* 🔊 أداة التشغيل الصوتي للنص الجديد داخل ملف الطالب (الحصري، المنشاوي، العفاسي، المعيقلي، أو تسجيل المحفظ الخاص + إرسال واتساب لولي الأمر) */}
+                    <NewMemAudioPlayerAndWhatsAppTool
+                      student={activeStudent}
+                      contextLocation="student_profile"
+                    />
 
                     {/* Progress KPIs */}
                     <div className="grid grid-cols-2 sm:grid-cols-4 gap-3.5">

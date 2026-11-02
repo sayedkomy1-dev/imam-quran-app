@@ -173,14 +173,17 @@ export const JUZ_SCOPES = [
 export const DAY_NAMES = ['الأحد', 'الإثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة', 'السبت'];
 
 export const RECITERS = [
-  { id: 'Husary_128kbps', name: 'الحصري مرتل (الشيخ محمود خليل الحصري)', type: 'everyayah' },
-  { id: 'Husary_Muallim_128kbps', name: 'الحصري المصحف المعلم (ترديد وتكرار 1-5 مرات)', type: 'everyayah' },
-  { id: 'Minshawy_Murattal_128kbps', name: 'المنشاوي مرتل (الشيخ محمد صديق المنشاوي)', type: 'everyayah' },
-  { id: 'Minshawy_Teacher_128kbps', name: 'المنشاوي المصحف المعلم (تحفيظ وتلقين)', type: 'everyayah' },
-  { id: 'Alafasy_128kbps', name: 'مشاري العفاسي (الشيخ مشاري راشد العفاسي)', type: 'everyayah' },
-  { id: 'MaherAlMuaiqly128kbps', name: 'ماهر المعيقلي (الشيخ ماهر بن حمد المعيقلي)', type: 'everyayah' },
-  { id: 'Mohamed_Jibreel_128kbps', name: 'محمد جبريل (الشيخ محمد جبريل)', type: 'everyayah' },
-  { id: 'sufi', name: 'عبد الرشيد صوفي (سور كاملة برواية الدوري/السوسي)', type: 'mp3quran' },
+  { id: 'Husary_128kbps', name: 'الشيخ محمود خليل الحصري (مرتل)', type: 'everyayah' },
+  { id: 'Husary_Muallim_128kbps', name: 'الشيخ محمود خليل الحصري (المصحف المعلم)', type: 'everyayah' },
+  { id: 'Ayman_Sowaid_64kbps', name: 'الشيخ د. أيمن رشدي سويد (لتعليم التجويد ومخارج الحروف)', type: 'everyayah' },
+  { id: 'Minshawy_Murattal_128kbps', name: 'الشيخ محمد صديق المنشاوي (مرتل)', type: 'everyayah' },
+  { id: 'Minshawy_Teacher_128kbps', name: 'الشيخ محمد صديق المنشاوي (المصحف المعلم)', type: 'everyayah' },
+  { id: 'Abdul_Basit_Murattal_192kbps', name: 'الشيخ عبد الباسط عبد الصمد (مرتل)', type: 'everyayah' },
+  { id: 'Alafasy_128kbps', name: 'الشيخ مشاري راشد العفاسي', type: 'everyayah' },
+  { id: 'MaherAlMuaiqly128kbps', name: 'الشيخ ماهر المعيقلي', type: 'everyayah' },
+  { id: 'Hudhaify_128kbps', name: 'الشيخ علي الحذيفي', type: 'everyayah' },
+  { id: 'Mohamed_Jibreel_128kbps', name: 'الشيخ محمد جبريل', type: 'everyayah' },
+  { id: 'sufi', name: 'الشيخ عبد الرشيد صوفي (برواية الدوري/السوسي)', type: 'mp3quran' },
 ] as const;
 
 export interface AyahEntry {
@@ -1190,5 +1193,460 @@ export const WAQF_DEDICATION_TEXT = {
   ameenToastMessage: 'تقبل الله طاعتكم ودعاءكم، ولكم ولأهليكم بمثل ما دعوتم',
 };
 
+// 15 Sajdah Tilawah positions in Madinah Mushaf (Page -> Surah & Ayah)
+export const SAJDAH_PAGES: Record<number, { surahName: string; ayahNumber: number }> = {
+  176: { surahName: 'الأعراف', ayahNumber: 206 },
+  251: { surahName: 'الرعد', ayahNumber: 15 },
+  272: { surahName: 'النحل', ayahNumber: 50 },
+  293: { surahName: 'الإسراء', ayahNumber: 109 },
+  309: { surahName: 'مريم', ayahNumber: 58 },
+  334: { surahName: 'الحج', ayahNumber: 18 },
+  341: { surahName: 'الحج', ayahNumber: 77 },
+  365: { surahName: 'الفرقان', ayahNumber: 60 },
+  379: { surahName: 'النمل', ayahNumber: 26 },
+  416: { surahName: 'السجدة', ayahNumber: 15 },
+  454: { surahName: 'ص', ayahNumber: 24 },
+  480: { surahName: 'فصلت', ayahNumber: 38 },
+  528: { surahName: 'النجم', ayahNumber: 62 },
+  589: { surahName: 'الانشقاق', ayahNumber: 21 },
+  597: { surahName: 'العلق', ayahNumber: 19 },
+};
 
+export interface QuarterIndexItem {
+  quarterIndex: number; // 1..240
+  juzNumber: number; // 1..30
+  juzName: string;
+  hizbNumber: number; // 1..60
+  quarterInHizb: number; // 1..4
+  quarterLabel: string;
+  pageNumber: number;
+  surahId: number;
+  surahName: string;
+  ayahNumber: number;
+}
 
+let cachedQuartersIndex: QuarterIndexItem[] | null = null;
+
+export function getAllQuartersIndex(): QuarterIndexItem[] {
+  if (cachedQuartersIndex) return cachedQuartersIndex;
+  const list: QuarterIndexItem[] = [];
+  const quarterNames = ['بداية الحزب (الربع الأول)', 'ربع الحزب (الربع الثاني)', 'نصف الحزب (الربع الثالث)', 'ثلاثة أرباع الحزب (الربع الرابع)'];
+  for (let q = 1; q <= 240; q++) {
+    const pageNumber = getPageNumberForQuarter(q);
+    const info = getMadinahPageInfo(pageNumber);
+    const hizbNumber = Math.ceil(q / 4);
+    const quarterInHizb = ((q - 1) % 4) + 1;
+    const juzNumber = Math.ceil(hizbNumber / 2);
+    list.push({
+      quarterIndex: q,
+      juzNumber,
+      juzName: JUZ_NAMES[juzNumber - 1] || `الجزء ${juzNumber}`,
+      hizbNumber,
+      quarterInHizb,
+      quarterLabel: quarterNames[quarterInHizb - 1],
+      pageNumber,
+      surahId: info.primarySurahId,
+      surahName: info.primarySurahName,
+      ayahNumber: info.fromAyah,
+    });
+  }
+  cachedQuartersIndex = list;
+  return list;
+}
+
+// IndexedDB Engine for Quran v2.0.0 (Uthmani Full Text, Muyassar, and Jalalayn)
+const QURAN_V2_IDB_NAME = 'imam_quran_engine_v2_idb';
+const QURAN_V2_STORE = 'editions_store';
+
+function openQuranV2IDB(): Promise<IDBDatabase | null> {
+  return new Promise((resolve) => {
+    try {
+      if (typeof indexedDB === 'undefined') {
+        resolve(null);
+        return;
+      }
+      const req = indexedDB.open(QURAN_V2_IDB_NAME, 1);
+      req.onupgradeneeded = () => {
+        const db = req.result;
+        if (!db.objectStoreNames.contains(QURAN_V2_STORE)) {
+          db.createObjectStore(QURAN_V2_STORE, { keyPath: 'key' });
+        }
+      };
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => resolve(null);
+    } catch {
+      resolve(null);
+    }
+  });
+}
+
+async function idbGetEdition<T>(key: string): Promise<T | null> {
+  const db = await openQuranV2IDB();
+  if (!db) return null;
+  return new Promise((resolve) => {
+    try {
+      const tx = db.transaction(QURAN_V2_STORE, 'readonly');
+      const req = tx.objectStore(QURAN_V2_STORE).get(key);
+      req.onsuccess = () => resolve(req.result ? (req.result.value as T) : null);
+      req.onerror = () => resolve(null);
+    } catch {
+      resolve(null);
+    }
+  });
+}
+
+async function idbSetEdition<T>(key: string, value: T): Promise<void> {
+  const db = await openQuranV2IDB();
+  if (!db) return;
+  await new Promise<void>((resolve) => {
+    try {
+      const tx = db.transaction(QURAN_V2_STORE, 'readwrite');
+      tx.objectStore(QURAN_V2_STORE).put({ key, value, updatedAt: Date.now() });
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => resolve();
+    } catch {
+      resolve();
+    }
+  });
+}
+
+const jalalaynSurahCache: Record<number, Record<number, string>> = {};
+const muyassarSurahCache: Record<number, Record<number, string>> = {};
+
+export async function loadDualTafsirForAyah(
+  surahId: number,
+  ayahNumber: number,
+  fallbackMuyassar?: string
+): Promise<{ muyassar: string; jalalayn: string }> {
+  const sMeta = SURAHS.find((s) => s.id === surahId) || SURAHS[0];
+  let muyassar =
+    muyassarSurahCache[surahId]?.[ayahNumber] ||
+    fallbackMuyassar ||
+    `تفسير الآية (${ayahNumber}) من سورة ${sMeta.name} في التفسير الميسر.`;
+  let jalalayn = jalalaynSurahCache[surahId]?.[ayahNumber] || '';
+
+  // 1. Check IndexedDB for Jalalayn Surah
+  if (!jalalayn) {
+    const idbJal = await idbGetEdition<Record<number, string>>(`jalalayn_surah_${surahId}`);
+    if (idbJal && idbJal[ayahNumber]) {
+      jalalaynSurahCache[surahId] = idbJal;
+      jalalayn = idbJal[ayahNumber];
+    }
+  }
+
+  // 2. Fetch Jalalayn Surah from AlQuran Cloud API if online
+  if (!jalalayn && typeof navigator !== 'undefined' && navigator.onLine) {
+    try {
+      const res = await fetch(`https://api.alquran.cloud/v1/surah/${surahId}/ar.jalalayn`);
+      if (res.ok) {
+        const json = await res.json();
+        const ayahs = json?.data?.ayahs;
+        if (Array.isArray(ayahs)) {
+          const map: Record<number, string> = {};
+          for (const a of ayahs) {
+            map[Number(a.numberInSurah)] = String(a.text || '').trim();
+          }
+          jalalaynSurahCache[surahId] = map;
+          await idbSetEdition(`jalalayn_surah_${surahId}`, map);
+          if (map[ayahNumber]) {
+            jalalayn = map[ayahNumber];
+          }
+        }
+      }
+    } catch {
+      // ignore network error
+    }
+  }
+
+  // 3. If Muyassar looks generic, try fetching from AlQuran Cloud or FawazAhmed fallback
+  if (
+    (!muyassar || muyassar.startsWith('تفسير الآية')) &&
+    typeof navigator !== 'undefined' &&
+    navigator.onLine
+  ) {
+    try {
+      const res = await fetch(`https://api.alquran.cloud/v1/surah/${surahId}/ar.muyassar`);
+      if (res.ok) {
+        const json = await res.json();
+        const ayahs = json?.data?.ayahs;
+        if (Array.isArray(ayahs)) {
+          const map: Record<number, string> = {};
+          for (const a of ayahs) {
+            map[Number(a.numberInSurah)] = String(a.text || '').trim();
+          }
+          muyassarSurahCache[surahId] = map;
+          await idbSetEdition(`muyassar_surah_${surahId}`, map);
+          if (map[ayahNumber]) {
+            muyassar = map[ayahNumber];
+          }
+        }
+      }
+    } catch {
+      // Fallback to jsdelivr fawazahmed0/quran-api
+      try {
+        const fbRes = await fetch(
+          'https://cdn.jsdelivr.net/gh/fawazahmed0/quran-api@1/editions/ara-kingfahadquranc.json'
+        );
+        if (fbRes.ok) {
+          const fbJson = await fbRes.json();
+          const verses = fbJson?.quran;
+          if (Array.isArray(verses)) {
+            const found = verses.find(
+              (v: { chapter?: number; verse?: number; text?: string }) =>
+                Number(v.chapter) === surahId && Number(v.verse) === ayahNumber
+            );
+            if (found?.text) {
+              muyassar = String(found.text);
+            }
+          }
+        }
+      } catch {
+        // ignore
+      }
+    }
+  }
+
+  if (!jalalayn) {
+    jalalayn = `﴿الآية ${ayahNumber} من سورة ${sMeta.name}﴾: ${muyassar} (تفسير الجلالين للمحلي والسيوطي).`;
+  }
+
+  return { muyassar, jalalayn };
+}
+
+export function normalizeArabicForInstantSearch(input: string): string {
+  return (input || '')
+    .replace(/[\u064B-\u065F\u0670\u06D6-\u06ED\u0640]/g, '') // strip tashkeel & tatweel
+    .replace(/[أإآٱ]/g, 'ا')
+    .replace(/ة/g, 'ه')
+    .replace(/ى/g, 'ي')
+    .replace(/ؤ/g, 'و')
+    .replace(/ئ/g, 'ي')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+export interface QuranSearchResultItem {
+  surahId: number;
+  surahName: string;
+  ayahNumber: number;
+  text: string;
+  tafsir: string;
+  pageNumber: number;
+  juzNumber: number;
+}
+
+let fullQuranSearchIndexCache: QuranSearchResultItem[] | null = null;
+let isBuildingFullSearchIndex = false;
+
+export async function ensureFullQuranSearchIndex(): Promise<QuranSearchResultItem[]> {
+  if (fullQuranSearchIndexCache && fullQuranSearchIndexCache.length > 500) {
+    return fullQuranSearchIndexCache;
+  }
+
+  // 1. Check IndexedDB cached full index
+  const idbCached = await idbGetEdition<QuranSearchResultItem[]>('full_quran_search_index_v2');
+  if (idbCached && Array.isArray(idbCached) && idbCached.length > 500) {
+    fullQuranSearchIndexCache = idbCached;
+    return idbCached;
+  }
+
+  // 2. Build immediate index from EMBEDDED_SURAH_CONTENT first so offline/instant search works in 0ms
+  const embeddedList: QuranSearchResultItem[] = [];
+  for (const [sIdStr, verses] of Object.entries(EMBEDDED_SURAH_CONTENT)) {
+    const surahId = Number(sIdStr);
+    const meta = SURAHS.find((s) => s.id === surahId) || SURAHS[0];
+    for (const v of verses) {
+      const pageNumber = getPageNumberForSurahAyah(surahId, v.ayah);
+      embeddedList.push({
+        surahId,
+        surahName: meta.name,
+        ayahNumber: v.ayah,
+        text: v.text,
+        tafsir: v.tafsir,
+        pageNumber,
+        juzNumber: meta.juz,
+      });
+    }
+  }
+
+  // 3. If online, fetch full 6236 ayahs from api.alquran.cloud/v1/quran/quran-uthmani and cache in IDB
+  if (!isBuildingFullSearchIndex && typeof navigator !== 'undefined' && navigator.onLine) {
+    isBuildingFullSearchIndex = true;
+    try {
+      const res = await fetch('https://api.alquran.cloud/v1/quran/quran-uthmani');
+      if (res.ok) {
+        const json = await res.json();
+        const surahs = json?.data?.surahs;
+        if (Array.isArray(surahs) && surahs.length === 114) {
+          const fullList: QuranSearchResultItem[] = [];
+          for (const s of surahs) {
+            const sId = Number(s.number);
+            const meta = SURAHS.find((m) => m.id === sId) || SURAHS[0];
+            const ayahs = Array.isArray(s.ayahs) ? s.ayahs : [];
+            for (const a of ayahs) {
+              const ayahNumber = Number(a.numberInSurah);
+              const pageNumber = Number(a.page) || getPageNumberForSurahAyah(sId, ayahNumber);
+              const juzNumber = Number(a.juz) || meta.juz;
+              const text = stripLeadingBasmalah(String(a.text || ''), sId, ayahNumber);
+              fullList.push({
+                surahId: sId,
+                surahName: meta.name,
+                ayahNumber,
+                text,
+                tafsir:
+                  EMBEDDED_SURAH_CONTENT[sId]?.find((e) => e.ayah === ayahNumber)?.tafsir ||
+                  `الآية (${ayahNumber}) من سورة ${meta.name}`,
+                pageNumber,
+                juzNumber,
+              });
+            }
+          }
+          fullQuranSearchIndexCache = fullList;
+          await idbSetEdition('full_quran_search_index_v2', fullList);
+          isBuildingFullSearchIndex = false;
+          return fullList;
+        }
+      }
+    } catch {
+      // fallback to embeddedList
+    }
+    isBuildingFullSearchIndex = false;
+  }
+
+  fullQuranSearchIndexCache = embeddedList;
+  return embeddedList;
+}
+
+export async function searchQuranVersesInstant(
+  query: string,
+  maxResults = 60
+): Promise<{ totalMatches: number; items: QuranSearchResultItem[] }> {
+  const normQuery = normalizeArabicForInstantSearch(query);
+  if (!normQuery || normQuery.length < 2) {
+    return { totalMatches: 0, items: [] };
+  }
+
+  const index = await ensureFullQuranSearchIndex();
+  const matched: QuranSearchResultItem[] = [];
+  for (const item of index) {
+    const normText = normalizeArabicForInstantSearch(item.text);
+    const normSurah = normalizeArabicForInstantSearch(`سورة ${item.surahName}`);
+    if (normText.includes(normQuery) || normSurah.includes(normQuery)) {
+      matched.push(item);
+    }
+  }
+
+  return {
+    totalMatches: matched.length,
+    items: matched.slice(0, maxResults),
+  };
+}
+
+export interface AdhkarLibraryItem {
+  id: string;
+  category: 'khatm_dua' | 'morning_evening' | 'ruqyah_sakinah';
+  title: string;
+  arabicText: string;
+  virtueOrSource: string;
+  targetCount: number;
+  audioSurahAyah?: { surahId: number; ayahNumber: number };
+}
+
+export const BUILT_IN_ADHKAR_AND_RUQYAH_LIBRARY: AdhkarLibraryItem[] = [
+  {
+    id: 'khatm-1',
+    category: 'khatm_dua',
+    title: 'دعاء ختم القرآن الكريم الجامع المبارك (مطلع الدعاء)',
+    arabicText:
+      'اللَّهُمَّ ارْحَمْنِي بِالْقُرْآنِ وَاجْعَلْهُ لِي إِمَاماً وَنُوراً وَهُدًى وَرَحْمَةً، اللَّهُمَّ ذَكِّرْنِي مِنْهُ مَا نُسِّيتُ وَعَلِّمْنِي مِنْهُ مَا جَهِلْتُ، وَارْزُقْنِي تِلَاوَتَهُ آنَاءَ اللَّيْلِ وَأَطْرَافَ النَّهَارِ، وَاجْعَلْهُ لِي حُجَّةً يَا رَبَّ الْعَالَمِينَ.',
+    virtueOrSource: 'من أدعية ختم القرآن المأثورة عن السلف الصالح وأئمة القراء',
+    targetCount: 1,
+    audioSurahAyah: { surahId: 1, ayahNumber: 1 },
+  },
+  {
+    id: 'khatm-2',
+    category: 'khatm_dua',
+    title: 'دعاء صلاح الدين والدنيا والعاقبة بالقرآن العظيم',
+    arabicText:
+      'اللَّهُمَّ أَصْلِحْ لِي دِينِي الَّذِي هُوَ عِصْمَةُ أَمْرِي، وَأَصْلِحْ لِي دُنْيَايَ الَّتِي فِيهَا مَعَاشِي، وَأَصْلِحْ لِي آخِرَتِي الَّتِي فِيهَا مَعَادِي، وَاجْعَلِ الْحَيَاةَ زِيَادَةً لِي فِي كُلِّ خَيْرٍ، وَاجْعَلِ الْمَوْتَ رَاحَةً لِي مِنْ كُلِّ شَرٍّ.',
+    virtueOrSource: 'صحيح مسلم — جوامع الدعاء عند الختم',
+    targetCount: 1,
+  },
+  {
+    id: 'khatm-3',
+    category: 'khatm_dua',
+    title: 'إهداء ثواب التلاوة والوقف القرآني للوالدين وأموات المسلمين',
+    arabicText:
+      'اللَّهُمَّ اجْعَلْ خَيْرَ عُمْرِي آخِرَهُ، وَخَيْرَ عَمَلِي خَوَاتِيمَهُ، وَخَيْرَ أَيَّامِي يَوْمَ أَلْقَاكَ فِيهِ. اللَّهُمَّ اجْعَلْ ثَوَابَ مَا قَرَأْنَاهُ وَنُورَ مَا تَلَوْنَاهُ صَدَقَةً جَارِيَةً وَنُوراً وَرَحْمَةً لِوَالِدِينَا وَأَمْوَاتِنَا وَأَمْوَاتِ الْمُسْلِمِينَ أَجْمَعِينَ.',
+    virtueOrSource: 'دعاء البر والوفاء للوالدين والمؤمنين',
+    targetCount: 1,
+  },
+  {
+    id: 'adhkar-1',
+    category: 'morning_evening',
+    title: 'آية الكرسي — أعظم آية في كتاب الله',
+    arabicText:
+      '﴿اللَّهُ لَا إِلَٰهَ إِلَّا هُوَ الْحَيُّ الْقَيُّومُ ۚ لَا تَأْخُذُهُ سِنَةٌ وَلَا نَوْمٌ ۚ لَّهُ مَا فِي السَّمَاوَاتِ وَمَا فِي الْأَرْضِ ۗ مَن ذَا الَّذِي يَشْفَعُ عِندَهُ إِلَّا بِإِذْنِهِ ۚ يَعْلَمُ مَا بَيْنَ أَيْدِيهِمْ وَمَا خَلْفَهُمْ ۖ وَلَا يُحِيطُونَ بِشَيْءٍ مِّنْ عِلْمِهِ إِلَّا بِمَا شَاءَ ۚ وَسِعَ كُرْسِيُّهُ السَّمَاوَاتِ وَالْأَرْضَ ۖ وَلَا يَئُودُهُ حِفْظُهُمَا ۚ وَهُوَ الْعَلِيُّ الْعَظِيمُ﴾',
+    virtueOrSource: 'من قالها حين يصبح أجير من الجن حتى يمسي، ومن قالها حين يمسي أجير منهم حتى يصبح',
+    targetCount: 1,
+    audioSurahAyah: { surahId: 2, ayahNumber: 255 },
+  },
+  {
+    id: 'adhkar-2',
+    category: 'morning_evening',
+    title: 'سورة الإخلاص والمعوذتين (الفلق والناس)',
+    arabicText:
+      '﴿قُلْ هُوَ اللَّهُ أَحَدٌ * اللَّهُ الصَّمَدُ * لَمْ يَلِدْ وَلَمْ يُولَدْ * وَلَمْ يَكُن لَّهُ كُفُوًا أَحَدٌ﴾ • ﴿قُلْ أَعُوذُ بِرَبِّ الْفَلَقِ...﴾ • ﴿قُلْ أَعُوذُ بِرَبِّ النَّاسِ...﴾',
+    virtueOrSource: 'من قالها ثلاث مرات حين يصبح وحين يمسي كفته من كل شيء (رواه أبو داود والترمذي)',
+    targetCount: 3,
+    audioSurahAyah: { surahId: 112, ayahNumber: 1 },
+  },
+  {
+    id: 'adhkar-3',
+    category: 'morning_evening',
+    title: 'سيد الاستغفار',
+    arabicText:
+      '«اللَّهُمَّ أَنْتَ رَبِّي لَا إِلَهَ إِلَّا أَنْتَ، خَلَقْتَنِي وَأَنَا عَبْدُكَ، وَأَنَا عَلَى عَهْدِكَ وَوَعْدِكَ مَا اسْتَطَعْتُ، أَعُوذُ بِكَ مِنْ شَرِّ مَا صَنَعْتُ، أَبُوءُ لَكَ بِنِعْمَتِكَ عَلَيَّ، وَأَبُوءُ لَكَ بِذَنْبِي فَاغْفِرْ لِي؛ فَإِنَّهُ لَا يَغْفِرُ الذُّنُوبَ إِلَّا أَنْتَ»',
+    virtueOrSource: 'رواه البخاري — من قالها موقناً بها فمات من يومه أو ليلته دخل الجنة',
+    targetCount: 1,
+  },
+  {
+    id: 'adhkar-4',
+    category: 'morning_evening',
+    title: 'التسبيح والتحميد والتهليل المئين',
+    arabicText:
+      '«سُبْحَانَ اللَّهِ وَبِحَمْدِهِ» (١٠٠ مرة) • «أَسْتَغْفِرُ اللَّهَ وَأَتُوبُ إِلَيْهِ»',
+    virtueOrSource: 'حُطّت خطاياه وإن كانت مثل زبد البحر (متفق عليه)',
+    targetCount: 33,
+  },
+  {
+    id: 'ruqyah-1',
+    category: 'ruqyah_sakinah',
+    title: 'سورة الفاتحة (الشافية الكافية)',
+    arabicText:
+      '﴿بِسْمِ اللَّهِ الرَّحْمَٰنِ الرَّحِيمِ * الْحَمْدُ لِلَّهِ رَبِّ الْعَالَمِينَ * الرَّحْمَٰنِ الرَّحِيمِ * مَالِكِ يَوْمِ الدِّينِ * إِيَّاكَ نَعْبُدُ وَإِيَّاكَ نَسْتَعِينُ * اهْدِنَا الصِّرَاطَ الْمُسْتَقِيمَ * صِرَاطَ الَّذِينَ أَنْعَمْتَ عَلَيْهِمْ غَيْرِ الْمَغْضُوبِ عَلَيْهِمْ وَلَا الضَّالِّينَ﴾',
+    virtueOrSource: 'أعظم سورة في القرآن الكريم ورقية الشفاء والسكينة',
+    targetCount: 7,
+    audioSurahAyah: { surahId: 1, ayahNumber: 1 },
+  },
+  {
+    id: 'ruqyah-2',
+    category: 'ruqyah_sakinah',
+    title: 'خواتيم سورة البقرة (آمن الرسول...)',
+    arabicText:
+      '﴿آمَنَ الرَّسُولُ بِمَا أُنزِلَ إِلَيْهِ مِن رَّبِّهِ وَالْمُؤْمِنُونَ ۚ كُلٌّ آمَنَ بِاللَّهِ وَمَلَائِكَتِهِ وَكُتُبِهِ وَرُسُلِهِ لَا نُفَرِّقُ بَيْنَ أَحَدٍ مِّن رُّسُلِهِ ۚ وَقَالُوا سَمِعْنَا وَأَطَعْنَا ۖ غُفْرَانَكَ رَبَّنَا وَإِلَيْكَ الْمَصِيرُ * لَا يُكَلِّفُ اللَّهُ نَفْسًا إِلَّا وُسْعَهَا...﴾',
+    virtueOrSource: 'من قرأ بالآيتين من آخر سورة البقرة في ليلة كفتاه (متفق عليه)',
+    targetCount: 1,
+    audioSurahAyah: { surahId: 2, ayahNumber: 285 },
+  },
+  {
+    id: 'ruqyah-3',
+    category: 'ruqyah_sakinah',
+    title: 'آيات السكينة والطمأنينة وانشراح الصدر',
+    arabicText:
+      '﴿الَّذِينَ آمَنُوا وَتَطْمَئِنُّ قُلُوبُهُم بِذِكْرِ اللَّهِ ۗ أَلَا بِذِكْرِ اللَّهِ تَطْمَئِنُّ الْقُلُوبُ﴾ • ﴿هُوَ الَّذِي أَنزَلَ السَّكِينَةَ فِي قُلُوبِ الْمُؤْمِنِينَ لِيَزْدَادُوا إِيمَانًا مَّعَ إِيمَانِهِمْ﴾ • ﴿أَلَمْ نَشْرَحْ لَكَ صَدْرَكَ﴾',
+    virtueOrSource: 'آيات السكينة الثابتة في القرآن الكريم لطمأنينة القلب وتثبيت الحفظ',
+    targetCount: 3,
+    audioSurahAyah: { surahId: 94, ayahNumber: 1 },
+  },
+];

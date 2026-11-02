@@ -7,6 +7,7 @@ import { formatGregorianAndHijri } from '../utils/dateUtils';
 import { generateVerificationHash } from '../utils/wlqSyncCore';
 import { PedagogicalDiagnosticCard } from './PedagogicalAdvisorModal';
 import { SmartQuizAndCompetitionsSection } from './SmartQuizAndCompetitionsSection';
+import { ACADEMY_BRAND_CONFIG } from '../constants/brandConfig';
 import {
   Award,
   CheckCircle2,
@@ -1208,6 +1209,10 @@ export const ExamsIjazahView: React.FC = () => {
                     })}
                   </svg>
                 </div>
+              </div>
+
+              <div className="pt-3 border-t border-[#c59b27]/40 text-[11px] font-bold text-[#145a3a]">
+                {ACADEMY_BRAND_CONFIG.printAndBoardFooterText}
               </div>
             </div>
           </div>

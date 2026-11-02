@@ -23,6 +23,7 @@ import {
   ReciterId,
 } from '../types';
 import { QuranTextModal } from './QuranTextModal';
+import { ACADEMY_BRAND_CONFIG } from '../constants/brandConfig';
 import {
   AlertTriangle,
   ArrowLeft,
@@ -805,7 +806,19 @@ function playSynthesizedSoundFX(
 // MAIN SMART BOARD STUDIO COMPONENT
 // ============================================================================
 
-export const SmartBoardView: React.FC = () => {
+export interface SmartBoardViewProps {
+  embeddedInSessionFocus?: boolean;
+  initialSurahId?: number;
+  initialFromAyah?: number;
+  initialToAyah?: number;
+}
+
+export const SmartBoardView: React.FC<SmartBoardViewProps> = ({
+  embeddedInSessionFocus = false,
+  initialSurahId,
+  initialFromAyah,
+  initialToAyah,
+}) => {
   const {
     students,
     sessions,
@@ -822,6 +835,7 @@ export const SmartBoardView: React.FC = () => {
     showToast,
     isFullScreenFocus,
     setIsFullScreenFocus,
+    setIsDeveloperModalOpen,
   } = useAcademy();
 
   const activeStudent =
@@ -830,12 +844,26 @@ export const SmartBoardView: React.FC = () => {
   // ==========================================================================
   // 1. 3-PANEL LAYOUT & MULTI-PAGE STATE
   // ==========================================================================
-  const [leftPanelOpen, setLeftPanelOpen] = useState<boolean>(true);
-  const [rightPanelOpen, setRightPanelOpen] = useState<boolean>(true);
+  const [leftPanelOpen, setLeftPanelOpen] = useState<boolean>(
+    !isFullScreenFocus && !embeddedInSessionFocus
+  );
+  const [rightPanelOpen, setRightPanelOpen] = useState<boolean>(
+    !isFullScreenFocus && !embeddedInSessionFocus
+  );
   const [pages, setPages] = useState<StudioBoardPage[]>([createDefaultPage(1)]);
   const [currentPageIdx, setCurrentPageIdx] = useState<number>(0);
   const [undoStack, setUndoStack] = useState<StudioStroke[][]>([]);
   const [redoStack, setRedoStack] = useState<StudioStroke[][]>([]);
+
+  useEffect(() => {
+    if (isFullScreenFocus || embeddedInSessionFocus) {
+      setLeftPanelOpen(false);
+      setRightPanelOpen(false);
+    } else {
+      setLeftPanelOpen(true);
+      setRightPanelOpen(true);
+    }
+  }, [isFullScreenFocus, embeddedInSessionFocus]);
 
   const currentPage = pages[currentPageIdx] || pages[0];
 
@@ -919,10 +947,16 @@ export const SmartBoardView: React.FC = () => {
   const [quranPickerModalOpen, setQuranPickerModalOpen] =
     useState<boolean>(false);
   const [surahId, setSurahId] = useState<number>(
-    activeStudent?.currentStop.surahId || 67
+    initialSurahId || activeStudent?.currentStop.surahId || 67
   );
-  const [fromAyah, setFromAyah] = useState<number>(1);
-  const [toAyah, setToAyah] = useState<number>(8);
+  const [fromAyah, setFromAyah] = useState<number>(initialFromAyah || 1);
+  const [toAyah, setToAyah] = useState<number>(initialToAyah || 8);
+
+  useEffect(() => {
+    if (initialSurahId) setSurahId(initialSurahId);
+    if (initialFromAyah) setFromAyah(initialFromAyah);
+    if (initialToAyah) setToAyah(initialToAyah);
+  }, [initialSurahId, initialFromAyah, initialToAyah]);
   const [verses, setVerses] = useState<AyahEntry[]>([]);
   const [loadingVerses, setLoadingVerses] = useState<boolean>(false);
   const [reciter, setReciter] = useState<ReciterId>('Husary_128kbps');
@@ -2769,7 +2803,9 @@ export const SmartBoardView: React.FC = () => {
   return (
     <div
       className={`flex flex-col gap-3 select-none ${
-        isFullScreenFocus
+        embeddedInSessionFocus
+          ? 'w-full min-h-[650px]'
+          : isFullScreenFocus
           ? 'fixed inset-0 z-50 bg-[#0b1711] p-2 sm:p-3 overflow-hidden h-screen w-screen'
           : ''
       }`}
@@ -3318,7 +3354,7 @@ export const SmartBoardView: React.FC = () => {
                             {m.letters}
                           </div>
                           <div className="text-[10px] text-neutral-500 mt-1 line-clamp-2">
-                            {m.tip}
+                            {m.description}
                           </div>
                         </div>
                       ))}
@@ -5840,6 +5876,34 @@ export const SmartBoardView: React.FC = () => {
           </aside>
         </div>
       )}
+
+      {/* Official Smart Board Bottom Bar */}
+      <div className="mt-3 px-4 py-2.5 rounded-2xl bg-gradient-to-r from-[#0b1f16] via-[#145a3a] to-[#0b1f16] border border-[#c59b27]/50 text-white flex flex-wrap items-center justify-between gap-2 text-xs shadow-md">
+        <button
+          type="button"
+          onClick={() => setIsDeveloperModalOpen(true)}
+          className="font-bold text-amber-200 hover:text-amber-100 underline decoration-amber-400/50 text-right cursor-pointer transition"
+        >
+          {ACADEMY_BRAND_CONFIG.printAndBoardFooterText}
+        </button>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setIsDeveloperModalOpen(true)}
+            className="px-2.5 py-1 rounded-xl bg-amber-400/20 hover:bg-amber-400/30 border border-amber-300/40 text-amber-200 text-[11px] font-bold cursor-pointer transition"
+          >
+            تواصل مع الإدارة / المطور
+          </button>
+          <a
+            href={ACADEMY_BRAND_CONFIG.whatsappDirectUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="px-2.5 py-1 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-[11px] font-bold transition"
+          >
+            واتساب مباشر
+          </a>
+        </div>
+      </div>
     </div>
   );
 };

@@ -12,8 +12,10 @@ import {
 } from '../utils/dateUtils';
 import {
   ExportReportScope,
+  decryptAndParseBackupJson,
   exportCombinedMasterCSV,
   exportDataToJsonBackup,
+  exportEncryptedDataToJsonBackup,
   exportFinanceToCSV,
   exportRecordsToPDF,
   exportStudentsToCSV,
@@ -246,14 +248,48 @@ export const SettingsView: React.FC = () => {
   const [lastBackupExportTime, setLastBackupExportTime] = useState<string | null>(
     () => localStorage.getItem('imam_last_json_backup_export_time')
   );
+  const [backupEncryptionKey, setBackupEncryptionKey] = useState<string>(
+    () => settings.teacherPin || '1234'
+  );
+  const [showBackupEncryptionKey, setShowBackupEncryptionKey] = useState<boolean>(false);
   const [restoredFileSummary, setRestoredFileSummary] = useState<{
     fileName: string;
     restoredAt: string;
     circlesCount: number;
     studentsCount: number;
     sessionsCount: number;
+    wasEncrypted?: boolean;
     rawPayload: Record<string, unknown>;
   } | null>(null);
+
+  const handleExportEncryptedJsonBackup = async () => {
+    const cleanKey = (backupEncryptionKey || settings.teacherPin || '1234').trim() || '1234';
+    await exportEncryptedDataToJsonBackup(
+      {
+        students,
+        sessions,
+        circles,
+        exams,
+        ijazahs,
+        tasks,
+        settings,
+        managedTeachers,
+        filenamePrefix: 'imam-encrypted-students-circles',
+      },
+      cleanKey
+    );
+    const nowFormatted = new Date().toLocaleString('ar-EG');
+    setLastBackupExportTime(nowFormatted);
+    try {
+      localStorage.setItem('imam_last_json_backup_export_time', nowFormatted);
+    } catch {
+      // ignore storage errors
+    }
+    showToast(
+      `🔐 تم تصدير قاعدة بيانات الطلاب (${students.length}) والحلقات (${circles.length}) كملف JSON مشفر (AES-256) للنسخ الاحتياطي اليدوي ✓`,
+      'success'
+    );
+  };
 
   const handleExportJsonBackup = () => {
     exportDataToJsonBackup({
@@ -303,19 +339,32 @@ export const SettingsView: React.FC = () => {
     const file = e.target.files?.[0];
     if (!file) return;
     const reader = new FileReader();
-    reader.onload = (ev) => {
+    reader.onload = async (ev) => {
       try {
-        const parsed = JSON.parse(String(ev.target?.result || '{}')) as Record<
-          string,
-          unknown
-        >;
-        const ok = importFullBackup(parsed);
-        if (!ok) {
+        const rawText = String(ev.target?.result || '{}');
+        const decryptedRes = await decryptAndParseBackupJson(
+          rawText,
+          backupEncryptionKey || settings.teacherPin || '1234'
+        );
+        if (!decryptedRes.ok || !decryptedRes.payload) {
           showToast(
-            'ملف النسخة الاحتياطية غير صالح — تأكد من احتوائه على مصفوفة الطلاب والحلقات بتنسيق JSON',
+            decryptedRes.error ||
+              'ملف النسخة الاحتياطية غير صالح أو كلمة مرور فك التشفير غير صحيحة',
             'error'
           );
           return;
+        }
+        const parsed = decryptedRes.payload;
+        const ok = importFullBackup(parsed);
+        if (!ok) {
+          const okScoped = importTeacherScopedJsonBackup(parsed);
+          if (!okScoped) {
+            showToast(
+              'ملف النسخة الاحتياطية غير صالح — تأكد من احتوائه على مصفوفة الطلاب والحلقات بتنسيق JSON',
+              'error'
+            );
+            return;
+          }
         }
         const studentsArr = Array.isArray(parsed.students) ? parsed.students : [];
         const circlesArr = Array.isArray(parsed.circles)
@@ -329,8 +378,15 @@ export const SettingsView: React.FC = () => {
           circlesCount: circlesArr.length,
           studentsCount: studentsArr.length,
           sessionsCount: sessionsArr.length,
+          wasEncrypted: decryptedRes.wasEncrypted,
           rawPayload: parsed,
         });
+        showToast(
+          decryptedRes.wasEncrypted
+            ? `🔓 تم فك تشفير واستعادة قاعدة بيانات الطلاب (${studentsArr.length}) والحلقات (${circlesArr.length}) بنجاح ✓`
+            : `✅ تمت استعادة قاعدة بيانات الطلاب (${studentsArr.length}) والحلقات (${circlesArr.length}) بنجاح ✓`,
+          'success'
+        );
       } catch {
         showToast('تعذر قراءة ملف JSON المحلي — يرجى التحقق من سلامة الملف', 'error');
       } finally {
@@ -451,6 +507,16 @@ export const SettingsView: React.FC = () => {
             <span>واتساب الإدارة والدعم ({settings.officialWhatsappPhone || OFFICIAL_ACADEMY_WHATSAPP})</span>
           </a>
 
+          <button
+            type="button"
+            onClick={() => void handleExportEncryptedJsonBackup()}
+            className="px-4 py-2.5 rounded-xl bg-gradient-to-l from-[#145a3a] to-[#0b3823] hover:brightness-110 text-white text-xs font-extrabold flex items-center justify-center gap-2 shadow-sm border border-[#c59b27] cursor-pointer transition"
+            title="تصدير قاعدة بيانات الطلاب والحلقات كملف JSON مشفر للنسخ الاحتياطي اليدوي"
+          >
+            <Lock className="w-4 h-4 text-[#dfbd69]" />
+            <span>🔐 تصدير JSON مشفر (الطلاب والحلقات)</span>
+          </button>
+
           {canAccessBackups && (
             <button
               type="button"
@@ -462,6 +528,105 @@ export const SettingsView: React.FC = () => {
             </button>
           )}
         </div>
+      </div>
+
+      {/* 🔐 بطاقة تصدير واستيراد قاعدة بيانات الطلاب والحلقات كملف JSON مشفر للنسخ الاحتياطي اليدوي وإعادة التثبيت */}
+      <div className="rounded-3xl bg-gradient-to-l from-[#145a3a] via-[#10462d] to-[#0b291a] text-white p-5 sm:p-6 border-2 border-[#c59b27] shadow-md space-y-4">
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+          <div className="flex items-start gap-3.5">
+            <div className="w-12 h-12 rounded-2xl bg-[#c59b27] text-[#14281d] flex items-center justify-center shrink-0 shadow-sm">
+              <Lock className="w-6 h-6" />
+            </div>
+            <div>
+              <div className="flex flex-wrap items-center gap-2">
+                <h3 className="text-sm sm:text-base font-extrabold text-[#dfbd69]">
+                  🔐 تصدير قاعدة بيانات الطلاب والحلقات كملف JSON مشفر (AES-256) واستيراد البيانات عند إعادة التثبيت
+                </h3>
+                <span className="px-2.5 py-0.5 rounded-full bg-white/15 border border-[#c59b27]/60 text-[11px] font-black text-white">
+                  تشفير قياسي AES-256-GCM + PBKDF2
+                </span>
+              </div>
+              <p className="text-xs text-emerald-100/90 mt-1 leading-relaxed">
+                يتيح للمعلم والمالك تصدير قاعدة بيانات الطلاب ({students.length} طلاب) والحلقات ({circles.length} حلقات) وسجل الحصص ({sessions.length} حصة) كملف JSON مشفر بكلمة مرور للنسخ الاحتياطي اليدوي الآمن، مع إمكانية فك التشفير واستيراد البيانات فوراً في حال إعادة تثبيت النظام أو الانتقال لجهاز جديد.
+              </p>
+            </div>
+          </div>
+
+          {/* مفتاح التشفير وفك التشفير */}
+          <div className="flex flex-wrap items-center gap-2 bg-black/25 p-2.5 rounded-2xl border border-[#c59b27]/50 shrink-0">
+            <span className="text-xs font-extrabold text-[#dfbd69] px-1">
+              🔑 مفتاح التشفير / الاستعادة:
+            </span>
+            <input
+              type={showBackupEncryptionKey ? 'text' : 'password'}
+              value={backupEncryptionKey}
+              onChange={(e) => setBackupEncryptionKey(e.target.value)}
+              placeholder="كلمة مرور التشفير أو رمز PIN..."
+              className="px-3 py-1.5 rounded-xl bg-white/10 border border-white/20 text-white text-xs font-mono font-bold w-36 sm:w-44 focus:outline-none focus:border-[#c59b27]"
+            />
+            <button
+              type="button"
+              onClick={() => setShowBackupEncryptionKey((p) => !p)}
+              className="p-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-[#dfbd69] cursor-pointer"
+              title={showBackupEncryptionKey ? 'إخفاء المفتاح' : 'إظهار المفتاح'}
+            >
+              {showBackupEncryptionKey ? (
+                <EyeOff className="w-4 h-4" />
+              ) : (
+                <Eye className="w-4 h-4" />
+              )}
+            </button>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 pt-2 border-t border-white/15">
+          <button
+            type="button"
+            onClick={() => void handleExportEncryptedJsonBackup()}
+            className="py-3 px-4 rounded-2xl bg-gradient-to-l from-[#c59b27] to-[#dfbd69] hover:brightness-105 text-[#14281d] text-xs sm:text-sm font-black flex items-center justify-center gap-2 shadow-md cursor-pointer transition"
+          >
+            <Lock className="w-4 h-4" />
+            <span>🔐 تصدير قاعدة بيانات الطلاب والحلقات (JSON مشفر)</span>
+          </button>
+
+          <label className="py-3 px-4 rounded-2xl bg-white/15 hover:bg-white/25 border-2 border-dashed border-[#dfbd69] text-white text-xs sm:text-sm font-black flex items-center justify-center gap-2 cursor-pointer transition shadow-sm">
+            <Upload className="w-4 h-4 text-[#dfbd69]" />
+            <span>📂 استيراد واستعادة البيانات (مشفر .enc.json أو عادي)</span>
+            <input
+              type="file"
+              accept=".json,.enc.json,application/json"
+              onChange={handleImportJsonBackup}
+              className="hidden"
+            />
+          </label>
+
+          <button
+            type="button"
+            onClick={handleExportCirclesAndStudentsOnlyJson}
+            className="py-3 px-4 rounded-2xl bg-black/25 hover:bg-black/40 border border-white/20 text-emerald-100 text-xs font-extrabold flex items-center justify-center gap-2 cursor-pointer transition"
+          >
+            <Download className="w-4 h-4 text-[#dfbd69]" />
+            <span>تنزيل نسخة JSON قياسية غير مشفرة</span>
+          </button>
+        </div>
+
+        {restoredFileSummary && (
+          <div className="p-3.5 rounded-2xl bg-emerald-950/90 border border-emerald-400/60 text-xs flex flex-wrap items-center justify-between gap-3">
+            <div className="flex items-center gap-2 font-extrabold text-emerald-200">
+              <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+              <span>
+                {restoredFileSummary.wasEncrypted
+                  ? '🔓 تم فك تشفير واستعادة النسخة المشفرة بنجاح:'
+                  : '✅ تمت استعادة النسخة الاحتياطية بنجاح:'}{' '}
+                {restoredFileSummary.fileName} — ({restoredFileSummary.circlesCount} حلقات •{' '}
+                {restoredFileSummary.studentsCount} طلاب • {restoredFileSummary.sessionsCount} حصة)
+              </span>
+            </div>
+            <span className="font-mono text-[11px] text-[#dfbd69]">
+              {restoredFileSummary.restoredAt}
+            </span>
+          </div>
+        )}
       </div>
 
       {/* شريط تبويبات شاشة الإعدادات مع تبويب «صلاحيات مخصصة لكل محفظ» وتبويب «إدارة النسخ الاحتياطي» */}
@@ -2213,7 +2378,7 @@ export const SettingsView: React.FC = () => {
               </span>
               <button
                 type="button"
-                onClick={triggerCloudSyncNow}
+                onClick={() => void triggerCloudSyncNow(true)}
                 className="px-3.5 py-1.5 rounded-xl bg-[#145a3a] hover:bg-[#0f452c] text-white text-xs font-extrabold flex items-center gap-1.5 cursor-pointer"
               >
                 <RefreshCw className="w-3.5 h-3.5 text-[#dfbd69]" />

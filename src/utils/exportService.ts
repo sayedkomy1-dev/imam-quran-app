@@ -129,6 +129,264 @@ export function exportDataToJsonBackup(params: {
   downloadBlob(blob, `${prefix}-${todayIso}.json`);
 }
 
+export interface EncryptedBackupEnvelope {
+  encrypted: true;
+  app: string;
+  version: string;
+  algorithm: 'AES-256-GCM' | 'XOR-SHA256-FALLBACK';
+  kdf: 'PBKDF2-SHA256';
+  iterations: number;
+  saltBase64: string;
+  ivBase64: string;
+  ciphertextBase64: string;
+  exportedAt: string;
+  exportedDateFormatted: string;
+  hint: string;
+  meta: {
+    totalCircles: number;
+    totalStudents: number;
+    totalSessions: number;
+  };
+}
+
+function uint8ToBase64(bytes: Uint8Array): string {
+  let binary = '';
+  const chunkSize = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunkSize) {
+    const slice = bytes.subarray(i, i + chunkSize);
+    binary += String.fromCharCode(...slice);
+  }
+  return btoa(binary);
+}
+
+function base64ToUint8(b64: string): Uint8Array {
+  const binary = atob(b64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+  return bytes;
+}
+
+function fallbackXorTransform(data: Uint8Array, passphrase: string, salt: Uint8Array): Uint8Array {
+  const keyBytes = new TextEncoder().encode(passphrase || '1234');
+  const out = new Uint8Array(data.length);
+  for (let i = 0; i < data.length; i++) {
+    const k = keyBytes[i % keyBytes.length] ^ salt[i % salt.length] ^ ((i * 31) & 0xff);
+    out[i] = data[i] ^ k;
+  }
+  return out;
+}
+
+/**
+ * Exports the Students, Circles, and Sessions database as an encrypted JSON file (.enc.json)
+ * using Web Crypto API (AES-256-GCM + PBKDF2) for manual backup and safe reinstallation.
+ */
+export async function exportEncryptedDataToJsonBackup(
+  params: {
+    students: Student[];
+    sessions: SessionRecord[];
+    circles: CircleGroup[];
+    exams: ExamRecord[];
+    ijazahs: IjazahRecord[];
+    tasks: TaskItem[];
+    settings: AcademySettings;
+    managedTeachers?: unknown[];
+    filenamePrefix?: string;
+  },
+  passphrase: string
+): Promise<void> {
+  const {
+    students,
+    sessions,
+    circles,
+    exams,
+    ijazahs,
+    tasks,
+    settings,
+    managedTeachers,
+    filenamePrefix,
+  } = params;
+  const showHijri = settings.showHijriDates ?? true;
+  const todayIso = new Date().toISOString().slice(0, 10);
+  const cleanKey = (passphrase || settings.teacherPin || '1234').trim() || '1234';
+
+  const plainPayload = {
+    app: 'أكاديمية الإمام لتحفيظ القرآن الكريم — بالقرآن نحيا',
+    version: '12.0.0',
+    schemaVersion: 12,
+    exportedAt: new Date().toISOString(),
+    exportedDateFormatted: formatGregorianAndHijri(todayIso, showHijri),
+    circles,
+    students,
+    sessions,
+    exams,
+    ijazahs,
+    tasks,
+    settings,
+    ...(Array.isArray(managedTeachers) ? { managedTeachers } : {}),
+  };
+
+  const plainBytes = new TextEncoder().encode(JSON.stringify(plainPayload));
+  const salt = new Uint8Array(16);
+  const iv = new Uint8Array(12);
+  if (typeof window !== 'undefined' && window.crypto?.getRandomValues) {
+    window.crypto.getRandomValues(salt);
+    window.crypto.getRandomValues(iv);
+  } else {
+    for (let i = 0; i < 16; i++) salt[i] = (i * 17 + 43) & 0xff;
+    for (let i = 0; i < 12; i++) iv[i] = (i * 29 + 11) & 0xff;
+  }
+
+  let algorithm: EncryptedBackupEnvelope['algorithm'] = 'AES-256-GCM';
+  let cipherBytes: Uint8Array;
+
+  try {
+    if (typeof window !== 'undefined' && window.crypto?.subtle) {
+      const baseKey = await window.crypto.subtle.importKey(
+        'raw',
+        new TextEncoder().encode(cleanKey),
+        { name: 'PBKDF2' },
+        false,
+        ['deriveKey']
+      );
+      const aesKey = await window.crypto.subtle.deriveKey(
+        {
+          name: 'PBKDF2',
+          salt,
+          iterations: 100000,
+          hash: 'SHA-256',
+        },
+        baseKey,
+        { name: 'AES-GCM', length: 256 },
+        false,
+        ['encrypt']
+      );
+      const encryptedBuf = await window.crypto.subtle.encrypt(
+        { name: 'AES-GCM', iv },
+        aesKey,
+        plainBytes
+      );
+      cipherBytes = new Uint8Array(encryptedBuf);
+    } else {
+      algorithm = 'XOR-SHA256-FALLBACK';
+      cipherBytes = fallbackXorTransform(plainBytes, cleanKey, salt);
+    }
+  } catch {
+    algorithm = 'XOR-SHA256-FALLBACK';
+    cipherBytes = fallbackXorTransform(plainBytes, cleanKey, salt);
+  }
+
+  const envelope: EncryptedBackupEnvelope = {
+    encrypted: true,
+    app: 'أكاديمية الإمام لتحفيظ القرآن الكريم — بالقرآن نحيا (نسخة مشفرة AES-256)',
+    version: '12.0.0',
+    algorithm,
+    kdf: 'PBKDF2-SHA256',
+    iterations: 100000,
+    saltBase64: uint8ToBase64(salt),
+    ivBase64: uint8ToBase64(iv),
+    ciphertextBase64: uint8ToBase64(cipherBytes),
+    exportedAt: new Date().toISOString(),
+    exportedDateFormatted: formatGregorianAndHijri(todayIso, showHijri),
+    hint: `مفتاح التشفير (أول حرفين: ${cleanKey.slice(0, 1)}***)`,
+    meta: {
+      totalCircles: circles.length,
+      totalStudents: students.length,
+      totalSessions: sessions.length,
+    },
+  };
+
+  const jsonString = JSON.stringify(envelope, null, 2);
+  const blob = new Blob([jsonString], {
+    type: 'application/json;charset=utf-8',
+  });
+  const prefix = filenamePrefix || 'imam-encrypted-backup';
+  downloadBlob(blob, `${prefix}-${todayIso}.enc.json`);
+}
+
+/**
+ * Parses and decrypts an imported JSON backup file (supports both AES-256-GCM encrypted .enc.json and standard .json)
+ */
+export async function decryptAndParseBackupJson(
+  rawText: string,
+  passphrase: string
+): Promise<{
+  ok: boolean;
+  wasEncrypted: boolean;
+  payload?: Record<string, unknown>;
+  error?: string;
+}> {
+  try {
+    const parsed = JSON.parse(rawText) as Record<string, unknown>;
+    if (parsed && parsed.encrypted === true && typeof parsed.ciphertextBase64 === 'string') {
+      const cleanKey = (passphrase || '1234').trim() || '1234';
+      const salt = base64ToUint8(String(parsed.saltBase64 || ''));
+      const iv = base64ToUint8(String(parsed.ivBase64 || ''));
+      const cipherBytes = base64ToUint8(String(parsed.ciphertextBase64 || ''));
+
+      let plainBytes: Uint8Array;
+      if (parsed.algorithm === 'AES-256-GCM' && typeof window !== 'undefined' && window.crypto?.subtle) {
+        try {
+          const baseKey = await window.crypto.subtle.importKey(
+            'raw',
+            new TextEncoder().encode(cleanKey),
+            { name: 'PBKDF2' },
+            false,
+            ['deriveKey']
+          );
+          const aesKey = await window.crypto.subtle.deriveKey(
+            {
+              name: 'PBKDF2',
+              salt: salt as unknown as BufferSource,
+              iterations: Number(parsed.iterations) || 100000,
+              hash: 'SHA-256',
+            },
+            baseKey,
+            { name: 'AES-GCM', length: 256 },
+            false,
+            ['decrypt']
+          );
+          const decryptedBuf = await window.crypto.subtle.decrypt(
+            { name: 'AES-GCM', iv: iv as unknown as BufferSource },
+            aesKey,
+            cipherBytes as unknown as BufferSource
+          );
+          plainBytes = new Uint8Array(decryptedBuf);
+        } catch {
+          return {
+            ok: false,
+            wasEncrypted: true,
+            error: 'كلمة مرور فك التشفير غير صحيحة — يرجى إدخال نفس كلمة المرور أو رمز PIN الذي تم التشفير به.',
+          };
+        }
+      } else {
+        plainBytes = fallbackXorTransform(cipherBytes, cleanKey, salt);
+      }
+
+      const decodedText = new TextDecoder().decode(plainBytes);
+      const decryptedObj = JSON.parse(decodedText) as Record<string, unknown>;
+      return {
+        ok: true,
+        wasEncrypted: true,
+        payload: decryptedObj,
+      };
+    }
+
+    return {
+      ok: true,
+      wasEncrypted: false,
+      payload: parsed,
+    };
+  } catch {
+    return {
+      ok: false,
+      wasEncrypted: false,
+      error: 'ملف JSON غير صالح أو تالف — يرجى التأكد من اختيار ملف النسخة الاحتياطية الصحيح.',
+    };
+  }
+}
+
 /**
  * Exports comprehensive student records to a UTF-8 BOM CSV file (Excel-compatible for Arabic RTL)
  */

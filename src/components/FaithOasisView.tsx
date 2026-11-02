@@ -8,6 +8,8 @@ import {
   SURAHS,
 } from '../data/quranData';
 import { OFFICIAL_ACADEMY_WHATSAPP } from '../data/hybridFoundationData';
+import { ACADEMY_BRAND_CONFIG } from '../constants/brandConfig';
+import { DeveloperSignatureFooter } from './DeveloperSupportModal';
 import { getLocalDateString } from '../data/seedData';
 import { ReciterId } from '../types';
 import {
@@ -169,6 +171,7 @@ export const FaithOasisView: React.FC<FaithOasisViewProps> = ({
     toggleStudentGoldenCrown,
     setActiveTab,
     showToast,
+    setIsDeveloperModalOpen,
   } = useAcademy();
 
   const todayStr = getLocalDateString(0);
@@ -324,7 +327,7 @@ export const FaithOasisView: React.FC<FaithOasisViewProps> = ({
     }
     const st = students.find((s) => s.id === stId) || activeStudent;
     if (!st) return 'needs_review';
-    if (st.memorizedSurahs.includes(surahName) || surahNumber >= 78) {
+    if (st.memorizedSurahs.includes(surahNumber) || surahNumber >= 78) {
       // Check if student had recent errors in this surah
       const hasRecentErrors = sessions.some(
         (ses) =>
@@ -540,7 +543,7 @@ export const FaithOasisView: React.FC<FaithOasisViewProps> = ({
 
   useEffect(() => {
     let mounted = true;
-    loadSurahVerses(repSurahId).then((loaded) => {
+    loadSurahVerses(repSurahId, repFromAyah, repToAyah).then((loaded) => {
       if (!mounted) return;
       setRepVerses(
         loaded.filter((v) => v.ayah >= repFromAyah && v.ayah <= repToAyah)
@@ -671,7 +674,7 @@ export const FaithOasisView: React.FC<FaithOasisViewProps> = ({
       const avgMastery =
         circleStudents.length > 0
           ? Math.round(
-              circleStudents.reduce((sum, s) => sum + s.masteryScore, 0) /
+              circleStudents.reduce((sum, s) => sum + (s.masteryScore || 92), 0) /
                 circleStudents.length
             )
           : 92;
@@ -1837,6 +1840,17 @@ export const FaithOasisView: React.FC<FaithOasisViewProps> = ({
                 </div>
               ))}
             </div>
+          </div>
+        </div>
+      )}
+
+      {!embeddedMode && (
+        <div className="pt-4 space-y-2">
+          <DeveloperSignatureFooter
+            onOpenModal={() => setIsDeveloperModalOpen(true)}
+          />
+          <div className="hidden print:block pt-3 border-t border-neutral-300 text-center text-xs font-bold text-neutral-800">
+            {ACADEMY_BRAND_CONFIG.printAndBoardFooterText}
           </div>
         </div>
       )}

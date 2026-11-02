@@ -9,10 +9,12 @@ import {
   Download,
   Eye,
   EyeOff,
+  FileText,
   Flame,
   Heart,
   Image as ImageIcon,
   Layers,
+  ListFilter,
   Maximize2,
   MessageCircle,
   Mic,
@@ -22,6 +24,7 @@ import {
   Play,
   Printer,
   Repeat,
+  Search,
   Share2,
   Smartphone,
   Sparkles,
@@ -33,11 +36,15 @@ import {
 import { useAcademy } from '../context/AcademyContext';
 import {
   AyahEntry,
+  BUILT_IN_ADHKAR_AND_RUQYAH_LIBRARY,
   JUZ_NAMES,
   QuranEditionMode,
+  QuranSearchResultItem,
   RECITERS,
+  SAJDAH_PAGES,
   SURAHS,
   WAQF_DEDICATION_TEXT,
+  getAllQuartersIndex,
   getEveryAyahAudioUrl,
   getMadinahPageInfo,
   getPageNumberForJuz,
@@ -45,11 +52,21 @@ import {
   getPageNumberForSurahAyah,
   getQuranPageImageUrl,
   getWordMeaningAndTafsir,
+  loadDualTafsirForAyah,
   loadSurahVerses,
   parseVerseTajweedTokens,
+  searchQuranVersesInstant,
   stripLeadingBasmalah,
 } from '../data/quranData';
 import { PublicBookmarkCategory, ReciterId } from '../types';
+import { AcademyPdfGuideModal } from './AcademyPdfGuideModal';
+import { ACADEMY_BRAND_CONFIG } from '../constants/brandConfig';
+const OFFICIAL_BRANDING = {
+  academyName: ACADEMY_BRAND_CONFIG.platformName,
+  slogan: ACADEMY_BRAND_CONFIG.slogan,
+  developerName: ACADEMY_BRAND_CONFIG.creatorNameEn,
+  whatsappDisplay: ACADEMY_BRAND_CONFIG.whatsappNumber,
+};
 
 interface PublicMushafWaqfPortalViewProps {
   onClosePortal?: () => void;
@@ -705,8 +722,46 @@ export const PublicMushafWaqfPortalView: React.FC<PublicMushafWaqfPortalViewProp
 
   // Active sub-tab in Public Portal
   const [portalSubTab, setPortalSubTab] = useState<
-    'mushaf' | 'wird_khatmah' | 'offline_center' | 'waqf_card'
+    'mushaf' | 'wird_khatmah' | 'offline_center' | 'waqf_card' | 'adhkar_library'
   >('mushaf');
+
+  // Academy PDF Guide Modal
+  const [showAcademyPdfGuide, setShowAcademyPdfGuide] = useState<boolean>(false);
+
+  // Custom Sadaqah Jariyah / Waqf Dedication Name (Supports ?waqf=... URL parameter)
+  const [customWaqfDedicationName, setCustomWaqfDedicationName] = useState<string>(() => {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const fromUrl = params.get('waqf');
+      if (fromUrl && fromUrl.trim()) {
+        localStorage.setItem('imam_custom_waqf_name', fromUrl.trim());
+        return fromUrl.trim();
+      }
+      return localStorage.getItem('imam_custom_waqf_name') || '';
+    } catch {
+      return '';
+    }
+  });
+  const [waqfRelationType, setWaqfRelationType] = useState<string>('صدقة جارية على روح المغفور له بإذن الله');
+
+  // Dual-Page Open Mushaf Mode & Swipe Paging Animation
+  const [dualPageMode, setDualPageMode] = useState<boolean>(false);
+  const [pageTurnAnim, setPageTurnAnim] = useState<'none' | 'next' | 'prev'>('none');
+  const touchStartXRef = useRef<number | null>(null);
+
+  // 4-Tab Slide-Out Index & Search Drawer (Surahs, 240 Quarters, Instant Search, Colored Bookmarks)
+  const [showIndexDrawer, setShowIndexDrawer] = useState<boolean>(false);
+  const [indexDrawerTab, setIndexDrawerTab] = useState<'surahs' | 'quarters' | 'search' | 'bookmarks'>('surahs');
+  const [drawerSurahFilter, setDrawerSurahFilter] = useState<string>('');
+  const [drawerQuarterJuzFilter, setDrawerQuarterJuzFilter] = useState<number>(0);
+  const [drawerSearchQuery, setDrawerSearchQuery] = useState<string>('');
+  const [drawerSearchResults, setDrawerSearchResults] = useState<QuranSearchResultItem[]>([]);
+  const [isSearchingQuran, setIsSearchingQuran] = useState<boolean>(false);
+  const allQuartersList = useMemo(() => getAllQuartersIndex(), []);
+
+  // Adhkar & Tasbih interactive counters
+  const [adhkarCategoryTab, setAdhkarCategoryTab] = useState<'khatm' | 'morning_evening' | 'ruqyah'>('morning_evening');
+  const [tasbihCounts, setTasbihCounts] = useState<Record<string, number>>({});
 
   // Mushaf Night/Day mode local toggle (synced with global theme)
   const [mushafNightMode, setMushafNightMode] = useState<boolean>(
@@ -808,9 +863,16 @@ export const PublicMushafWaqfPortalView: React.FC<PublicMushafWaqfPortalViewProp
     return false;
   });
 
-  // Husary Muallim Repeat Counter (1 to 5)
+  // Memorization Audio Loop & Shadowing Silence Controls
+  // muallimRepeatCount: 1..10 or 0 for infinite (∞)
   const [muallimRepeatCount, setMuallimRepeatCount] = useState<number>(1);
   const [currentRepeatCycle, setCurrentRepeatCycle] = useState<number>(0);
+  const [silencePauseAfterAyah, setSilencePauseAfterAyah] = useState<boolean>(false);
+  const [isInSilenceShadowing, setIsInSilenceShadowing] = useState<boolean>(false);
+  const silenceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [rangeLoopEnabled, setRangeLoopEnabled] = useState<boolean>(false);
+  const [rangeFromAyah, setRangeFromAyah] = useState<number>(1);
+  const [rangeToAyah, setRangeToAyah] = useState<number>(5);
 
   // Offline Recitation Comparator & Voice Recorder State
   const [showComparatorModal, setShowComparatorModal] = useState<boolean>(false);
@@ -838,13 +900,57 @@ export const PublicMushafWaqfPortalView: React.FC<PublicMushafWaqfPortalViewProp
     }
   }, [currentPage, mushafEdition]);
 
-  // Selected Ayah Modal (Tafsir, Word Meanings, Share Card)
+  // Selected Ayah Modal (Dual Tafsir: Muyassar & Jalalayn, Word Meanings, Share Card)
   const [selectedAyahDetail, setSelectedAyahDetail] = useState<{
     surahId: number;
     surahName: string;
     ayahEntry: AyahEntry;
   } | null>(null);
   const [selectedWordInModal, setSelectedWordInModal] = useState<string | null>(null);
+  const [activeTafsirEdition, setActiveTafsirEdition] = useState<'muyassar' | 'jalalayn'>('muyassar');
+  const [dualTafsirData, setDualTafsirData] = useState<{ muyassar: string; jalalayn: string } | null>(null);
+
+  useEffect(() => {
+    if (!selectedAyahDetail) {
+      setDualTafsirData(null);
+      return;
+    }
+    let cancelled = false;
+    loadDualTafsirForAyah(
+      selectedAyahDetail.surahId,
+      selectedAyahDetail.ayahEntry.ayah,
+      selectedAyahDetail.ayahEntry.tafsir
+    ).then((res) => {
+      if (!cancelled) setDualTafsirData(res);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedAyahDetail]);
+
+  // Instant Quran Search Effect in Drawer
+  useEffect(() => {
+    const q = drawerSearchQuery.trim();
+    if (q.length < 2) {
+      setDrawerSearchResults([]);
+      setIsSearchingQuran(false);
+      return;
+    }
+    let cancelled = false;
+    setIsSearchingQuran(true);
+    const timer = setTimeout(() => {
+      searchQuranVersesInstant(q, 50).then((results) => {
+        if (!cancelled) {
+          setDrawerSearchResults(results.items);
+          setIsSearchingQuran(false);
+        }
+      });
+    }, 180);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [drawerSearchQuery]);
 
   // Modals: Waqf & Khatmah Dua Modal, Khatmah Certificate Modal, PWA Install Guide Modal, Bookmarks Modal
   const [showWaqfAndKhatmahModal, setShowWaqfAndKhatmahModal] = useState<boolean>(false);
@@ -939,12 +1045,17 @@ export const PublicMushafWaqfPortalView: React.FC<PublicMushafWaqfPortalViewProp
     return list;
   }, [pageSections]);
 
-  // Synchronized Audio Playback effect
+  // Synchronized Audio Playback effect + MediaSession API for Lock Screen Controls
   useEffect(() => {
     const audio = audioRef.current;
     if (!audio) return;
 
     if (!isPlaying) {
+      if (silenceTimerRef.current) {
+        clearTimeout(silenceTimerRef.current);
+        silenceTimerRef.current = null;
+      }
+      setIsInSilenceShadowing(false);
       audio.pause();
       return;
     }
@@ -958,11 +1069,30 @@ export const PublicMushafWaqfPortalView: React.FC<PublicMushafWaqfPortalViewProp
       setIsPlaying(false);
       showToast('تعذر تشغيل الصوت تلقائياً — تأكد من الاتصال بالإنترنت أو تنزيل التلاوة أوفلاين', 'info');
     });
+
+    // Update Lock Screen / Background MediaSession Metadata
+    if (typeof navigator !== 'undefined' && 'mediaSession' in navigator) {
+      try {
+        const surahMeta = SURAHS.find((s) => s.id === activeAudioSurahId);
+        const reciterMeta = RECITERS.find((r) => r.id === selectedReciter);
+        navigator.mediaSession.metadata = new MediaMetadata({
+          title: `سورة ${surahMeta?.name || pageInfo.primarySurahName} — الآية ${activeAudioAyah}`,
+          artist: reciterMeta?.name || 'القارئ المتزامن',
+          album: `${OFFICIAL_BRANDING.academyName} (${OFFICIAL_BRANDING.slogan})`,
+        });
+        navigator.mediaSession.setActionHandler('play', () => setIsPlaying(true));
+        navigator.mediaSession.setActionHandler('pause', () => setIsPlaying(false));
+        navigator.mediaSession.setActionHandler('previoustrack', () => handleStepFocusedAyah('prev'));
+        navigator.mediaSession.setActionHandler('nexttrack', () => handleStepFocusedAyah('next'));
+      } catch {
+        // ignore MediaSession errors on unsupported browsers
+      }
+    }
   }, [isPlaying, selectedReciter, activeAudioSurahId, activeAudioAyah, playbackSpeed]);
 
-  const handleAudioEnded = () => {
-    // Check if repeat count is active for Husary Muallim
-    if (selectedReciter === 'Husary_Muallim_128kbps' && currentRepeatCycle + 1 < muallimRepeatCount) {
+  const proceedToNextAyahOrRepeat = () => {
+    // 1. Check Single Ayah Repeat (0 = infinite ∞, or >1 count)
+    if (muallimRepeatCount === 0 || currentRepeatCycle + 1 < muallimRepeatCount) {
       setCurrentRepeatCycle((prev) => prev + 1);
       if (audioRef.current) {
         audioRef.current.currentTime = 0;
@@ -972,6 +1102,24 @@ export const PublicMushafWaqfPortalView: React.FC<PublicMushafWaqfPortalViewProp
     }
     setCurrentRepeatCycle(0);
 
+    // 2. Check Ayah Range Loop (fromAyah .. toAyah on current Surah)
+    if (rangeLoopEnabled) {
+      const minA = Math.min(rangeFromAyah, rangeToAyah);
+      const maxA = Math.max(rangeFromAyah, rangeToAyah);
+      if (activeAudioAyah >= minA && activeAudioAyah < maxA) {
+        setActiveAudioAyah(activeAudioAyah + 1);
+        return;
+      } else if (activeAudioAyah >= maxA) {
+        setActiveAudioAyah(minA);
+        if (minA === activeAudioAyah && audioRef.current) {
+          audioRef.current.currentTime = 0;
+          audioRef.current.play().catch(() => {});
+        }
+        return;
+      }
+    }
+
+    // 3. Normal Page Progression
     const idx = flatPageAyahs.findIndex(
       (item) =>
         item.surahId === activeAudioSurahId && item.ayahEntry.ayah === activeAudioAyah
@@ -999,6 +1147,22 @@ export const PublicMushafWaqfPortalView: React.FC<PublicMushafWaqfPortalViewProp
         setShowWaqfAndKhatmahModal(true);
       }
     }
+  };
+
+  const handleAudioEnded = () => {
+    if (silencePauseAfterAyah && audioRef.current) {
+      const durationMs = Math.min(
+        14000,
+        Math.max(2200, Math.round((audioRef.current.duration || 4) * 1000))
+      );
+      setIsInSilenceShadowing(true);
+      silenceTimerRef.current = setTimeout(() => {
+        setIsInSilenceShadowing(false);
+        proceedToNextAyahOrRepeat();
+      }, durationMs);
+      return;
+    }
+    proceedToNextAyahOrRepeat();
   };
 
   const handleStepFocusedAyah = (direction: 'next' | 'prev') => {
@@ -1030,11 +1194,17 @@ export const PublicMushafWaqfPortalView: React.FC<PublicMushafWaqfPortalViewProp
 
   const handleGoToPage = (targetPage: number, recordReadDelta = false) => {
     const clamped = Math.max(1, Math.min(604, targetPage));
+    if (clamped !== currentPage) {
+      setPageTurnAnim(clamped > currentPage ? 'next' : 'prev');
+      setTimeout(() => setPageTurnAnim('none'), 260);
+    }
     setIsPlaying(false);
     setCurrentPage(clamped);
     const info = getMadinahPageInfo(clamped);
     setActiveAudioSurahId(info.primarySurahId);
     setActiveAudioAyah(info.fromAyah);
+    setRangeFromAyah(info.fromAyah);
+    setRangeToAyah(info.toAyah);
 
     if (recordReadDelta) {
       updatePublicVisitorWird({
@@ -1043,6 +1213,132 @@ export const PublicMushafWaqfPortalView: React.FC<PublicMushafWaqfPortalViewProp
         currentJuz: info.juzNumber,
         pagesDelta: 1,
       });
+    }
+  };
+
+  // Download Luxury Quranic Ayah Card or Waqf Card via HTML5 Canvas
+  const handleDownloadLuxuryCanvasCard = (opts: {
+    headerBadge: string;
+    mainArabicText: string;
+    subReference: string;
+    tafsirOrPrayer: string;
+    waqfFooter: string;
+    fileName: string;
+  }) => {
+    try {
+      const canvas = document.createElement('canvas');
+      canvas.width = 1080;
+      canvas.height = 1080;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return;
+
+      // Royal Emerald & Gold Background
+      const grad = ctx.createLinearGradient(0, 0, 1080, 1080);
+      grad.addColorStop(0, '#071f15');
+      grad.addColorStop(0.5, '#0f3826');
+      grad.addColorStop(1, '#092318');
+      ctx.fillStyle = grad;
+      ctx.fillRect(0, 0, 1080, 1080);
+
+      // Ornate Gold Double Frame
+      ctx.strokeStyle = '#d4af37';
+      ctx.lineWidth = 6;
+      ctx.strokeRect(42, 42, 996, 996);
+      ctx.strokeStyle = 'rgba(212, 175, 55, 0.45)';
+      ctx.lineWidth = 2;
+      ctx.strokeRect(58, 58, 964, 964);
+
+      ctx.direction = 'rtl';
+      ctx.textAlign = 'center';
+
+      // Academy Header
+      ctx.fillStyle = '#f3d478';
+      ctx.font = 'bold 30px Cairo, Amiri, serif';
+      ctx.fillText(`${OFFICIAL_BRANDING.academyName} — ${OFFICIAL_BRANDING.slogan}`, 540, 125);
+
+      ctx.fillStyle = '#a7f3d0';
+      ctx.font = 'bold 24px Cairo, sans-serif';
+      ctx.fillText(opts.headerBadge, 540, 175);
+
+      // Word-wrap helper
+      const drawWrapped = (
+        text: string,
+        x: number,
+        startY: number,
+        maxWidth: number,
+        lineHeight: number,
+        font: string,
+        color: string
+      ) => {
+        ctx.font = font;
+        ctx.fillStyle = color;
+        const words = text.split(' ');
+        let line = '';
+        let y = startY;
+        for (let i = 0; i < words.length; i++) {
+          const testLine = line + words[i] + ' ';
+          if (ctx.measureText(testLine).width > maxWidth && i > 0) {
+            ctx.fillText(line.trim(), x, y);
+            line = words[i] + ' ';
+            y += lineHeight;
+          } else {
+            line = testLine;
+          }
+        }
+        if (line.trim()) {
+          ctx.fillText(line.trim(), x, y);
+          y += lineHeight;
+        }
+        return y;
+      };
+
+      let nextY = drawWrapped(
+        `﴿ ${opts.mainArabicText} ﴾`,
+        540,
+        290,
+        860,
+        66,
+        'bold 40px Amiri, serif',
+        '#ffffff'
+      );
+
+      ctx.fillStyle = '#fbbf24';
+      ctx.font = 'bold 26px Cairo, sans-serif';
+      ctx.fillText(opts.subReference, 540, nextY + 20);
+
+      if (opts.tafsirOrPrayer) {
+        drawWrapped(
+          opts.tafsirOrPrayer,
+          540,
+          nextY + 90,
+          840,
+          44,
+          '24px Cairo, sans-serif',
+          '#e2e8f0'
+        );
+      }
+
+      // Waqf & Developer Footer
+      ctx.fillStyle = '#fde68a';
+      ctx.font = 'bold 23px Cairo, sans-serif';
+      ctx.fillText(opts.waqfFooter, 540, 945);
+
+      ctx.fillStyle = '#94a3b8';
+      ctx.font = '20px Cairo, sans-serif';
+      ctx.fillText(
+        `تصميم وتطوير: ${OFFICIAL_BRANDING.developerName} | واتساب: ${OFFICIAL_BRANDING.whatsappDisplay}`,
+        540,
+        995
+      );
+
+      const dataUrl = canvas.toDataURL('image/png');
+      const a = document.createElement('a');
+      a.href = dataUrl;
+      a.download = opts.fileName;
+      a.click();
+      showToast('تم توليد وتنزيل البطاقة المصورة الفاخرة بنجاح ✓', 'success');
+    } catch {
+      showToast('تعذر حفظ الصورة، يرجى المحاولة مرة أخرى', 'error');
     }
   };
 
@@ -1338,6 +1634,26 @@ export const PublicMushafWaqfPortalView: React.FC<PublicMushafWaqfPortalViewProp
 
               <button
                 type="button"
+                onClick={() => setShowIndexDrawer(true)}
+                className="px-3 py-2 rounded-xl text-xs font-extrabold cursor-pointer transition border flex items-center gap-1.5 bg-amber-400/20 hover:bg-amber-400/35 text-amber-200 border-amber-400/50"
+                title="الفهرس الشامل والبحث الذكي في القرآن الكريم والأرباع والفواصل"
+              >
+                <ListFilter className="w-3.5 h-3.5" />
+                <span>🗂️ الفهرس والبحث</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setShowAcademyPdfGuide(true)}
+                className="px-3 py-2 rounded-xl text-xs font-extrabold cursor-pointer transition border flex items-center gap-1.5 bg-white/10 hover:bg-white/20 text-amber-200 border-amber-400/40"
+                title="الدليل التعريفي المصور للأكاديمية (PDF)"
+              >
+                <FileText className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">📄 الدليل التعريفي PDF</span>
+              </button>
+
+              <button
+                type="button"
                 onClick={handleToggleImmersiveReadingMode}
                 className="px-3 py-2 rounded-xl text-xs font-extrabold cursor-pointer transition border flex items-center gap-1.5 bg-white/10 hover:bg-white/20 text-white border-white/20"
                 title="وضع القراءة الخاشعة بضغطة واحدة — إخفاء شريط التنقل العلوي وتوسيع مساحة عرض الآيات لتقليل التشتت البصري"
@@ -1370,6 +1686,289 @@ export const PublicMushafWaqfPortalView: React.FC<PublicMushafWaqfPortalViewProp
         </header>
       )}
 
+      {/* Academy PDF Guide Modal */}
+      <AcademyPdfGuideModal
+        isOpen={showAcademyPdfGuide}
+        onClose={() => setShowAcademyPdfGuide(false)}
+      />
+
+      {/* Slide-out 4-Tab Index & Instant Search Drawer (DrawerLayout v2.0.0) */}
+      {showIndexDrawer && (
+        <div className="fixed inset-0 z-50 bg-slate-950/75 backdrop-blur-xs flex justify-start" dir="rtl">
+          <div className="w-full max-w-lg bg-white dark:bg-slate-900 h-full shadow-2xl border-l-2 border-amber-500/60 flex flex-col overflow-hidden">
+            {/* Drawer Header */}
+            <div className="p-4 bg-gradient-to-l from-emerald-950 via-emerald-900 to-teal-950 text-white flex items-center justify-between border-b border-amber-400/40">
+              <div>
+                <h3 className="text-sm sm:text-base font-black text-amber-300">
+                  🗂️ الفهرس القرآني الشامل والبحث الذكي الفوري
+                </h3>
+                <p className="text-[11px] text-emerald-200">
+                  114 سورة • 30 جزءاً • 60 حزباً • 240 ربعاً • بحث فوري بدون تشكيل • فواصل ملونة
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowIndexDrawer(false)}
+                className="p-2 rounded-xl bg-white/10 hover:bg-white/20 text-white cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* 4 Drawer Tabs */}
+            <div className="grid grid-cols-4 gap-1 p-2 bg-slate-100 dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 text-xs font-extrabold">
+              {[
+                { id: 'surahs', label: '📖 السور (114)' },
+                { id: 'quarters', label: '🧭 الأرباع (240)' },
+                { id: 'search', label: '🔍 بحث الآيات' },
+                { id: 'bookmarks', label: `🔖 الفواصل (${publicBookmarks.length})` },
+              ].map((t) => (
+                <button
+                  key={t.id}
+                  type="button"
+                  onClick={() => setIndexDrawerTab(t.id as 'surahs' | 'quarters' | 'search' | 'bookmarks')}
+                  className={`py-2 px-1.5 rounded-xl transition cursor-pointer text-center ${
+                    indexDrawerTab === t.id
+                      ? 'bg-emerald-800 text-white shadow-xs'
+                      : 'text-slate-600 dark:text-slate-300 hover:bg-white/60'
+                  }`}
+                >
+                  {t.label}
+                </button>
+              ))}
+            </div>
+
+            {/* Drawer Tab Content */}
+            <div className="flex-1 overflow-y-auto p-3.5 space-y-3">
+              {indexDrawerTab === 'surahs' && (
+                <>
+                  <input
+                    type="text"
+                    value={drawerSurahFilter}
+                    onChange={(e) => setDrawerSurahFilter(e.target.value)}
+                    placeholder="ابحث باسم السورة أو رقمها (مثال: الكهف، الملك، 36)..."
+                    className="w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-3.5 py-2 text-xs font-bold"
+                  />
+                  <div className="space-y-1.5">
+                    {SURAHS.filter(
+                      (s) =>
+                        !drawerSurahFilter.trim() ||
+                        s.name.includes(drawerSurahFilter.trim()) ||
+                        String(s.id) === drawerSurahFilter.trim()
+                    ).map((s) => {
+                      const startPage = getPageNumberForSurahAyah(s.id, 1);
+                      return (
+                        <button
+                          key={s.id}
+                          type="button"
+                          onClick={() => {
+                            handleGoToPage(startPage);
+                            setShowIndexDrawer(false);
+                          }}
+                          className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-800 hover:border-emerald-500 bg-slate-50/70 dark:bg-slate-800/50 flex items-center justify-between text-right cursor-pointer transition"
+                        >
+                          <div className="flex items-center gap-2.5">
+                            <span className="w-8 h-8 rounded-xl bg-emerald-900 text-amber-300 font-black text-xs flex items-center justify-center">
+                              {s.id}
+                            </span>
+                            <div>
+                              <div className="font-extrabold text-xs sm:text-sm text-slate-900 dark:text-white">
+                                سورة {s.name}
+                              </div>
+                              <div className="text-[11px] text-slate-500">
+                                {s.type} • {s.ayahs} آية • الجزء {s.juz}
+                              </div>
+                            </div>
+                          </div>
+                          <span className="px-2.5 py-1 rounded-lg bg-amber-500/15 text-amber-900 dark:text-amber-300 text-xs font-black">
+                            ص {startPage}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </>
+              )}
+
+              {indexDrawerTab === 'quarters' && (
+                <>
+                  <div className="flex items-center gap-2">
+                    <label className="text-xs font-bold text-slate-600 dark:text-slate-300 shrink-0">
+                      تصفية حسب الجزء:
+                    </label>
+                    <select
+                      value={drawerQuarterJuzFilter}
+                      onChange={(e) => setDrawerQuarterJuzFilter(Number(e.target.value))}
+                      className="w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-3 py-2 text-xs font-extrabold"
+                    >
+                      <option value={0}>كل الأجزاء (30 جزءاً • 60 حزباً • 240 ربعاً)</option>
+                      {JUZ_NAMES.map((jName, idx) => (
+                        <option key={idx + 1} value={idx + 1}>
+                          الجزء {idx + 1}: {jName}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="space-y-1.5">
+                    {allQuartersList
+                      .filter((q) => drawerQuarterJuzFilter === 0 || q.juzNumber === drawerQuarterJuzFilter)
+                      .map((q) => (
+                        <button
+                          key={q.quarterIndex}
+                          type="button"
+                          onClick={() => {
+                            handleGoToPage(q.pageNumber);
+                            setShowIndexDrawer(false);
+                          }}
+                          className="w-full p-2.5 rounded-xl border border-slate-200 dark:border-slate-800 hover:border-amber-500 bg-slate-50/70 dark:bg-slate-800/50 flex items-center justify-between text-right cursor-pointer transition"
+                        >
+                          <div>
+                            <div className="font-extrabold text-xs text-emerald-900 dark:text-amber-300">
+                              الجزء {q.juzNumber} ({q.juzName}) — الحزب {q.hizbNumber}: {q.quarterLabel}
+                            </div>
+                            <div className="text-[11px] text-slate-500 mt-0.5">
+                              سورة {q.surahName} (آية {q.ayahNumber})
+                            </div>
+                          </div>
+                          <span className="px-2.5 py-1 rounded-lg bg-emerald-500/15 text-emerald-800 dark:text-emerald-300 text-xs font-black">
+                            ص {q.pageNumber}
+                          </span>
+                        </button>
+                      ))}
+                  </div>
+                </>
+              )}
+
+              {indexDrawerTab === 'search' && (
+                <>
+                  <div className="space-y-1.5">
+                    <div className="relative">
+                      <input
+                        type="text"
+                        value={drawerSearchQuery}
+                        onChange={(e) => setDrawerSearchQuery(e.target.value)}
+                        placeholder="ابحث بأي كلمة أو جزء من آية بدون تشكيل (مثال: فسيكفيكهم الله، جنات عدن)..."
+                        className="w-full rounded-xl border border-amber-400 bg-slate-50 dark:bg-slate-800 px-3.5 py-2.5 text-xs font-bold"
+                      />
+                    </div>
+                    <div className="flex items-center justify-between text-[11px] text-slate-500 font-bold">
+                      <span>يدعم البحث الذكي بتوحيد الهمزات (أ، إ، آ ➔ ا) وبدون تشكيل</span>
+                      {drawerSearchQuery.trim().length >= 2 && (
+                        <span className="text-emerald-700 dark:text-emerald-400">
+                          {isSearchingQuran ? 'جاري البحث...' : `${drawerSearchResults.length} نتيجة`}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    {drawerSearchResults.map((res, rIdx) => (
+                      <button
+                        key={`${res.surahId}-${res.ayahNumber}-${rIdx}`}
+                        type="button"
+                        onClick={() => {
+                          handleGoToPage(res.pageNumber);
+                          setActiveAudioSurahId(res.surahId);
+                          setActiveAudioAyah(res.ayahNumber);
+                          setShowIndexDrawer(false);
+                        }}
+                        className="w-full p-3 rounded-2xl border border-slate-200 dark:border-slate-800 hover:border-emerald-500 bg-amber-50/40 dark:bg-slate-800/60 text-right space-y-1 cursor-pointer transition"
+                      >
+                        <div className="flex items-center justify-between text-xs font-black text-emerald-800 dark:text-amber-300">
+                          <span>
+                            سورة {res.surahName} — الآية ({res.ayahNumber})
+                          </span>
+                          <span className="px-2 py-0.5 rounded-lg bg-emerald-800 text-white text-[10px]">
+                            ص {res.pageNumber} • جزء {res.juzNumber}
+                          </span>
+                        </div>
+                        <p className="font-serif text-sm sm:text-base text-slate-900 dark:text-slate-100 leading-relaxed">
+                          ﴿ {res.text} ﴾
+                        </p>
+                      </button>
+                    ))}
+                  </div>
+                </>
+              )}
+
+              {indexDrawerTab === 'bookmarks' && (
+                <div className="space-y-3">
+                  <div className="grid grid-cols-1 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => handleQuickSaveBookmark('memorization')}
+                      className="p-2.5 rounded-xl bg-emerald-100 hover:bg-emerald-200 dark:bg-emerald-950/80 text-emerald-900 dark:text-emerald-200 text-xs font-extrabold cursor-pointer text-right"
+                    >
+                      🟢 + حفظ فاصل أخضر (موضع الحفظ الحالي — ص {currentPage})
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleQuickSaveBookmark('tadabbur')}
+                      className="p-2.5 rounded-xl bg-amber-100 hover:bg-amber-200 dark:bg-amber-950/80 text-amber-900 dark:text-amber-200 text-xs font-extrabold cursor-pointer text-right"
+                    >
+                      🟡 + حفظ فاصل ذهبي (موضع المراجعة والتدبر — ص {currentPage})
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleQuickSaveBookmark('khatmah')}
+                      className="p-2.5 rounded-xl bg-blue-100 hover:bg-blue-200 dark:bg-blue-950/80 text-blue-900 dark:text-blue-200 text-xs font-extrabold cursor-pointer text-right"
+                    >
+                      🔵 + حفظ فاصل أزرق (الورد اليومي والختمة — ص {currentPage})
+                    </button>
+                  </div>
+
+                  <div className="space-y-2 pt-2 border-t border-slate-200 dark:border-slate-800">
+                    {publicBookmarks.map((bm) => {
+                      const colorClass =
+                        bm.category === 'memorization'
+                          ? 'border-emerald-500 bg-emerald-50/80 dark:bg-emerald-950/40'
+                          : bm.category === 'tadabbur'
+                          ? 'border-amber-500 bg-amber-50/80 dark:bg-amber-950/40'
+                          : 'border-blue-500 bg-blue-50/80 dark:bg-blue-950/40';
+                      const dotIcon =
+                        bm.category === 'memorization'
+                          ? '🟢 فاصل الحفظ'
+                          : bm.category === 'tadabbur'
+                          ? '🟡 فاصل المراجعة والتدبر'
+                          : '🔵 فاصل الورد اليومي';
+                      return (
+                        <div
+                          key={bm.id}
+                          className={`p-3 rounded-xl border-r-4 border flex items-center justify-between gap-2 ${colorClass}`}
+                        >
+                          <button
+                            type="button"
+                            onClick={() => {
+                              handleGoToPage(bm.pageNumber);
+                              setShowIndexDrawer(false);
+                            }}
+                            className="text-right flex-1 cursor-pointer"
+                          >
+                            <div className="text-xs font-black">{dotIcon}</div>
+                            <div className="text-[11px] font-bold opacity-85 mt-0.5">
+                              صفحة {bm.pageNumber} • سورة {bm.surahName} (آية {bm.ayahNumber})
+                            </div>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => deletePublicBookmark(bm.id)}
+                            className="p-1.5 rounded-lg bg-rose-100 dark:bg-rose-950/60 text-rose-700 dark:text-rose-300 text-xs cursor-pointer"
+                            title="حذف الفاصل"
+                          >
+                            <X className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+          <div className="flex-1" onClick={() => setShowIndexDrawer(false)} />
+        </div>
+      )}
+
       <div
         className={`mx-auto transition-all duration-300 ${
           distractionFreeReading
@@ -1382,9 +1981,16 @@ export const PublicMushafWaqfPortalView: React.FC<PublicMushafWaqfPortalViewProp
         {!waqfRibbonCollapsed && !distractionFreeReading && (
           <div className="space-y-3">
             <div className="rounded-2xl bg-gradient-to-l from-emerald-950 via-emerald-900 to-amber-950 text-white px-4 py-2.5 border border-amber-400/60 shadow-md flex flex-col lg:flex-row lg:items-center justify-between gap-2.5">
-              <div className="text-xs sm:text-sm font-extrabold text-amber-100 leading-relaxed flex items-center gap-2">
+              <div className="text-xs sm:text-sm font-extrabold text-amber-100 leading-relaxed flex flex-wrap items-center gap-2">
                 <span>
-                  🌿 وقف قرآني وصدقة جارية: اللهم اجعل ثواب هذا المصحف وتلاوته صدقة جارية ونوراً ورحمة لوالدينا وأمواتنا وأموات المسلمين أجمعين
+                  🌿 وقف قرآني وصدقة جارية:{' '}
+                  {customWaqfDedicationName ? (
+                    <strong className="text-amber-300 underline decoration-amber-400/60">
+                      {waqfRelationType}: «{customWaqfDedicationName}» — اللهم اجعل ثواب تلاوة هذا المصحف نوراً ورحمةً في قبره وميزان حسناته
+                    </strong>
+                  ) : (
+                    'اللهم اجعل ثواب هذا المصحف وتلاوته صدقة جارية ونوراً ورحمة لوالدينا وأمواتنا وأموات المسلمين أجمعين'
+                  )}
                 </span>
               </div>
 
@@ -1442,7 +2048,7 @@ export const PublicMushafWaqfPortalView: React.FC<PublicMushafWaqfPortalViewProp
 
         {/* Sub-navigation Tabs (Hidden in Immersive Reading Mode to eliminate UI clutter) */}
         {!distractionFreeReading && (
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+          <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
             {[
               {
                 id: 'mushaf',
@@ -1455,13 +2061,18 @@ export const PublicMushafWaqfPortalView: React.FC<PublicMushafWaqfPortalViewProp
                 sub: `${currentVisitor?.streakDays || 1} يوم مواظبة • ${currentVisitor?.completionPercentage || 0}%`,
               },
               {
+                id: 'adhkar_library',
+                label: '📿 الأذكار والرقية ودعاء الختم',
+                sub: 'مكتبة التحصين والعداد التسبيحي',
+              },
+              {
                 id: 'offline_center',
                 label: '📥 مركز التنزيل بدون إنترنت 100%',
                 sub: `${cachedPackagesList.length} باقات محفوظة بالهاتف`,
               },
               {
                 id: 'waqf_card',
-                label: '🌿 وثيقة الوقف ودعاء الختمة',
+                label: '🌿 مولّد الصدقة الجارية والوقف',
                 sub: `${waqfImpactStats.ameenPrayersCount.toLocaleString('ar-EG')} دعاء وتأمين`,
               },
             ].map((tab) => {
@@ -1472,7 +2083,7 @@ export const PublicMushafWaqfPortalView: React.FC<PublicMushafWaqfPortalViewProp
                   type="button"
                   onClick={() =>
                     setPortalSubTab(
-                      tab.id as 'mushaf' | 'wird_khatmah' | 'offline_center' | 'waqf_card'
+                      tab.id as 'mushaf' | 'wird_khatmah' | 'offline_center' | 'waqf_card' | 'adhkar_library'
                     )
                   }
                   className={`p-3 rounded-2xl border text-right transition-all cursor-pointer ${
@@ -1867,6 +2478,21 @@ export const PublicMushafWaqfPortalView: React.FC<PublicMushafWaqfPortalViewProp
                   </div>
 
                   <div className="flex flex-wrap items-center gap-2">
+                    {/* Dual-Page Open Mushaf Mode Toggle (Wide Screens) */}
+                    <button
+                      type="button"
+                      onClick={() => setDualPageMode((prev) => !prev)}
+                      className={`hidden lg:inline-flex px-3 py-1.5 rounded-xl text-xs font-extrabold items-center gap-1.5 border transition cursor-pointer ${
+                        dualPageMode
+                          ? 'bg-emerald-800 text-amber-200 border-amber-400 shadow-xs'
+                          : 'bg-slate-50 dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200'
+                      }`}
+                      title="التبديل بين عرض صفحة واحدة وعرض مصحف مفتوح صفحتين متقابلتين"
+                    >
+                      <Layers className="w-3.5 h-3.5" />
+                      <span>{dualPageMode ? '📖 مصحف مفتوح (صفحتين ✓)' : '📄 عرض صفحتين متقابلتين'}</span>
+                    </button>
+
                     {/* Tajweed Highlighting Toggle */}
                     {mushafEdition === 'digital' && (
                       <button
@@ -1890,23 +2516,74 @@ export const PublicMushafWaqfPortalView: React.FC<PublicMushafWaqfPortalViewProp
                       </button>
                     )}
 
-                    {/* Husary Muallim Repetition Selector */}
-                    {selectedReciter === 'Husary_Muallim_128kbps' && (
-                      <div className="flex items-center gap-1.5 px-3 py-1 rounded-xl bg-amber-50 dark:bg-amber-950/40 border border-amber-300 dark:border-amber-800 text-xs">
-                        <Repeat className="w-3.5 h-3.5 text-amber-700 dark:text-amber-300" />
-                        <span className="font-bold text-amber-900 dark:text-amber-200">ترديد التلقين:</span>
-                        <select
-                          value={muallimRepeatCount}
-                          onChange={(e) => setMuallimRepeatCount(Number(e.target.value))}
-                          className="rounded-lg border border-amber-300 dark:border-amber-700 bg-white dark:bg-slate-800 px-2 py-0.5 text-xs font-bold"
-                        >
-                          {[1, 2, 3, 4, 5].map((cnt) => (
-                            <option key={cnt} value={cnt}>
-                              تكرار {cnt} {cnt === 1 ? 'مرة' : 'مرات'}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
+                    {/* Universal Memorization Loop & Shadowing Controls */}
+                    <div className="flex flex-wrap items-center gap-1.5 px-3 py-1 rounded-xl bg-amber-50 dark:bg-amber-950/40 border border-amber-300 dark:border-amber-800 text-xs">
+                      <Repeat className="w-3.5 h-3.5 text-amber-700 dark:text-amber-300" />
+                      <span className="font-bold text-amber-900 dark:text-amber-200">تكرار الآية:</span>
+                      <select
+                        value={muallimRepeatCount}
+                        onChange={(e) => {
+                          setMuallimRepeatCount(Number(e.target.value));
+                          setCurrentRepeatCycle(0);
+                        }}
+                        className="rounded-lg border border-amber-300 dark:border-amber-700 bg-white dark:bg-slate-800 px-2 py-0.5 text-xs font-bold"
+                      >
+                        {[1, 2, 3, 5, 7, 10].map((cnt) => (
+                          <option key={cnt} value={cnt}>
+                            {cnt} {cnt === 1 ? 'مرة' : 'مرات'}
+                          </option>
+                        ))}
+                        <option value={0}>∞ تكرار لا نهائي</option>
+                      </select>
+
+                      <label className="inline-flex items-center gap-1 mr-1.5 font-bold text-emerald-900 dark:text-emerald-300 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={silencePauseAfterAyah}
+                          onChange={(e) => setSilencePauseAfterAyah(e.target.checked)}
+                          className="rounded text-emerald-600"
+                        />
+                        <span>فترة سكت للترديد خلف الشيخ</span>
+                      </label>
+
+                      <label className="inline-flex items-center gap-1 mr-1.5 font-bold text-amber-900 dark:text-amber-300 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={rangeLoopEnabled}
+                          onChange={(e) => setRangeLoopEnabled(e.target.checked)}
+                          className="rounded text-amber-600"
+                        />
+                        <span>تكرار نطاق آيات</span>
+                      </label>
+
+                      {rangeLoopEnabled && (
+                        <div className="inline-flex items-center gap-1 text-[11px] font-bold">
+                          <span>من</span>
+                          <input
+                            type="number"
+                            min={1}
+                            max={286}
+                            value={rangeFromAyah}
+                            onChange={(e) => setRangeFromAyah(Math.max(1, Number(e.target.value) || 1))}
+                            className="w-12 text-center rounded border border-amber-400 bg-white dark:bg-slate-800 px-1 py-0.5"
+                          />
+                          <span>إلى</span>
+                          <input
+                            type="number"
+                            min={1}
+                            max={286}
+                            value={rangeToAyah}
+                            onChange={(e) => setRangeToAyah(Math.max(1, Number(e.target.value) || 1))}
+                            className="w-12 text-center rounded border border-amber-400 bg-white dark:bg-slate-800 px-1 py-0.5"
+                          />
+                        </div>
+                      )}
+                    </div>
+
+                    {isInSilenceShadowing && (
+                      <span className="px-2.5 py-1 rounded-xl bg-emerald-600 text-white text-[11px] font-black animate-pulse">
+                        🎙️ فترة سكت: ردّد الآية الآن...
+                      </span>
                     )}
 
                     {/* Recitation Comparator Trigger */}
@@ -1934,28 +2611,60 @@ export const PublicMushafWaqfPortalView: React.FC<PublicMushafWaqfPortalViewProp
               </div>
             )}
 
-            {/* Madinah Mushaf Ornate Page Frame (Expanded in Immersive Mode for wider, clearer verse reading) */}
+            {/* Madinah Mushaf Ornate Page Frame (Supports RTL Swipe Paging, Dual-Page Open Mushaf & Sajdah Badge) */}
             {(!distractionFreeReading || immersiveFocusStyle === 'spotlight_page') && (
               <div
+                onTouchStart={(e) => {
+                  touchStartXRef.current = e.touches[0]?.clientX ?? null;
+                }}
+                onTouchEnd={(e) => {
+                  if (touchStartXRef.current === null) return;
+                  const endX = e.changedTouches[0]?.clientX ?? touchStartXRef.current;
+                  const deltaX = endX - touchStartXRef.current;
+                  touchStartXRef.current = null;
+                  // In RTL Arabic Mushaf: swipe right (deltaX > 65) goes to next page; swipe left (deltaX < -65) goes to previous page
+                  if (deltaX > 65 && currentPage < 604) {
+                    handleGoToPage(currentPage + 1, true);
+                  } else if (deltaX < -65 && currentPage > 1) {
+                    handleGoToPage(currentPage - 1, false);
+                  }
+                }}
                 className={`rounded-[32px] border-4 shadow-2xl transition-all duration-300 ${
+                  pageTurnAnim === 'next'
+                    ? 'scale-[0.99] -translate-x-1'
+                    : pageTurnAnim === 'prev'
+                    ? 'scale-[0.99] translate-x-1'
+                    : ''
+                } ${
                   distractionFreeReading
                     ? 'p-6 sm:p-10 md:p-12'
                     : 'p-4 sm:p-8'
                 } ${
                   mushafNightMode
                     ? 'bg-[#0c1322] border-amber-600/60 text-amber-50'
+                    : mushafSepiaMode
+                    ? 'bg-[#FDFBF7] border-amber-600/70 text-[#2b2114]'
                     : 'bg-[#fffdf7] dark:bg-slate-900 border-amber-500/70 text-slate-900 dark:text-slate-100'
                 }`}
               >
-                {/* Mushaf Top Margin Header */}
+                {/* Mushaf Top Margin Header (Surah on Right, Page Center, Juz/Hizb/Quarter on Left) */}
                 <div className="flex flex-wrap items-center justify-between gap-2 pb-4 mb-5 border-b-2 border-amber-500/40 text-xs sm:text-sm font-extrabold text-amber-900 dark:text-amber-300">
+                  <div>سورة {pageInfo.primarySurahName}</div>
+                  <div className="px-3.5 py-1 rounded-full bg-amber-500/15 border border-amber-500/40 flex items-center gap-2">
+                    <span>
+                      {dualPageMode && currentPage < 604
+                        ? `صفحتا ${currentPage} - ${currentPage + 1} من 604`
+                        : `صفحة ${currentPage} من 604`}
+                    </span>
+                    {SAJDAH_PAGES[currentPage] && (
+                      <span className="px-2 py-0.5 rounded-full bg-emerald-700 text-amber-200 text-[11px] font-black">
+                        ۩ سجدة تلاوة ({SAJDAH_PAGES[currentPage].surahName}: {SAJDAH_PAGES[currentPage].ayahNumber})
+                      </span>
+                    )}
+                  </div>
                   <div>
                     {pageInfo.juzName} • الحزب {pageInfo.hizbNumber} (الربع {pageInfo.quarterInHizb})
                   </div>
-                  <div className="px-3 py-1 rounded-full bg-amber-500/15 border border-amber-500/40">
-                    صفحة {currentPage} من 604
-                  </div>
-                  <div>سورة {pageInfo.primarySurahName}</div>
                 </div>
 
                 {mushafEdition !== 'digital' ? (
@@ -1966,15 +2675,37 @@ export const PublicMushafWaqfPortalView: React.FC<PublicMushafWaqfPortalViewProp
                           ? 'طبعة مصحف الشمرلي المصرية التراثية (صور عالية الدقة)'
                           : 'طبعة مصحف المدينة المنورة (مجمع الملك فهد)'}
                       </span>
-                      <span className="font-mono">صفحة {currentPage} من 604</span>
+                      <span className="font-mono">
+                        {dualPageMode && currentPage < 604
+                          ? `صفحتا ${currentPage} و ${currentPage + 1}`
+                          : `صفحة ${currentPage} من 604`}
+                      </span>
                     </div>
-                    <div className="w-full flex justify-center py-2 overflow-hidden">
-                      <img
-                        src={getQuranPageImageUrl(mushafEdition, currentPage)}
-                        alt={`مصحف صفحة ${currentPage}`}
-                        className="max-h-[75vh] sm:max-h-[85vh] w-auto rounded-xl shadow-xl border-2 border-amber-500/50 object-contain hover:scale-[1.01] transition-transform duration-200"
-                        loading="eager"
-                      />
+                    <div className={`w-full py-2 overflow-hidden ${dualPageMode && currentPage < 604 ? 'grid grid-cols-1 lg:grid-cols-2 gap-4 items-center' : 'flex justify-center'}`}>
+                      <div className="flex flex-col items-center">
+                        <img
+                          src={getQuranPageImageUrl(mushafEdition, currentPage)}
+                          alt={`مصحف صفحة ${currentPage}`}
+                          className="max-h-[75vh] sm:max-h-[85vh] w-auto rounded-xl shadow-xl border-2 border-amber-500/50 object-contain hover:scale-[1.01] transition-transform duration-200"
+                          loading="eager"
+                        />
+                        <span className="mt-1.5 text-[11px] font-black text-amber-800 dark:text-amber-300">
+                          صفحة {currentPage}
+                        </span>
+                      </div>
+                      {dualPageMode && currentPage < 604 && (
+                        <div className="hidden lg:flex flex-col items-center border-r-2 border-amber-500/30 pr-4">
+                          <img
+                            src={getQuranPageImageUrl(mushafEdition, currentPage + 1)}
+                            alt={`مصحف صفحة ${currentPage + 1}`}
+                            className="max-h-[75vh] sm:max-h-[85vh] w-auto rounded-xl shadow-xl border-2 border-amber-500/50 object-contain hover:scale-[1.01] transition-transform duration-200"
+                            loading="eager"
+                          />
+                          <span className="mt-1.5 text-[11px] font-black text-amber-800 dark:text-amber-300">
+                            صفحة {currentPage + 1}
+                          </span>
+                        </div>
+                      )}
                     </div>
                   </div>
                 ) : loadingPage ? (
@@ -2100,7 +2831,7 @@ export const PublicMushafWaqfPortalView: React.FC<PublicMushafWaqfPortalViewProp
                 <div className="mt-8 pt-4 border-t-2 border-amber-500/40 flex flex-wrap items-center justify-between gap-3">
                   <button
                     type="button"
-                    onClick={() => handleGoToPage(currentPage - 1)}
+                    onClick={() => handleGoToPage(currentPage - (dualPageMode ? 2 : 1))}
                     disabled={currentPage <= 1}
                     className="px-4 py-2 rounded-xl bg-slate-200/80 dark:bg-slate-800 hover:bg-emerald-700 hover:text-white text-xs font-extrabold flex items-center gap-1.5 disabled:opacity-40 cursor-pointer transition"
                   >
@@ -2108,21 +2839,28 @@ export const PublicMushafWaqfPortalView: React.FC<PublicMushafWaqfPortalViewProp
                     <span>الصفحة السابقة ({Math.max(1, currentPage - 1)})</span>
                   </button>
 
-                  <div className="text-xs font-bold text-slate-500 dark:text-slate-400 text-center">
-                    {distractionFreeReading ? (
-                      <span>
-                        🧘 <strong>وضع القراءة الخاشعة:</strong> انقر على أي آية لنقل التركيز إليها أو استخدم الأسهم (← / →) للتنقل بين الآيات
-                      </span>
-                    ) : (
-                      <span>
-                        💡 انقر على أي آية لعرض <strong>التفسير الميسر ومعاني الكلمات</strong> أو مشاركتها كبطاقة صدقة جارية
-                      </span>
+                  <div className="text-xs font-bold text-slate-500 dark:text-slate-400 text-center space-y-1">
+                    {SAJDAH_PAGES[currentPage] && (
+                      <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-500/20 text-amber-900 dark:text-amber-200 border border-amber-500/50 font-black">
+                        <span>۩ موضع سجدة تلاوة في هذه الصفحة: سورة {SAJDAH_PAGES[currentPage].surahName} (آية {SAJDAH_PAGES[currentPage].ayahNumber})</span>
+                      </div>
                     )}
+                    <div>
+                      {distractionFreeReading ? (
+                        <span>
+                          🧘 <strong>وضع القراءة الخاشعة:</strong> اسحب يميناً أو يساراً لتقليب الصفحات أو انقر على أي آية
+                        </span>
+                      ) : (
+                        <span>
+                          💡 اسحب الصفحة يميناً/يساراً للتقليب السلس • انقر على أي آية لعرض <strong>التفسير الميسر والجلالين</strong> والاستماع والمشاركة
+                        </span>
+                      )}
+                    </div>
                   </div>
 
                   <button
                     type="button"
-                    onClick={() => handleGoToPage(currentPage + 1, true)}
+                    onClick={() => handleGoToPage(currentPage + (dualPageMode ? 2 : 1), true)}
                     disabled={currentPage >= 604}
                     className="px-4 py-2 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-extrabold flex items-center gap-1.5 disabled:opacity-40 cursor-pointer transition"
                   >
@@ -2430,10 +3168,123 @@ export const PublicMushafWaqfPortalView: React.FC<PublicMushafWaqfPortalViewProp
           </div>
         )}
 
-        {/* TAB 4: WAQF DOCUMENT & KHATMAH DUA */}
+        {/* TAB 4: WAQF & SADAQAH JARIYAH GENERATOR + KHATMAH DUA */}
         {portalSubTab === 'waqf_card' && (
-          <div className="rounded-3xl bg-white dark:bg-slate-900 border-2 border-amber-400/70 p-6 shadow-lg space-y-5">
+          <div className="rounded-3xl bg-white dark:bg-slate-900 border-2 border-amber-400/70 p-6 shadow-lg space-y-6">
             <WaqfDedication variant="khatmah_screen" />
+
+            {/* Interactive Sadaqah Jariyah Customizer & Shareable Link Generator */}
+            <div className="p-5 rounded-3xl bg-gradient-to-br from-emerald-950 via-emerald-900 to-teal-950 text-white border-2 border-amber-400/70 shadow-xl space-y-4">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <span className="px-3 py-1 rounded-full bg-amber-400/20 text-amber-300 border border-amber-400/40 text-xs font-black">
+                    🌿 مولّد الصدقة الجارية والوقف القرآني المخصص
+                  </span>
+                  <h3 className="text-base sm:text-lg font-black text-amber-200 mt-1.5">
+                    أنشئ رابط مصحف وقفي وبطاقة دعاء فاخرة باسم من تحب (متوفى / مريض / الوالدين)
+                  </h3>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                <div>
+                  <label className="block text-xs font-bold text-emerald-200 mb-1">
+                    نوع الإهداء أو الوقف:
+                  </label>
+                  <select
+                    value={waqfRelationType}
+                    onChange={(e) => setWaqfRelationType(e.target.value)}
+                    className="w-full rounded-xl bg-white/10 border border-amber-400/40 px-3 py-2.5 text-xs font-extrabold text-white"
+                  >
+                    <option value="صدقة جارية على روح المغفور له بإذن الله" className="text-slate-900">
+                      صدقة جارية على روح متوفى
+                    </option>
+                    <option value="وقف قرآني وبنية الشفاء العاجل لـ" className="text-slate-900">
+                      بنية الشفاء العاجل لمريض
+                    </option>
+                    <option value="وقف قرآني وصدقة جارية لوالدينا الكريمين:" className="text-slate-900">
+                      برّاً بالوالدين الكريمين
+                    </option>
+                  </select>
+                </div>
+
+                <div className="md:col-span-2">
+                  <label className="block text-xs font-bold text-emerald-200 mb-1">
+                    الاسم المهدى إليه ثواب التلاوة والختمات:
+                  </label>
+                  <input
+                    type="text"
+                    value={customWaqfDedicationName}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setCustomWaqfDedicationName(val);
+                      try {
+                        localStorage.setItem('imam_custom_waqf_name', val);
+                      } catch {}
+                    }}
+                    placeholder="اكتب الاسم هنا (مثال: والدي الحاج محمد / والدتي / جدي / عموم موتى المسلمين)..."
+                    className="w-full rounded-xl bg-white/15 border border-amber-400/60 px-3.5 py-2.5 text-xs sm:text-sm font-black text-white placeholder:text-emerald-200/60"
+                  />
+                </div>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2.5 pt-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const targetName = customWaqfDedicationName.trim() || 'لوالدينا وأموات المسلمين أجمعين';
+                    const shareUrl = `${window.location.origin}${window.location.pathname}?waqf=${encodeURIComponent(targetName)}`;
+                    if (navigator.clipboard) {
+                      navigator.clipboard.writeText(shareUrl);
+                    }
+                    showToast('تم نسخ رابط المصحف الوقفي المخصص! كل من يقرأ منه يظهر له الإهداء أعلى المصحف', 'success');
+                  }}
+                  className="px-4 py-2.5 rounded-2xl bg-amber-400 hover:bg-amber-300 text-slate-950 text-xs font-black flex items-center gap-1.5 cursor-pointer shadow-md"
+                >
+                  <Share2 className="w-4 h-4" />
+                  <span>🔗 نسخ رابط المصحف الوقفي المخصص</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    const targetName = customWaqfDedicationName.trim() || 'لوالدينا وأمواتنا وأموات المسلمين أجمعين';
+                    handleDownloadLuxuryCanvasCard({
+                      headerBadge: '🌿 وثيقة وقف قرآني وصدقة جارية مباركة',
+                      mainArabicText: `${waqfRelationType}: ${targetName}`,
+                      subReference: 'اللهم اجعل ثواب تلاوة هذا المصحف الشريف نوراً ورحمةً ورفعةً في الدرجات',
+                      tafsirOrPrayer:
+                        'اللهم ارحمهم بالقرآن العظيم، وآنس وحشتهم، ونوّر قبورهم، واجمعنا بهم في الفردوس الأعلى من الجنة مع النبيين والصديقين والشهداء والصالحين.',
+                      waqfFooter: `وقف قرآني مجاني مفتوح لعموم المسلمين — ${OFFICIAL_BRANDING.academyName}`,
+                      fileName: `waqf-sadaqah-card-${Date.now()}.png`,
+                    });
+                  }}
+                  className="px-4 py-2.5 rounded-2xl bg-emerald-700 hover:bg-emerald-600 text-white border border-amber-400/50 text-xs font-black flex items-center gap-1.5 cursor-pointer"
+                >
+                  <Download className="w-4 h-4" />
+                  <span>🖼️ تحميل بطاقة الصدقة الجارية (PNG فاخرة)</span>
+                </button>
+
+                <a
+                  href={`https://wa.me/?text=${encodeURIComponent(
+                    `🌿 مصحف وقفي وصدقة جارية (${waqfRelationType}: ${
+                      customWaqfDedicationName.trim() || 'لوالدينا وأموات المسلمين'
+                    })\nاقرأ وردك اليومي واستمع لكبار القراء عبر ${OFFICIAL_BRANDING.academyName} (${OFFICIAL_BRANDING.slogan}):\n${
+                      window.location.origin
+                    }${window.location.pathname}?waqf=${encodeURIComponent(
+                      customWaqfDedicationName.trim() || 'لوالدينا وأموات المسلمين'
+                    )}`
+                  )}`}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="px-4 py-2.5 rounded-2xl bg-green-600 hover:bg-green-500 text-white text-xs font-black flex items-center gap-1.5 cursor-pointer"
+                >
+                  <MessageCircle className="w-4 h-4" />
+                  <span>مشاركة الوقف عبر واتساب</span>
+                </a>
+              </div>
+            </div>
+
             <div className="p-5 rounded-2xl bg-amber-50/70 dark:bg-slate-800/70 border border-amber-300/60 space-y-3">
               <h3 className="text-base sm:text-lg font-extrabold text-emerald-900 dark:text-amber-300">
                 🤲 دعاء ختم القرآن الكريم وإهداء ثواب التلاوة
@@ -2444,9 +3295,144 @@ export const PublicMushafWaqfPortalView: React.FC<PublicMushafWaqfPortalViewProp
             </div>
           </div>
         )}
+
+        {/* TAB 5: BUILT-IN ADHKAR, KHATM DUA & RUQYAH LIBRARY */}
+        {portalSubTab === 'adhkar_library' && (
+          <div className="rounded-3xl bg-white dark:bg-slate-900 border-2 border-emerald-500/50 p-5 sm:p-6 shadow-lg space-y-5">
+            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 dark:border-slate-800 pb-4">
+              <div>
+                <h3 className="text-base sm:text-lg font-black text-emerald-900 dark:text-amber-300">
+                  📿 مكتبة الأذكار، دعاء ختم القرآن، وآيات السكينة والرقية الشرعية
+                </h3>
+                <p className="text-xs text-slate-500">
+                  مكتبة إيمانية مدمجة مع عداد تسبيح تفاعلي لكل ذكر وآية
+                </p>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                {[
+                  { id: 'morning_evening', label: '☀️🌙 أذكار الصباح والمساء' },
+                  { id: 'ruqyah', label: '🛡️ آيات السكينة والرقية الشرعية' },
+                  { id: 'khatm', label: '🤲 دعاء ختم القرآن الكريم' },
+                ].map((cat) => (
+                  <button
+                    key={cat.id}
+                    type="button"
+                    onClick={() => setAdhkarCategoryTab(cat.id as 'khatm' | 'morning_evening' | 'ruqyah')}
+                    className={`px-3.5 py-2 rounded-xl text-xs font-extrabold cursor-pointer transition ${
+                      adhkarCategoryTab === cat.id
+                        ? 'bg-emerald-800 text-white shadow-xs'
+                        : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300'
+                    }`}
+                  >
+                    {cat.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {adhkarCategoryTab === 'khatm' && (
+              <div className="space-y-4">
+                {BUILT_IN_ADHKAR_AND_RUQYAH_LIBRARY.filter(
+                  (item) => item.category === 'khatm_dua'
+                ).map((item) => (
+                  <div
+                    key={item.id}
+                    className="p-5 rounded-2xl bg-gradient-to-br from-amber-50 to-emerald-50/50 dark:from-slate-800 dark:to-emerald-950/40 border border-amber-400/60 space-y-2"
+                  >
+                    <div className="text-sm font-black text-emerald-900 dark:text-amber-300">
+                      ✨ {item.title}
+                    </div>
+                    <p className="font-serif text-lg sm:text-xl leading-loose text-slate-900 dark:text-slate-100 font-bold">
+                      «{item.arabicText}»
+                    </p>
+                    <p className="text-[11px] font-bold text-emerald-700 dark:text-emerald-400">
+                      🌟 المصدر / الفضل: {item.virtueOrSource}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {(adhkarCategoryTab === 'morning_evening' || adhkarCategoryTab === 'ruqyah') && (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {BUILT_IN_ADHKAR_AND_RUQYAH_LIBRARY.filter((item) =>
+                  adhkarCategoryTab === 'morning_evening'
+                    ? item.category === 'morning_evening'
+                    : item.category === 'ruqyah_sakinah'
+                ).map((item) => {
+                  const currentCnt = tasbihCounts[item.id] || 0;
+                  const targetCnt = item.targetCount || 1;
+                  const isDone = currentCnt >= targetCnt;
+                  return (
+                    <div
+                      key={item.id}
+                      className={`p-4 rounded-2xl border-2 transition flex flex-col justify-between gap-3 ${
+                        isDone
+                          ? 'border-emerald-500 bg-emerald-50/70 dark:bg-emerald-950/40'
+                          : 'border-slate-200 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-800/50'
+                      }`}
+                    >
+                      <div className="space-y-2">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-xs font-black text-emerald-900 dark:text-amber-300">
+                            {item.title}
+                          </span>
+                          <span className="px-2.5 py-0.5 rounded-full bg-amber-500/20 text-amber-900 dark:text-amber-200 text-[11px] font-black">
+                            التكرار: {currentCnt} / {targetCnt}
+                          </span>
+                        </div>
+                        <p className="font-serif text-base sm:text-lg leading-loose text-slate-900 dark:text-slate-100 font-bold">
+                          {item.arabicText}
+                        </p>
+                        {item.virtueOrSource && (
+                          <p className="text-[11px] font-bold text-emerald-700 dark:text-emerald-400">
+                            🌟 الفضل: {item.virtueOrSource}
+                          </p>
+                        )}
+                      </div>
+
+                      <div className="flex items-center justify-between gap-2 pt-2 border-t border-slate-200/70 dark:border-slate-700/70">
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setTasbihCounts((prev) => ({
+                              ...prev,
+                              [item.id]: (prev[item.id] || 0) + 1,
+                            }))
+                          }
+                          className={`flex-1 py-2 px-4 rounded-xl font-black text-xs cursor-pointer transition ${
+                            isDone
+                              ? 'bg-emerald-700 text-white'
+                              : 'bg-amber-500 hover:bg-amber-600 text-slate-950'
+                          }`}
+                        >
+                          {isDone ? `✓ اكتمل التكرار (${currentCnt}/${targetCnt}) — زيادة +1` : `📿 اضغط للعدّ والتسبيح (${currentCnt}/${targetCnt})`}
+                        </button>
+                        {currentCnt > 0 && (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setTasbihCounts((prev) => ({
+                                ...prev,
+                                [item.id]: 0,
+                              }))
+                            }
+                            className="px-2.5 py-2 rounded-xl bg-slate-200 dark:bg-slate-700 text-[11px] font-bold cursor-pointer"
+                          >
+                            تصفير
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
-      {/* MODAL 1: Ayah Tafsir, Word Meanings & Shareable Waqf Card */}
+      {/* MODAL 1: Interactive Ayah Action Popover, Dual Tafseer (Muyassar + Jalalayn), Word Meanings & Luxury Share Card */}
       {selectedAyahDetail && (
         <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-white dark:bg-slate-900 rounded-3xl border-2 border-amber-400/70 max-w-2xl w-full p-5 sm:p-6 shadow-2xl space-y-4 max-h-[90vh] overflow-y-auto">
@@ -2456,7 +3442,7 @@ export const PublicMushafWaqfPortalView: React.FC<PublicMushafWaqfPortalViewProp
                   سورة {selectedAyahDetail.surahName} — الآية ({selectedAyahDetail.ayahEntry.ayah})
                 </h3>
                 <p className="text-xs text-slate-500">
-                  انقر على أي كلمة في الآية لإظهار معناها الدقيق وتوجيهها التجويدي
+                  انقر على أي كلمة في الآية لإظهار معناها الدقيق وتوجيهها التجويدي • اختر التفسير أو شارك الآية كبطاقة مصورة
                 </p>
               </div>
               <button
@@ -2471,7 +3457,7 @@ export const PublicMushafWaqfPortalView: React.FC<PublicMushafWaqfPortalViewProp
             {/* Shareable Waqf Quranic Card Preview */}
             <div className="rounded-2xl border-2 border-amber-500/60 bg-gradient-to-br from-[#fffdf5] to-[#fef5d8] dark:from-slate-950 dark:to-emerald-950/70 p-5 text-center space-y-3 shadow-inner">
               <div className="text-xs font-extrabold text-amber-800 dark:text-amber-300">
-                {settings.academyName} • مصحف المدينة الوقفي
+                {OFFICIAL_BRANDING.academyName} — {OFFICIAL_BRANDING.slogan}
               </div>
               <div className="flex flex-wrap justify-center gap-1.5 text-xl sm:text-2xl font-serif leading-loose text-slate-900 dark:text-amber-50">
                 {selectedAyahDetail.ayahEntry.text.split(/\s+/).map((w, idx) => (
@@ -2520,12 +3506,41 @@ export const PublicMushafWaqfPortalView: React.FC<PublicMushafWaqfPortalViewProp
                 </div>
               )}
 
-              <div className="text-right p-3.5 rounded-xl bg-white/80 dark:bg-slate-900/80 border border-emerald-500/30 space-y-1">
-                <div className="text-xs font-extrabold text-emerald-800 dark:text-emerald-300">
-                  📚 التفسير الميسر:
+              {/* Dual Tafsir Switcher (ar.muyassar & ar.jalalayn) */}
+              <div className="text-right p-3.5 rounded-xl bg-white/85 dark:bg-slate-900/85 border border-emerald-500/30 space-y-2">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="text-xs font-extrabold text-emerald-800 dark:text-emerald-300">
+                    📖 موسوعة التفسير المدمجة (أوفلاين / أونلاين):
+                  </div>
+                  <div className="flex items-center gap-1 bg-slate-100 dark:bg-slate-800 p-1 rounded-xl">
+                    <button
+                      type="button"
+                      onClick={() => setActiveTafsirEdition('muyassar')}
+                      className={`px-2.5 py-1 rounded-lg text-[11px] font-extrabold cursor-pointer transition ${
+                        activeTafsirEdition === 'muyassar'
+                          ? 'bg-emerald-700 text-white'
+                          : 'text-slate-600 dark:text-slate-300'
+                      }`}
+                    >
+                      التفسير الميسر
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setActiveTafsirEdition('jalalayn')}
+                      className={`px-2.5 py-1 rounded-lg text-[11px] font-extrabold cursor-pointer transition ${
+                        activeTafsirEdition === 'jalalayn'
+                          ? 'bg-amber-600 text-white'
+                          : 'text-slate-600 dark:text-slate-300'
+                      }`}
+                    >
+                      تفسير الجلالين
+                    </button>
+                  </div>
                 </div>
                 <p className="text-xs sm:text-sm font-bold text-slate-700 dark:text-slate-200 leading-relaxed">
-                  {selectedAyahDetail.ayahEntry.tafsir}
+                  {activeTafsirEdition === 'jalalayn'
+                    ? dualTafsirData?.jalalayn || selectedAyahDetail.ayahEntry.tafsir
+                    : dualTafsirData?.muyassar || selectedAyahDetail.ayahEntry.tafsir}
                 </p>
               </div>
 
@@ -2534,6 +3549,7 @@ export const PublicMushafWaqfPortalView: React.FC<PublicMushafWaqfPortalViewProp
               </div>
             </div>
 
+            {/* Interactive Ayah Action Popover Buttons */}
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div className="flex flex-wrap items-center gap-2">
                 <button
@@ -2542,19 +3558,38 @@ export const PublicMushafWaqfPortalView: React.FC<PublicMushafWaqfPortalViewProp
                     setActiveAudioSurahId(selectedAyahDetail.surahId);
                     setActiveAudioAyah(selectedAyahDetail.ayahEntry.ayah);
                     setIsPlaying(true);
+                    setSelectedAyahDetail(null);
                   }}
-                  className="px-4 py-2 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-extrabold flex items-center gap-1.5 cursor-pointer"
+                  className="px-3.5 py-2 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-extrabold flex items-center gap-1.5 cursor-pointer"
                 >
                   <Play className="w-3.5 h-3.5" />
-                  <span>الاستماع للآية</span>
+                  <span>▶️ استماع وترديد من هذه الآية</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setComparatorAyah({
+                      surahId: selectedAyahDetail.surahId,
+                      surahName: selectedAyahDetail.surahName,
+                      ayah: selectedAyahDetail.ayahEntry.ayah,
+                      text: selectedAyahDetail.ayahEntry.text,
+                    });
+                    setSelectedAyahDetail(null);
+                    setShowComparatorModal(true);
+                  }}
+                  className="px-3.5 py-2 rounded-xl bg-teal-800 hover:bg-teal-700 text-amber-200 text-xs font-extrabold flex items-center gap-1.5 cursor-pointer"
+                >
+                  <Mic className="w-3.5 h-3.5" />
+                  <span>🎙️ سجل تلاوتك وقارنها بالشيخ</span>
                 </button>
 
                 <button
                   type="button"
                   onClick={() => {
                     savePublicBookmark({
-                      category: 'tadabbur',
-                      label: '⭐ آية للتدبر',
+                      category: 'memorization',
+                      label: '🟢 فاصل الحفظ',
                       pageNumber: currentPage,
                       surahId: selectedAyahDetail.surahId,
                       surahName: selectedAyahDetail.surahName,
@@ -2563,26 +3598,54 @@ export const PublicMushafWaqfPortalView: React.FC<PublicMushafWaqfPortalViewProp
                       note: selectedAyahDetail.ayahEntry.text,
                     });
                   }}
-                  className="px-3.5 py-2 rounded-xl bg-amber-100 dark:bg-amber-950/70 text-amber-900 dark:text-amber-200 text-xs font-extrabold cursor-pointer"
+                  className="px-3 py-2 rounded-xl bg-amber-100 dark:bg-amber-950/70 text-amber-900 dark:text-amber-200 text-xs font-extrabold cursor-pointer"
                 >
-                  ⭐ حفظ في فواصل التدبر
+                  🔖 وضع فاصل هنا
                 </button>
               </div>
 
-              <button
-                type="button"
-                onClick={() => {
-                  const shareText = `﴿ ${selectedAyahDetail.ayahEntry.text} ﴾ [سورة ${selectedAyahDetail.surahName}: ${selectedAyahDetail.ayahEntry.ayah}]\nالتفسير الميسر: ${selectedAyahDetail.ayahEntry.tafsir}\n🌿 صدقة جارية ووقف قرآني — ${settings.academyName}`;
-                  if (navigator.clipboard) {
-                    navigator.clipboard.writeText(shareText);
-                  }
-                  showToast('تم نسخ بطاقة الآية والتفسير وتذييل الصدقة الجارية للمشاركة', 'success');
-                }}
-                className="px-4 py-2 rounded-xl bg-slate-900 dark:bg-slate-800 text-white text-xs font-extrabold flex items-center gap-1.5 cursor-pointer"
-              >
-                <Share2 className="w-3.5 h-3.5" />
-                <span>مشاركة بطاقة الآية والصدقة الجارية</span>
-              </button>
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    handleDownloadLuxuryCanvasCard({
+                      headerBadge: `سورة ${selectedAyahDetail.surahName} — الآية (${selectedAyahDetail.ayahEntry.ayah}) • صفحة ${currentPage}`,
+                      mainArabicText: selectedAyahDetail.ayahEntry.text,
+                      subReference: `التفسير (${activeTafsirEdition === 'jalalayn' ? 'الجلالين' : 'الميسر'}):`,
+                      tafsirOrPrayer:
+                        activeTafsirEdition === 'jalalayn'
+                          ? dualTafsirData?.jalalayn || selectedAyahDetail.ayahEntry.tafsir
+                          : dualTafsirData?.muyassar || selectedAyahDetail.ayahEntry.tafsir,
+                      waqfFooter:
+                        '🌿 صدقة جارية ووقف قرآني لوالدينا وأموات المسلمين أجمعين',
+                      fileName: `ayah-card-${selectedAyahDetail.surahId}-${selectedAyahDetail.ayahEntry.ayah}.png`,
+                    });
+                  }}
+                  className="px-3.5 py-2 rounded-xl bg-amber-500 hover:bg-amber-600 text-slate-950 text-xs font-black flex items-center gap-1.5 cursor-pointer shadow-xs"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  <span>🖼️ مشاركة كبطاقة مصورة فاخرة (PNG)</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    const shareText = `﴿ ${selectedAyahDetail.ayahEntry.text} ﴾ [سورة ${selectedAyahDetail.surahName}: ${selectedAyahDetail.ayahEntry.ayah}]\nالتفسير: ${
+                      activeTafsirEdition === 'jalalayn'
+                        ? dualTafsirData?.jalalayn || selectedAyahDetail.ayahEntry.tafsir
+                        : dualTafsirData?.muyassar || selectedAyahDetail.ayahEntry.tafsir
+                    }\n🌿 صدقة جارية ووقف قرآني — ${OFFICIAL_BRANDING.academyName} (${OFFICIAL_BRANDING.slogan})`;
+                    if (navigator.clipboard) {
+                      navigator.clipboard.writeText(shareText);
+                    }
+                    showToast('تم نسخ بطاقة الآية والتفسير وتذييل الصدقة الجارية للمشاركة', 'success');
+                  }}
+                  className="px-3.5 py-2 rounded-xl bg-slate-900 dark:bg-slate-800 text-white text-xs font-extrabold flex items-center gap-1.5 cursor-pointer"
+                >
+                  <Share2 className="w-3.5 h-3.5" />
+                  <span>نسخ النص</span>
+                </button>
+              </div>
             </div>
           </div>
         </div>
