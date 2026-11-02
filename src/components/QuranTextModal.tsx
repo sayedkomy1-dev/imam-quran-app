@@ -36,6 +36,7 @@ import {
   ErrorContext,
   ErrorType,
   ReciterId,
+  ErrorHotspotStageKey,
 } from '../types';
 
 export interface QuranTextModalProps {
@@ -159,6 +160,7 @@ export const QuranTextModal: React.FC<QuranTextModalProps> = ({
 }) => {
   const {
     students,
+    sessions,
     selectedStudentId,
     linkStudentStopToAyah,
     addStudentCustomMutashabih,
@@ -536,12 +538,88 @@ export const QuranTextModal: React.FC<QuranTextModalProps> = ({
     setTimeout(() => setFeedbackToast(null), 2800);
   };
 
+  // Compute historical Error Hotspots (النقاط الساخنة) for the active student in this Surah from previous sessions
+  const studentHotspotErrors = React.useMemo(() => {
+    if (!activeStudent) return [];
+    const list: RecitationError[] = [];
+    const seenKeys = new Set<string>();
+    sessions
+      .filter((s) => s.studentId === activeStudent.id && Array.isArray(s.errors))
+      .forEach((sess) => {
+        sess.errors.forEach((err) => {
+          if (
+            err.surah === currentSurah.name &&
+            err.followUpStatus !== 'mastered' &&
+            err.followUpStatus !== 'تم الإتقان' &&
+            err.word
+          ) {
+            const key = `${err.surah}_${err.ayah}_${err.word}`;
+            if (!seenKeys.has(key)) {
+              seenKeys.add(key);
+              list.push(err);
+            }
+          }
+        });
+      });
+    return list;
+  }, [activeStudent, sessions, currentSurah.name]);
+
+  const handleQuickHotspotStageError = (
+    stageKey: ErrorHotspotStageKey,
+    label: string,
+    mappedType: ErrorType,
+    category: ErrorCategoryGroup,
+    deductionPoints: number
+  ) => {
+    if (!inspectedWord || !onRecordError) return;
+    const compositeKey = `${currentSurah.name}_${inspectedWord.ayahEntry.ayah}_${inspectedWord.wordIndex}_${stageKey}`;
+    onRecordError({
+      type: mappedType,
+      context: effectiveContext,
+      surahId: currentSurah.id,
+      surah: currentSurah.name,
+      ayah: inspectedWord.ayahEntry.ayah,
+      word: inspectedWord.word,
+      wordIndex: inspectedWord.wordIndex,
+      letter: selectedLetter || undefined,
+      category,
+      subType: label,
+      deductionPoints,
+      hotspotStageKey: stageKey,
+      correctedInSession,
+      followUpStatus: 'needs_review',
+      repeatCount: 1,
+      compositeKey,
+      tajweedRule: category === 'تجويد' ? label : undefined,
+      note: `${label} (-${deductionPoints} نقطة) — مضاف لسجل النقاط الساخنة للحصة القادمة`,
+      timestamp: new Date().toISOString().slice(0, 10),
+    });
+    setFeedbackToast(
+      `🔥 تم وسم «${inspectedWord.word}» (${label} | خصم ${deductionPoints} نقطة) وحفظها في النقاط الساخنة للحصة القادمة`
+    );
+    setTimeout(() => setFeedbackToast(null), 2800);
+  };
+
   const handleConfirmRecordError = () => {
     if (!inspectedWord || !onRecordError) return;
     const catConfig =
       ERROR_CATEGORIES.find((c) => c.group === selectedCategory) ||
       ERROR_CATEGORIES[0];
     const compositeKey = `${currentSurah.name}_${inspectedWord.ayahEntry.ayah}_${inspectedWord.wordIndex}_${selectedCategory}`;
+    const defaultDeduction =
+      selectedCategory === 'حفظ'
+        ? selectedSubType.includes('تردد')
+          ? 0.25
+          : 1.0
+        : 0.5;
+    const defaultStageKey: ErrorHotspotStageKey =
+      selectedCategory === 'حفظ'
+        ? selectedSubType.includes('تردد')
+          ? 'hesitation_025'
+          : 'memorization_1'
+        : selectedCategory === 'تجويد' || selectedCategory === 'حروف'
+        ? 'tajweed_05'
+        : 'tashkeel_05';
 
     onRecordError({
       type: catConfig.mappedErrorType,
@@ -554,6 +632,8 @@ export const QuranTextModal: React.FC<QuranTextModalProps> = ({
       letter: selectedLetter || undefined,
       category: selectedCategory,
       subType: selectedSubType,
+      deductionPoints: defaultDeduction,
+      hotspotStageKey: defaultStageKey,
       correctedInSession,
       followUpStatus: correctedInSession ? 'needs_review' : 'open',
       repeatCount: 1,
@@ -569,7 +649,7 @@ export const QuranTextModal: React.FC<QuranTextModalProps> = ({
     });
 
     setFeedbackToast(
-      `تم تسجيل الملاحظة على كلمة «${inspectedWord.word}» وربطها بملف الطالب`
+      `تم تسجيل الملاحظة على كلمة «${inspectedWord.word}» (خصم ${defaultDeduction} نقطة) وحفظها في النقاط الساخنة`
     );
     setTimeout(() => setFeedbackToast(null), 2500);
   };
@@ -930,16 +1010,58 @@ export const QuranTextModal: React.FC<QuranTextModalProps> = ({
               </div>
             )}
 
-            <div className="bg-slate-950/90 border border-amber-500/20 rounded-2xl p-4 sm:p-5 shadow-inner">
-              <div className="text-center border-b border-slate-800 pb-3 mb-4">
-                <h4 className="font-quran text-xl sm:text-2xl font-bold text-amber-400">
-                  سورة {currentSurah.name}
-                </h4>
-                <p className="text-xs text-slate-400 mt-0.5">
-                  النطاق المحدد: الآية ({fromAyah}) إلى الآية ({toAyah}) من أصل (
-                  {currentSurah.ayahs}) آية • المعروض حالياً: ({verses.length} آية)
-                </p>
+            <div className="relative overflow-hidden bg-slate-950/90 border-2 border-amber-500/35 rounded-2xl p-4 sm:p-5 shadow-inner">
+              {/* Decorative Mushaf Corners */}
+              <img
+                src="/mushaf-corner.svg"
+                alt=""
+                className="w-10 h-10 absolute top-1 right-1 opacity-75 pointer-events-none select-none"
+              />
+              <img
+                src="/mushaf-corner.svg"
+                alt=""
+                className="w-10 h-10 absolute top-1 left-1 -scale-x-100 opacity-75 pointer-events-none select-none"
+              />
+
+              {/* Ornate KFGQPC Surah Header Banner */}
+              <div className="relative rounded-2xl overflow-hidden border border-amber-500/60 py-3 px-4 mb-4 text-center bg-[#042f2e]">
+                <img
+                  src="/mushaf-title-ornament.svg"
+                  alt=""
+                  className="absolute inset-0 w-full h-full object-cover opacity-85 pointer-events-none select-none"
+                />
+                <div className="relative z-10">
+                  <h4 className="font-uthmanic-hafs text-xl sm:text-2xl font-bold text-amber-300">
+                    ۞ سُورَةُ {currentSurah.name} ۞
+                  </h4>
+                  <p className="text-xs text-emerald-100/90 mt-0.5 font-bold">
+                    النطاق المحدد: الآية ({fromAyah}) إلى الآية ({toAyah}) من أصل (
+                    {currentSurah.ayahs}) آية • المعروض حالياً: ({verses.length} آية)
+                  </p>
+                </div>
               </div>
+
+              {/* Error Hotspots Alert Bar if student has previous errors in this Surah */}
+              {studentHotspotErrors.length > 0 && (
+                <div className="mb-3 px-3.5 py-2 rounded-xl bg-amber-500/15 border border-amber-400/50 flex flex-wrap items-center justify-between gap-2 text-xs">
+                  <div className="font-extrabold text-amber-300 flex items-center gap-1.5">
+                    <span className="inline-block w-2.5 h-2.5 rounded-full bg-amber-400 animate-ping" />
+                    <span>
+                      🔥 النقاط الساخنة في سورة {currentSurah.name} ({studentHotspotErrors.length} كلمات من الحصص السابقة تومض للتأكد من إتقانها):
+                    </span>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    {studentHotspotErrors.slice(0, 6).map((hErr) => (
+                      <span
+                        key={hErr.id}
+                        className="px-2 py-0.5 rounded-md bg-amber-500/25 border border-amber-400/50 text-amber-100 font-uthmanic-hafs text-sm"
+                      >
+                        {hErr.word} (آية {hErr.ayah})
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               {loadingVerses ? (
                 <div className="py-12 text-center text-xs font-bold text-slate-400">
@@ -1085,17 +1207,33 @@ export const QuranTextModal: React.FC<QuranTextModalProps> = ({
                         </div>
 
                         {/* Words of the Ayah */}
-                        <div className="font-quran text-xl sm:text-2xl text-slate-100 flex flex-wrap items-center gap-x-2 gap-y-2 leading-relaxed">
+                        <div className="font-uthmanic-hafs text-xl sm:text-2xl text-slate-100 flex flex-wrap items-center gap-x-2 gap-y-2 leading-relaxed">
                           {words.map((word, wIdx) => {
-                            const hasRecordedError = existingErrors.some(
+                            const recordedErrObj = existingErrors.find(
                               (err) =>
                                 err.surah === currentSurah.name &&
+                                err.ayah === verse.ayah &&
+                                (err.wordIndex === wIdx || err.word === word)
+                            );
+                            const hasRecordedError = Boolean(recordedErrObj);
+                            const historicalHotspot = studentHotspotErrors.find(
+                              (err) =>
                                 err.ayah === verse.ayah &&
                                 (err.wordIndex === wIdx || err.word === word)
                             );
                             const isSelected =
                               inspectedWord?.ayahEntry.ayah === verse.ayah &&
                               inspectedWord?.wordIndex === wIdx;
+
+                            const stageColorClass = recordedErrObj
+                              ? recordedErrObj.hotspotStageKey === 'memorization_1' || recordedErrObj.type === 'حفظ'
+                                ? 'bg-rose-600/35 text-rose-100 border border-rose-500 underline decoration-rose-400'
+                                : recordedErrObj.hotspotStageKey === 'tashkeel_05' || recordedErrObj.type === 'تشكيل'
+                                ? 'bg-orange-500/35 text-orange-100 border border-orange-400 underline decoration-orange-300'
+                                : recordedErrObj.hotspotStageKey === 'tajweed_05' || recordedErrObj.type === 'تجويد'
+                                ? 'bg-purple-600/35 text-purple-100 border border-purple-400 underline decoration-purple-300'
+                                : 'bg-yellow-500/35 text-yellow-100 border border-yellow-400 underline decoration-yellow-300'
+                              : '';
 
                             return (
                               <button
@@ -1110,17 +1248,27 @@ export const QuranTextModal: React.FC<QuranTextModalProps> = ({
                                   setSelectedLetter('');
                                   setDiffHighlightWord(word);
                                 }}
+                                title={
+                                  historicalHotspot
+                                    ? `🔥 نقطة ساخنة من حصة سابقة (${historicalHotspot.subType || historicalHotspot.type}) — تحقق من إتقان الطالب لها!`
+                                    : undefined
+                                }
                                 className={`px-1.5 py-0.5 rounded-lg transition select-none cursor-pointer ${
                                   isSelected
                                     ? 'bg-amber-500 text-slate-950 font-bold ring-2 ring-amber-300'
                                     : hasRecordedError
-                                    ? 'bg-rose-500/25 text-rose-200 border border-rose-500/50 underline decoration-rose-400'
+                                    ? stageColorClass
+                                    : historicalHotspot
+                                    ? 'hotspot-word-pulse bg-amber-500/25 text-amber-200 border border-amber-400/80'
                                     : hideWordsMode && isInSelectedRange
                                     ? 'bg-slate-800 text-transparent hover:text-slate-200 border border-slate-700'
                                     : 'hover:bg-amber-500/15 hover:text-amber-300'
                                 }`}
                               >
                                 {word}
+                                {historicalHotspot && !hasRecordedError && (
+                                  <span className="mr-1 text-[10px] text-amber-300 font-sans">🔥</span>
+                                )}
                               </button>
                             );
                           })}
@@ -1400,11 +1548,95 @@ export const QuranTextModal: React.FC<QuranTextModalProps> = ({
                     <div className="flex items-center justify-between">
                       <h5 className="text-xs sm:text-sm font-bold text-rose-300 flex items-center gap-1.5">
                         <AlertTriangle className="w-4 h-4 text-rose-400" />
-                        <span>تسجيل خطأ أو ملاحظة أداء على هذه الكلمة</span>
+                        <span>نظام وسم الأخطاء ثلاثي المراحل والنقاط الساخنة</span>
                       </h5>
-                      <span className="text-[11px] text-slate-400">
-                        يرتبط تلقائياً بملف الطالب
+                      <span className="text-[11px] text-amber-300 font-bold">
+                        🔥 يُحفظ في النقاط الساخنة للحصة القادمة
                       </span>
+                    </div>
+
+                    {/* 1-Click 4-Color Weighted Instant Error Buttons */}
+                    <div className="p-2.5 rounded-xl bg-slate-950/90 border border-slate-800 space-y-2">
+                      <div className="text-[11px] font-extrabold text-slate-300">
+                        ⚡ تصنيف فوري بضغطة واحدة على كلمة «{inspectedWord.word}»:
+                      </div>
+                      <div className="grid grid-cols-2 gap-2">
+                        <button
+                          type="button"
+                          onClick={() =>
+                            handleQuickHotspotStageError(
+                              'memorization_1',
+                              'خطأ حفظ / نسيان',
+                              'حفظ',
+                              'حفظ',
+                              1.0
+                            )
+                          }
+                          className="p-2 rounded-xl bg-rose-950/70 hover:bg-rose-900/80 border border-rose-500/60 text-rose-100 text-right transition cursor-pointer flex items-center justify-between"
+                        >
+                          <span className="text-xs font-black">🔴 خطأ حفظ / نسيان</span>
+                          <span className="px-1.5 py-0.5 rounded bg-rose-600 text-white text-[10px] font-mono font-black">
+                            -1.0 نقطة
+                          </span>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() =>
+                            handleQuickHotspotStageError(
+                              'tashkeel_05',
+                              'خطأ تشكيل / إعراب',
+                              'تشكيل',
+                              'ضبط',
+                              0.5
+                            )
+                          }
+                          className="p-2 rounded-xl bg-orange-950/70 hover:bg-orange-900/80 border border-orange-500/60 text-orange-100 text-right transition cursor-pointer flex items-center justify-between"
+                        >
+                          <span className="text-xs font-black">🟠 خطأ تشكيل / إعراب</span>
+                          <span className="px-1.5 py-0.5 rounded bg-orange-600 text-white text-[10px] font-mono font-black">
+                            -0.5 نقطة
+                          </span>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() =>
+                            handleQuickHotspotStageError(
+                              'tajweed_05',
+                              'خطأ حكم تجويدي',
+                              'تجويد',
+                              'تجويد',
+                              0.5
+                            )
+                          }
+                          className="p-2 rounded-xl bg-purple-950/70 hover:bg-purple-900/80 border border-purple-500/60 text-purple-100 text-right transition cursor-pointer flex items-center justify-between"
+                        >
+                          <span className="text-xs font-black">🟣 خطأ حكم تجويدي</span>
+                          <span className="px-1.5 py-0.5 rounded bg-purple-600 text-white text-[10px] font-mono font-black">
+                            -0.5 نقطة
+                          </span>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() =>
+                            handleQuickHotspotStageError(
+                              'hesitation_025',
+                              'تردد / تنبيه فتح',
+                              'حفظ',
+                              'حفظ',
+                              0.25
+                            )
+                          }
+                          className="p-2 rounded-xl bg-yellow-950/70 hover:bg-yellow-900/80 border border-yellow-500/60 text-yellow-100 text-right transition cursor-pointer flex items-center justify-between"
+                        >
+                          <span className="text-xs font-black">🟡 تردد / تنبيه فتح</span>
+                          <span className="px-1.5 py-0.5 rounded bg-yellow-500 text-slate-950 text-[10px] font-mono font-black">
+                            -0.25 نقطة
+                          </span>
+                        </button>
+                      </div>
                     </div>
 
                     {/* Letter Picker inside the selected word */}

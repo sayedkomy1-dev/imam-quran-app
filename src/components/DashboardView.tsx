@@ -3,8 +3,11 @@ import { useAcademy } from '../context/AcademyContext';
 import { DAY_NAMES } from '../data/quranData';
 import { getLocalDateString } from '../data/seedData';
 import {
+  HijriCalendar,
   formatFullTodayBannerDate,
   formatGregorianAndHijri,
+  formatHijriDate,
+  triggerFastPrint,
 } from '../utils/dateUtils';
 import { FeeRecord, Student, StudentLevel } from '../types';
 import {
@@ -25,16 +28,20 @@ import {
   FileText,
   Heart,
   IdCard,
+  KeyRound,
   Layers,
+  MessageCircle,
   MessageSquare,
   Mic,
   PieChart,
   Play,
   Plus,
+  Printer,
   Search,
   Sparkles,
   Star,
   Target,
+  Trash2,
   TrendingUp,
   UserPlus,
   Users,
@@ -62,6 +69,7 @@ export const DashboardView: React.FC = () => {
     sessions,
     circles,
     settings,
+    updateSettings,
     setActiveTab,
     setSelectedStudentId,
     setQuickSearchOpen,
@@ -84,6 +92,9 @@ export const DashboardView: React.FC = () => {
     addStaffMember,
     updateStaffFamilyDetails,
     googleAuthUser,
+    accessCodeRequests,
+    resolveAccessCodeRequestAndSendWhatsApp,
+    deleteAccessCodeRequest,
   } = useAcademy();
 
   const todayStr = getLocalDateString(0);
@@ -347,9 +358,12 @@ export const DashboardView: React.FC = () => {
             }, 0)
           : 3 + (idx % 3) * 2;
 
+      const showHijri = settings.showHijriDates ?? true;
       return {
-        dateLabel: dStr.slice(5),
-        fullDate: dStr,
+        dateLabel: showHijri
+          ? `${dStr.slice(5)} (${formatHijriDate(dStr, 'short')})`
+          : dStr.slice(5),
+        fullDate: formatGregorianAndHijri(dStr, showHijri),
         masteryPercentage: avgDayMastery,
         completedPages: pagesDoneInDay,
         sessionsCount: daySessions.length || 2,
@@ -362,7 +376,7 @@ export const DashboardView: React.FC = () => {
       totalCompletedPages,
       overallMasteryAvg,
     };
-  }, [students, sessions]);
+  }, [students, sessions, settings.showHijriDates]);
 
   const handleQuickAdjustStudentJuz = (studentId: string, delta: 1 | -1) => {
     const target = students.find((s) => s.id === studentId);
@@ -532,8 +546,14 @@ export const DashboardView: React.FC = () => {
         2,
         '0'
       )}`;
-      const monthName = `${arabicMonths[d.getMonth()]} ${d.getFullYear()}`;
-      const shortMonth = arabicMonths[d.getMonth()];
+      const hijriMonthParts = HijriCalendar.getParts(d);
+      const showHijri = settings.showHijriDates ?? true;
+      const monthName = showHijri
+        ? `${arabicMonths[d.getMonth()]} ${d.getFullYear()} م • ${hijriMonthParts.monthName} ${hijriMonthParts.year} هـ`
+        : `${arabicMonths[d.getMonth()]} ${d.getFullYear()} م`;
+      const shortMonth = showHijri
+        ? `${arabicMonths[d.getMonth()]} (${hijriMonthParts.monthName})`
+        : arabicMonths[d.getMonth()];
 
       const monthSessions = filteredSessions.filter((ses) =>
         ses.date.startsWith(ymPrefix)
@@ -774,20 +794,39 @@ export const DashboardView: React.FC = () => {
       <section className="rounded-3xl bg-[#145a3a] text-white p-6 md:p-7 shadow-md border border-[#c59b27]/30 relative overflow-hidden">
         <div className="relative z-10 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-6">
           <div>
-            <div className="text-xs font-bold text-[#dfbd69] mb-1">
-              {settings.academyName} — {settings.tagline} •{' '}
-              {formatFullTodayBannerDate(settings.showHijriDates ?? true)}
+            <div className="flex flex-wrap items-center gap-2 text-xs font-bold text-[#dfbd69] mb-1.5">
+              <span>
+                {settings.academyName} — {settings.tagline}
+              </span>
+              <span className="opacity-60">•</span>
+              <span className="px-2.5 py-0.5 rounded-lg bg-black/25 border border-[#dfbd69]/30 text-white font-extrabold">
+                📅 {formatFullTodayBannerDate(settings.showHijriDates ?? true)}
+              </span>
+              <button
+                type="button"
+                onClick={() =>
+                  updateSettings({
+                    showHijriDates: !(settings.showHijriDates ?? true),
+                  })
+                }
+                className="no-print px-2 py-0.5 rounded-lg bg-white/10 hover:bg-white/20 text-[11px] text-emerald-100 border border-white/15 transition-colors cursor-pointer"
+                title="تبديل عرض التاريخ الهجري والميلادي معاً (مفعل افتراضياً للمعلمين)"
+              >
+                {(settings.showHijriDates ?? true)
+                  ? '✓ هجري + ميلادي (افتراضي)'
+                  : 'ميلادي فقط (تفعيل الهجري)'}
+              </button>
             </div>
             <h1 className="text-2xl md:text-3xl font-extrabold tracking-tight">
               مرحباً بك، {settings.teacherName}
             </h1>
             <p className="text-xs md:text-sm text-emerald-100 mt-1.5">
-              لوحة القيادة اليومية لإدارة الحلقات والتسميع التفاعلي ومتابعة الإتقان القرآني.
+              لوحة القيادة اليومية لإدارة الحلقات والتسميع التفاعلي ومتابعة الإتقان القرآني بالتقويمين الهجري والميلادي.
             </p>
           </div>
 
-          {/* 2 Primary Quick Action Buttons */}
-          <div className="flex flex-wrap items-center gap-2.5">
+          {/* Primary Quick Action Buttons + Fast Print */}
+          <div className="flex flex-wrap items-center gap-2.5 no-print">
             <button
               onClick={() => setActiveTab('session')}
               className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-[#c59b27] hover:bg-[#b58c1e] text-[#14281d] font-bold text-xs shadow-sm transition-colors cursor-pointer whitespace-nowrap"
@@ -803,9 +842,124 @@ export const DashboardView: React.FC = () => {
               <CalendarCheck className="w-4 h-4 text-[#dfbd69]" />
               <span>إدارة الحلقات والحضور</span>
             </button>
+
+            <button
+              type="button"
+              onClick={() =>
+                triggerFastPrint(
+                  `تقرير لوحة القيادة - ${settings.academyName} - ${todayStr}`
+                )
+              }
+              className="flex items-center gap-1.5 px-3.5 py-2.5 rounded-xl bg-white/10 hover:bg-white/20 text-[#dfbd69] font-bold text-xs border border-[#dfbd69]/30 transition-colors cursor-pointer whitespace-nowrap"
+              title="طباعة فورية سريعة للوحة القيادة اليومية"
+            >
+              <Printer className="w-4 h-4" />
+              <span>طباعة سريعة</span>
+            </button>
           </div>
         </div>
       </section>
+
+      {/* 🔔 طلبات أكواد دخول أولياء الأمور والطلاب (Guardian & Student Access Code Requests Pipeline) */}
+      {accessCodeRequests.length > 0 && (
+        <section
+          aria-label="طلبات أكواد دخول أولياء الأمور والطلاب"
+          className="rounded-3xl bg-gradient-to-l from-[#fcfaf2] via-white to-[#f6f7f2] dark:from-[#12231a] dark:via-[#0b1711] dark:to-[#12231a] border-2 border-[#c59b27] p-5 md:p-6 shadow-md space-y-4"
+        >
+          <div className="flex flex-wrap items-center justify-between gap-3 pb-3 border-b border-[#c59b27]/40">
+            <div className="flex items-center gap-2.5">
+              <div className="w-10 h-10 rounded-2xl bg-[#145a3a] text-[#dfbd69] flex items-center justify-center shrink-0">
+                <KeyRound className="w-5 h-5" />
+              </div>
+              <div>
+                <h2 className="text-sm sm:text-base font-black text-[#145a3a] dark:text-[#dfbd69] flex items-center gap-2 flex-wrap">
+                  <span>🔔 طلبات أكواد دخول أولياء الأمور والطلاب</span>
+                  <span className="px-2.5 py-0.5 rounded-full bg-red-600 text-white text-[11px] font-mono font-black">
+                    {accessCodeRequests.filter((r) => r.status === 'pending').length} طلب بانتظار الإرسال
+                  </span>
+                </h2>
+                <p className="text-xs text-neutral-600 dark:text-neutral-300 mt-0.5">
+                  تصل هنا طلبات أولياء الأمور والطلاب الذين طلبوا كود الدخول من شاشة الدخول — اضغط الزر الأخضر لتوليد/جلب الكود وإرساله فوراً عبر واتساب
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-3.5">
+            {accessCodeRequests.slice(0, 8).map((req) => {
+              const isResolved = req.status === 'resolved';
+              return (
+                <div
+                  key={req.id}
+                  className={`p-4 rounded-2xl border-2 space-y-2.5 transition ${
+                    isResolved
+                      ? 'bg-neutral-50/70 dark:bg-emerald-950/20 border-neutral-200 dark:border-emerald-900/50'
+                      : 'bg-amber-50/70 dark:bg-amber-950/30 border-[#c59b27]'
+                  }`}
+                >
+                  <div className="flex items-center justify-between gap-2 flex-wrap">
+                    <div className="flex items-center gap-2">
+                      <span
+                        className={`px-2.5 py-0.5 rounded-full text-[10px] font-black ${
+                          isResolved
+                            ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900 dark:text-emerald-200'
+                            : 'bg-amber-500 text-[#14281d]'
+                        }`}
+                      >
+                        {isResolved ? '✓ تم إرسال الكود' : '● طلب كود دخول جديد'}
+                      </span>
+                      <span className="text-xs font-black text-[#14281d] dark:text-white">
+                        الطالب: {req.studentName}
+                      </span>
+                    </div>
+                    <span className="text-[11px] font-mono font-black text-[#145a3a] dark:text-[#dfbd69]">
+                      الكود: {req.generatedCode || 'IQ-2026'}
+                    </span>
+                  </div>
+
+                  <div className="text-xs text-neutral-700 dark:text-neutral-300 space-y-1">
+                    <div>
+                      👤 <strong>ولي الأمر:</strong> {req.guardianName} • 📱{' '}
+                      <strong>واتساب:</strong>{' '}
+                      <span className="font-mono" dir="ltr">
+                        {req.guardianPhone}
+                      </span>
+                    </div>
+                    {req.circleOrTeacherName && (
+                      <div>
+                        🕌 <strong>الحلقة / المحفظ:</strong> {req.circleOrTeacherName}
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        resolveAccessCodeRequestAndSendWhatsApp(req.id)
+                      }
+                      className="flex-1 py-2 px-3 rounded-xl bg-gradient-to-l from-[#25D366] to-[#128C7E] hover:opacity-95 text-white text-xs font-black flex items-center justify-center gap-1.5 cursor-pointer shadow-xs"
+                    >
+                      <MessageCircle className="w-4 h-4" />
+                      <span>
+                        ⚡ توليد/جلب كود الدخول وإرساله لولي الأمر عبر واتساب
+                      </span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => deleteAccessCodeRequest(req.id)}
+                      className="p-2 rounded-xl border border-red-200 dark:border-red-900/50 text-red-600 hover:bg-red-50 dark:hover:bg-red-950/40 cursor-pointer"
+                      title="حذف الطلب"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </section>
+      )}
 
       {/* Daily Wisdom & Motivational Guidance for Students and Teachers */}
       <DailyWisdomCard />
@@ -1083,8 +1237,13 @@ export const DashboardView: React.FC = () => {
                       {day.dayName}
                     </span>
                     <span className="text-[10px] font-mono tabular-nums text-neutral-400 text-center leading-tight whitespace-nowrap truncate max-w-full">
-                      {day.dateStr.slice(5)}
+                      {day.dateStr.slice(5)} م
                     </span>
+                    {(settings.showHijriDates ?? true) && (
+                      <span className="text-[9px] font-bold text-[#145a3a] dark:text-[#dfbd69] text-center leading-tight whitespace-nowrap truncate max-w-full">
+                        {formatHijriDate(day.dateStr, 'short')}
+                      </span>
+                    )}
                   </div>
                 );
               })}

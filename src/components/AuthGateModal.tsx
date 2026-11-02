@@ -7,12 +7,20 @@ import {
   QuickSupportFloatingButton,
 } from './DeveloperSupportModal';
 import { AcademyPdfGuideModal } from './AcademyPdfGuideModal';
+import {
+  detectPortalRouteFromLocation,
+  PortalInstallAndShareBar,
+  PWAInstallButton,
+  updatePortalManifest,
+} from './PWAComponents';
+import { PortalAISuiteModal } from './PortalAISuiteModal';
 import { WAQF_DEDICATION_TEXT } from '../data/quranData';
 import { SUPABASE_OFFICIAL_CONFIG } from '../utils/wlqSyncCore';
-import { QuranRiwayah } from '../types';
+import { AccessCodeRequest, PortalRoute, QuranRiwayah } from '../types';
 import {
   Award,
   BookOpen,
+  Bot,
   CheckCircle2,
   ExternalLink,
   FileText,
@@ -59,10 +67,21 @@ export const AuthGateModal: React.FC = () => {
     waqfImpactStats,
     recordWaqfAmeenPrayer,
     setIsDeveloperModalOpen,
+    activePortalRoute,
+    setActivePortalRoute,
+    submitAccessCodeRequest,
   } = useAcademy();
 
-  const [selectedPortal, setSelectedPortal] = useState<WelcomePortalRole | null>(null);
+  const [selectedPortal, setSelectedPortal] = useState<WelcomePortalRole | null>(() => {
+    const detected = detectPortalRouteFromLocation();
+    if (detected === 'student') return 'student';
+    if (detected === 'guardian') return 'guardian';
+    if (detected === 'owner') return 'supervisor';
+    if (detected === 'general') return 'teacher';
+    return null;
+  });
   const [showAcademyPdfGuide, setShowAcademyPdfGuide] = useState(false);
+  const [showAiSuiteModal, setShowAiSuiteModal] = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
   const [microsoftLoading, setMicrosoftLoading] = useState(false);
 
@@ -94,6 +113,40 @@ export const AuthGateModal: React.FC = () => {
   const [phone, setPhone] = useState('');
   const [pin, setPin] = useState('');
   const [guardianError, setGuardianError] = useState('');
+
+  // Request Access Code Flow State (طلب كود دخول لولي الأمر أو الطالب)
+  const [showAccessCodeRequestForm, setShowAccessCodeRequestForm] = useState(false);
+  const [reqStudentName, setReqStudentName] = useState('');
+  const [reqGuardianPhone, setReqGuardianPhone] = useState('');
+  const [reqCircleOrTeacher, setReqCircleOrTeacher] = useState('');
+  const [submittedCodeRequest, setSubmittedCodeRequest] = useState<AccessCodeRequest | null>(
+    null
+  );
+
+  // Sync URL pathname & dynamic manifest when portal changes
+  useEffect(() => {
+    const detected = detectPortalRouteFromLocation();
+    if (detected === 'almushaf') {
+      updatePortalManifest('almushaf');
+      setPublicMushafPortalOpen(true);
+    } else if (detected === 'sadaqa') {
+      updatePortalManifest('sadaqa');
+      setSadaqahModalOpen(true);
+    } else if (detected) {
+      updatePortalManifest(detected);
+    }
+  }, [setPublicMushafPortalOpen]);
+
+  const currentEffectivePortalRoute: PortalRoute =
+    selectedPortal === 'student'
+      ? 'student'
+      : selectedPortal === 'guardian'
+      ? 'guardian'
+      : selectedPortal === 'supervisor'
+      ? 'owner'
+      : selectedPortal === 'teacher'
+      ? 'general'
+      : activePortalRoute;
 
   // New Student Admission Request Form State
   const [admStudentName, setAdmStudentName] = useState('');
@@ -560,18 +613,32 @@ export const AuthGateModal: React.FC = () => {
           </div>
 
           <div className="flex flex-wrap items-center justify-center gap-2 w-full sm:w-auto">
+            <PWAInstallButton portalRoute={currentEffectivePortalRoute} compact />
+
+            <button
+              type="button"
+              onClick={() => setShowAiSuiteModal(true)}
+              className="px-3.5 py-2 rounded-xl bg-amber-400/20 hover:bg-amber-400/30 text-amber-200 border border-amber-400/50 text-xs sm:text-sm font-extrabold flex items-center justify-center gap-1.5 transition cursor-pointer shadow-sm"
+            >
+              <Bot className="w-4 h-4 text-amber-300 shrink-0" />
+              <span>🤖 المساعد القرآني الذكي</span>
+            </button>
+
             <button
               type="button"
               onClick={() => setShowAcademyPdfGuide(true)}
               className="px-3.5 py-2 rounded-xl bg-white/10 hover:bg-white/20 text-amber-200 border border-amber-400/40 text-xs sm:text-sm font-bold flex items-center justify-center gap-1.5 transition cursor-pointer shadow-sm"
             >
               <FileText className="w-4 h-4 text-amber-300 shrink-0" />
-              <span>📄 الدليل التعريفي للأكاديمية PDF</span>
+              <span>📄 الدليل التعريفي PDF</span>
             </button>
 
             <button
               type="button"
-              onClick={() => setPublicMushafPortalOpen(true)}
+              onClick={() => {
+                setActivePortalRoute('almushaf');
+                setPublicMushafPortalOpen(true);
+              }}
               className="px-4 py-2 rounded-xl bg-gradient-to-l from-amber-400/20 to-emerald-900/90 hover:from-amber-400/30 hover:to-emerald-800 text-amber-200 border border-amber-400/40 text-xs sm:text-sm font-bold flex items-center justify-center gap-2 transition cursor-pointer shadow-sm"
             >
               <BookOpen className="w-4 h-4 text-amber-300 shrink-0" />
@@ -584,6 +651,12 @@ export const AuthGateModal: React.FC = () => {
       <AcademyPdfGuideModal
         isOpen={showAcademyPdfGuide}
         onClose={() => setShowAcademyPdfGuide(false)}
+      />
+
+      <PortalAISuiteModal
+        isOpen={showAiSuiteModal}
+        onClose={() => setShowAiSuiteModal(false)}
+        initialPortal={currentEffectivePortalRoute}
       />
 
       {/* Main Centered Portal Selection Card */}
@@ -710,6 +783,20 @@ export const AuthGateModal: React.FC = () => {
               </div>
             </div>
           </div>
+
+          {/* Multi-Portal Direct Links & Install Bar at bottom of Welcome Screen */}
+          <PortalInstallAndShareBar
+            portalRoute={currentEffectivePortalRoute}
+            onSelectPortalRoute={(route) => {
+              setActivePortalRoute(route);
+              if (route === 'student') setSelectedPortal('student');
+              else if (route === 'guardian') setSelectedPortal('guardian');
+              else if (route === 'owner') setSelectedPortal('supervisor');
+              else if (route === 'general') setSelectedPortal('teacher');
+              else if (route === 'almushaf') setPublicMushafPortalOpen(true);
+              else if (route === 'sadaqa') setSadaqahModalOpen(true);
+            }}
+          />
         </div>
       </main>
 
@@ -1433,6 +1520,147 @@ export const AuthGateModal: React.FC = () => {
                     </span>
                   </button>
                 </form>
+
+                {/* Request Access Code Prominent Button & Modal Section */}
+                <div className="pt-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowAccessCodeRequestForm((prev) => !prev);
+                      setSubmittedCodeRequest(null);
+                      if (!reqGuardianPhone && phone) {
+                        setReqGuardianPhone(phone);
+                      }
+                    }}
+                    className="w-full py-2.5 px-4 rounded-xl bg-amber-500/15 hover:bg-amber-500/25 border-2 border-amber-400/60 text-amber-900 dark:text-amber-200 text-xs sm:text-sm font-black flex items-center justify-center gap-2 transition cursor-pointer shadow-xs"
+                  >
+                    <KeyRound className="w-4 h-4 text-amber-600 dark:text-amber-300 shrink-0" />
+                    <span>🔑 ليس لديك كود دخول أو نسيته؟ اطلب كود الدخول الآن</span>
+                  </button>
+
+                  {showAccessCodeRequestForm && (
+                    <div className="mt-3 p-4 rounded-2xl bg-amber-50/90 dark:bg-slate-800/90 border-2 border-amber-400/70 space-y-3 animate-in fade-in">
+                      {submittedCodeRequest ? (
+                        <div className="text-center space-y-2.5 py-2">
+                          <CheckCircle2 className="w-9 h-9 text-emerald-600 mx-auto" />
+                          <h4 className="text-sm font-extrabold text-emerald-900 dark:text-emerald-300">
+                            تم إرسال طلب كود الدخول للشيخ المحفظ والإدارة بنجاح ✓
+                          </h4>
+                          <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
+                            تم ربط طلبك بالطالب <strong>({submittedCodeRequest.studentName})</strong> وإشعار الشيخ المحفظ لإرسال الكود والرابط المباشر على رقم واتسابك ({submittedCodeRequest.guardianPhone}) فوراً.
+                          </p>
+                          <div className="flex flex-wrap items-center justify-center gap-2 pt-1">
+                            <a
+                              href={`https://wa.me/${OFFICIAL_ACADEMY_WHATSAPP}?text=${encodeURIComponent(
+                                `السلام عليكم ورحمة الله وبركاته، قمت بطلب كود الدخول لبوابة (${
+                                  selectedPortal === 'student' ? 'الطالب' : 'ولي الأمر'
+                                }) للطالب: ${submittedCodeRequest.studentName} — رقم الواتساب: ${
+                                  submittedCodeRequest.guardianPhone
+                                }`
+                              )}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="px-4 py-2 rounded-xl bg-[#25D366] hover:bg-[#1da851] text-white text-xs font-extrabold flex items-center gap-1.5 shadow-xs"
+                            >
+                              <MessageCircle className="w-4 h-4" />
+                              <span>استعجال استلام الكود عبر واتساب الأكاديمية</span>
+                            </a>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setSubmittedCodeRequest(null);
+                                setShowAccessCodeRequestForm(false);
+                              }}
+                              className="px-3 py-2 rounded-xl bg-slate-200 dark:bg-slate-700 text-xs font-bold cursor-pointer"
+                            >
+                              إغلاق
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <form
+                          onSubmit={(e) => {
+                            e.preventDefault();
+                            if (!reqStudentName.trim() || !reqGuardianPhone.trim()) return;
+                            const created = submitAccessCodeRequest({
+                              studentName: reqStudentName.trim(),
+                              guardianPhone: reqGuardianPhone.trim(),
+                              circleOrTeacherName: reqCircleOrTeacher.trim() || undefined,
+                              portalType:
+                                selectedPortal === 'student' ? 'student' : 'guardian',
+                            });
+                            setSubmittedCodeRequest(created);
+                          }}
+                          className="space-y-2.5 text-xs"
+                        >
+                          <div className="flex items-center justify-between border-b border-amber-300/60 dark:border-slate-700 pb-2">
+                            <span className="font-extrabold text-amber-900 dark:text-amber-300">
+                              🔑 نموذج طلب إرسال كود الدخول عبر واتساب:
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => setShowAccessCodeRequestForm(false)}
+                              className="text-slate-500 hover:text-slate-800 font-bold cursor-pointer"
+                            >
+                              ✕
+                            </button>
+                          </div>
+
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                            <div>
+                              <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">
+                                اسم الطالب الثلاثي *
+                              </label>
+                              <input
+                                type="text"
+                                value={reqStudentName}
+                                onChange={(e) => setReqStudentName(e.target.value)}
+                                placeholder="مثال: عمر عبد الرحمن الفاروق"
+                                className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 font-bold"
+                                required
+                              />
+                            </div>
+                            <div>
+                              <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">
+                                رقم هاتف ولي الأمر (واتساب) *
+                              </label>
+                              <input
+                                type="tel"
+                                dir="ltr"
+                                value={reqGuardianPhone}
+                                onChange={(e) => setReqGuardianPhone(e.target.value)}
+                                placeholder="201012345678"
+                                className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 font-mono text-left"
+                                required
+                              />
+                            </div>
+                          </div>
+
+                          <div>
+                            <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">
+                              اسم الحلقة أو اسم الشيخ المحفظ (اختياري)
+                            </label>
+                            <input
+                              type="text"
+                              value={reqCircleOrTeacher}
+                              onChange={(e) => setReqCircleOrTeacher(e.target.value)}
+                              placeholder="مثال: حلقة المستوى المتقدم / الشيخ سيد الكومي"
+                              className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900"
+                            />
+                          </div>
+
+                          <button
+                            type="submit"
+                            className="w-full py-2.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-slate-950 font-black text-xs shadow-sm transition cursor-pointer flex items-center justify-center gap-1.5"
+                          >
+                            <KeyRound className="w-3.5 h-3.5" />
+                            <span>إرسال طلب الكود للشيخ المحفظ والمشرف الآن ✓</span>
+                          </button>
+                        </form>
+                      )}
+                    </div>
+                  )}
+                </div>
 
                 <div className="pt-3 border-t border-slate-100 dark:border-slate-800 flex flex-wrap items-center justify-between gap-2">
                   <span className="text-xs text-slate-500">

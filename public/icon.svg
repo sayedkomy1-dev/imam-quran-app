@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0d3b26" />
+      <stop offset="50%" stop-color="#145a3a" />
+      <stop offset="100%" stop-color="#072215" />
+    </linearGradient>
+    <linearGradient id="gold" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#f6d878" />
+      <stop offset="50%" stop-color="#c59b27" />
+      <stop offset="100%" stop-color="#9e7715" />
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="112" fill="url(#bg)" />
+  <rect x="24" y="24" width="464" height="464" rx="92" fill="none" stroke="url(#gold)" stroke-width="8" opacity="0.85" />
+  <circle cx="256" cy="210" r="108" fill="none" stroke="url(#gold)" stroke-width="6" opacity="0.35" />
+  <!-- Open Quran Book Emblem -->
+  <path d="M136 240 C176 218, 224 222, 256 246 C288 222, 336 218, 376 240 L376 340 C336 318, 288 322, 256 346 C224 322, 176 318, 136 340 Z" fill="none" stroke="url(#gold)" stroke-width="14" stroke-linejoin="round" />
+  <line x1="256" y1="246" x2="256" y2="346" stroke="url(#gold)" stroke-width="12" stroke-linecap="round" />
+  <!-- Crescent & Star above the Quran -->
+  <path d="M276 118 A42 42 0 1 0 276 190 A33 33 0 1 1 276 118 Z" fill="url(#gold)" />
+  <circle cx="288" cy="154" r="7" fill="#f6d878" />
+  <text x="256" y="422" text-anchor="middle" fill="#f6d878" font-family="Cairo, Amiri, sans-serif" font-size="40" font-weight="800">أكاديمية الإمام</text>
+  <text x="256" y="462" text-anchor="middle" fill="#ffffff" font-family="Cairo, Amiri, sans-serif" font-size="26" font-weight="700" opacity="0.9">بالقرآن نحيا</text>
+</svg>

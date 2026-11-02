@@ -1,6 +1,7 @@
-// Hijri & Gregorian Date Formatting Utility using Intl.DateTimeFormat (Umm al-Qura)
+// Lightweight High-Speed Hijri & Gregorian Calendar Library (Umm al-Qura + Astronomical Kuwaiti Fallback)
+// Default behavior for teachers: Display both Hijri and Gregorian dates together (showHijri = true)
 
-const HIJRI_MONTHS_AR = [
+export const HIJRI_MONTHS_AR = [
   'محرم',
   'صفر',
   'ربيع الأول',
@@ -13,27 +14,104 @@ const HIJRI_MONTHS_AR = [
   'شوال',
   'ذو القعدة',
   'ذو الحجة',
-];
+] as const;
 
-function parseDateSafe(input: string | Date): Date {
-  if (input instanceof Date) return input;
-  if (/^\d{4}-\d{2}-\d{2}$/.test(input)) {
-    return new Date(`${input}T12:00:00`);
+export const GREGORIAN_MONTHS_AR = [
+  'يناير',
+  'فبراير',
+  'مارس',
+  'أبريل',
+  'مايو',
+  'يونيو',
+  'يوليو',
+  'أغسطس',
+  'سبتمبر',
+  'أكتوبر',
+  'نوفمبر',
+  'ديسمبر',
+] as const;
+
+export interface HijriDateParts {
+  day: number;
+  monthIndex: number; // 0-11
+  monthNumber: number; // 1-12
+  monthName: string;
+  year: number;
+  weekday: string;
+  formattedLong: string;
+  formattedShort: string;
+  gregorianIso: string;
+  gregorianFormatted: string;
+}
+
+// Singleton Intl formatters (instantiated once to eliminate GC & layout overhead)
+let ummAlQuraLongFormatter: Intl.DateTimeFormat | null = null;
+let ummAlQuraNumericPartsFormatter: Intl.DateTimeFormat | null = null;
+let gregorianBannerFormatter: Intl.DateTimeFormat | null = null;
+let arabicWeekdayFormatter: Intl.DateTimeFormat | null = null;
+
+try {
+  ummAlQuraLongFormatter = new Intl.DateTimeFormat('ar-SA-u-ca-islamic-umalqura', {
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric',
+  });
+  ummAlQuraNumericPartsFormatter = new Intl.DateTimeFormat('en-u-ca-islamic-umalqura', {
+    day: 'numeric',
+    month: 'numeric',
+    year: 'numeric',
+  });
+  gregorianBannerFormatter = new Intl.DateTimeFormat('ar-EG', {
+    weekday: 'long',
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric',
+  });
+  arabicWeekdayFormatter = new Intl.DateTimeFormat('ar-EG', {
+    weekday: 'long',
+  });
+} catch {
+  // Fallback algorithm will be used automatically if Intl islamic-umalqura is unsupported
+}
+
+// Fast O(1) Memoization Caches for Instant Table/Dashboard/Print Rendering
+const HIJRI_PARTS_CACHE = new Map<string, HijriDateParts>();
+const DUAL_FORMAT_CACHE = new Map<string, string>();
+
+export function parseDateSafe(input?: string | Date | null): Date {
+  if (!input) return new Date();
+  if (input instanceof Date) {
+    return isNaN(input.getTime()) ? new Date() : input;
   }
-  const d = new Date(input);
+  const trimmed = String(input).trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
+    return new Date(`${trimmed}T12:00:00`);
+  }
+  const d = new Date(trimmed);
   return isNaN(d.getTime()) ? new Date() : d;
 }
 
-// Fallback Kuwaiti algorithm if Intl islamic calendar is unavailable
-function fallbackGregorianToHijri(date: Date): {
+export function toIsoDateKey(input?: string | Date | null): string {
+  if (typeof input === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(input.trim())) {
+    return input.trim();
+  }
+  const d = parseDateSafe(input);
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+// Astronomical Kuwaiti algorithm fallback if Intl islamic calendar is unavailable
+export function fallbackGregorianToHijri(date: Date): {
   day: number;
   monthIndex: number;
   monthName: string;
   year: number;
 } {
-  let day = date.getDate();
-  let month = date.getMonth();
-  let year = date.getFullYear();
+  const day = date.getDate();
+  const month = date.getMonth();
+  const year = date.getFullYear();
 
   let m = month + 1;
   let y = year;
@@ -42,7 +120,7 @@ function fallbackGregorianToHijri(date: Date): {
     m += 12;
   }
 
-  let a = Math.floor(y / 100);
+  const a = Math.floor(y / 100);
   let b = 2 - a + Math.floor(a / 4);
   if (y < 1583) b = 0;
   if (y === 1582) {
@@ -83,79 +161,196 @@ function fallbackGregorianToHijri(date: Date): {
   };
 }
 
+/**
+ * Extracts complete Hijri & Gregorian structured parts with O(1) caching
+ */
+export function getHijriDateParts(dateInput?: string | Date | null): HijriDateParts {
+  const isoKey = toIsoDateKey(dateInput);
+  const cached = HIJRI_PARTS_CACHE.get(isoKey);
+  if (cached) return cached;
+
+  const date = parseDateSafe(isoKey);
+  const fb = fallbackGregorianToHijri(date);
+
+  let day = fb.day;
+  let monthIndex = fb.monthIndex;
+  let year = fb.year;
+
+  if (ummAlQuraNumericPartsFormatter) {
+    try {
+      const parts = ummAlQuraNumericPartsFormatter.formatToParts(date);
+      const dVal = parseInt(parts.find((p) => p.type === 'day')?.value || '', 10);
+      const mVal = parseInt(parts.find((p) => p.type === 'month')?.value || '', 10);
+      const yVal = parseInt(parts.find((p) => p.type === 'year')?.value || '', 10);
+      if (!isNaN(dVal) && !isNaN(mVal) && !isNaN(yVal) && mVal >= 1 && mVal <= 12) {
+        day = dVal;
+        monthIndex = mVal - 1;
+        year = yVal;
+      }
+    } catch {
+      // keep fallback values
+    }
+  }
+
+  const monthName = HIJRI_MONTHS_AR[monthIndex] || fb.monthName;
+  let formattedLong = `${day} ${monthName} ${year} هـ`;
+
+  if (ummAlQuraLongFormatter) {
+    try {
+      const rawLong = ummAlQuraLongFormatter.format(date);
+      if (rawLong && !rawLong.includes('Invalid')) {
+        formattedLong = rawLong.includes('هـ') ? rawLong : `${rawLong} هـ`;
+      }
+    } catch {
+      // keep constructed formattedLong
+    }
+  }
+
+  const monthNumber = monthIndex + 1;
+  const formattedShort = `${String(day).padStart(2, '0')}/${String(monthNumber).padStart(2, '0')} هـ`;
+  const weekday = arabicWeekdayFormatter ? arabicWeekdayFormatter.format(date) : '';
+  const gregMonthName = GREGORIAN_MONTHS_AR[date.getMonth()] || '';
+  const gregorianFormatted = `${date.getDate()} ${gregMonthName} ${date.getFullYear()} م`;
+
+  const result: HijriDateParts = {
+    day,
+    monthIndex,
+    monthNumber,
+    monthName,
+    year,
+    weekday,
+    formattedLong,
+    formattedShort,
+    gregorianIso: isoKey,
+    gregorianFormatted,
+  };
+
+  if (HIJRI_PARTS_CACHE.size > 1500) {
+    HIJRI_PARTS_CACHE.clear();
+  }
+  HIJRI_PARTS_CACHE.set(isoKey, result);
+  return result;
+}
+
 export function formatHijriDate(
   dateInput: string | Date,
   format: 'long' | 'short' = 'long'
 ): string {
-  const date = parseDateSafe(dateInput);
-
-  try {
-    if (format === 'long') {
-      const formatter = new Intl.DateTimeFormat('ar-SA-u-ca-islamic-umalqura', {
-        day: 'numeric',
-        month: 'long',
-        year: 'numeric',
-      });
-      const formatted = formatter.format(date);
-      if (formatted && !formatted.includes('Invalid')) {
-        return formatted.includes('هـ') ? formatted : `${formatted} هـ`;
-      }
-    } else {
-      const formatter = new Intl.DateTimeFormat('en-u-ca-islamic-umalqura', {
-        day: '2-digit',
-        month: '2-digit',
-      });
-      const parts = formatter.formatToParts(date);
-      const dayPart = parts.find((p) => p.type === 'day')?.value;
-      const monthPart = parts.find((p) => p.type === 'month')?.value;
-      if (dayPart && monthPart) {
-        return `${dayPart}/${monthPart} هـ`;
-      }
-    }
-  } catch {
-    // Fallback below
-  }
-
-  const fb = fallbackGregorianToHijri(date);
-  if (format === 'short') {
-    return `${fb.day}/${fb.monthIndex + 1} هـ`;
-  }
-  return `${fb.day} ${fb.monthName} ${fb.year} هـ`;
+  const parts = getHijriDateParts(dateInput);
+  return format === 'short' ? parts.formattedShort : parts.formattedLong;
 }
 
 export function formatGregorianAndHijri(
-  dateStr: string,
+  dateStr: string | Date,
   showHijri = true,
-  mode: 'inline' | 'compact' = 'inline'
+  mode: 'inline' | 'compact' | 'badge' = 'inline'
 ): string {
   if (!dateStr) return '';
+  const isoStr = toIsoDateKey(dateStr);
+  const cacheKey = `${isoStr}|${showHijri ? '1' : '0'}|${mode}`;
+  const cached = DUAL_FORMAT_CACHE.get(cacheKey);
+  if (cached) return cached;
+
+  let output = '';
   if (!showHijri) {
-    return mode === 'compact' ? dateStr.slice(5) : `${dateStr} م`;
+    output = mode === 'compact' ? isoStr.slice(5) : `${isoStr} م`;
+  } else {
+    const parts = getHijriDateParts(isoStr);
+    if (mode === 'compact') {
+      output = `${isoStr.slice(5)} م • ${parts.formattedShort}`;
+    } else if (mode === 'badge') {
+      output = `${parts.formattedLong} | ${parts.gregorianFormatted} (${isoStr})`;
+    } else {
+      output = `${isoStr} م • ${parts.formattedLong}`;
+    }
   }
 
-  if (mode === 'compact') {
-    const shortGreg = dateStr.slice(5);
-    const shortHijri = formatHijriDate(dateStr, 'short');
-    return `${shortGreg} (${shortHijri})`;
+  if (DUAL_FORMAT_CACHE.size > 2000) {
+    DUAL_FORMAT_CACHE.clear();
   }
-
-  const hijriLong = formatHijriDate(dateStr, 'long');
-  return `${dateStr} م • ${hijriLong}`;
+  DUAL_FORMAT_CACHE.set(cacheKey, output);
+  return output;
 }
 
-export function formatFullTodayBannerDate(showHijri = true): string {
-  const now = new Date();
-  const gregStr = new Intl.DateTimeFormat('ar-EG', {
-    weekday: 'long',
-    day: 'numeric',
-    month: 'long',
-    year: 'numeric',
-  }).format(now);
+export function formatFullTodayBannerDate(showHijri = true, referenceDate?: string | Date): string {
+  const target = parseDateSafe(referenceDate);
+  const gregStr = gregorianBannerFormatter
+    ? gregorianBannerFormatter.format(target)
+    : getHijriDateParts(target).gregorianFormatted;
 
   if (!showHijri) {
     return `${gregStr} م`;
   }
 
-  const hijriStr = formatHijriDate(now, 'long');
-  return `${gregStr} م — الموافق ${hijriStr}`;
+  const hijriStr = formatHijriDate(target, 'long');
+  return `${hijriStr} — الموافق ${gregStr} م`;
 }
+
+/**
+ * Self-contained Hijri Calendar utility object for direct use across Teacher & Admin views
+ */
+export const HijriCalendar = {
+  months: HIJRI_MONTHS_AR,
+  gregorianMonths: GREGORIAN_MONTHS_AR,
+  getParts: getHijriDateParts,
+  formatHijri: formatHijriDate,
+  formatDual: formatGregorianAndHijri,
+  formatBanner: formatFullTodayBannerDate,
+  getDualTeacherBadge(dateInput?: string | Date | null, showHijri = true): {
+    hijri: string;
+    hijriShort: string;
+    gregorian: string;
+    gregorianIso: string;
+    weekday: string;
+    combined: string;
+    isBlessedSeason: boolean;
+  } {
+    const parts = getHijriDateParts(dateInput);
+    const isBlessedSeason = parts.monthIndex === 8 || parts.monthIndex === 11; // Ramadan or Dhul-Hijjah
+    return {
+      hijri: parts.formattedLong,
+      hijriShort: parts.formattedShort,
+      gregorian: parts.gregorianFormatted,
+      gregorianIso: parts.gregorianIso,
+      weekday: parts.weekday,
+      combined: showHijri
+        ? `${parts.formattedLong} • ${parts.gregorianIso} م`
+        : `${parts.gregorianFormatted} (${parts.gregorianIso} م)`,
+      isBlessedSeason,
+    };
+  },
+};
+
+/**
+ * High-Speed Print Engine (`تحسين سرعة الطباعة`)
+ * Temporarily disables expensive GPU filters/blurs/animations on the DOM before invoking `window.print()`
+ * so the browser print preview opens instantaneously without main-thread rasterization lag.
+ */
+export function triggerFastPrint(customTitle?: string): void {
+  if (typeof window === 'undefined') return;
+  const root = document.documentElement;
+  const previousTitle = document.title;
+
+  root.classList.add('fast-printing');
+  if (customTitle) {
+    document.title = customTitle;
+  }
+
+  const cleanup = () => {
+    root.classList.remove('fast-printing');
+    if (customTitle) {
+      document.title = previousTitle;
+    }
+    window.removeEventListener('afterprint', cleanup);
+  };
+
+  window.addEventListener('afterprint', cleanup, { once: true });
+
+  // Allow single fast style-recalc frame before opening native print dialog
+  requestAnimationFrame(() => {
+    window.print();
+    // Safety fallback cleanup in case afterprint does not fire on some mobile browsers
+    setTimeout(cleanup, 1500);
+  });
+}
+

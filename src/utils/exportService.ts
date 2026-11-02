@@ -751,9 +751,9 @@ export function exportRecordsToPDF(options: {
 
   const widthPt = 595; // A4 width in pt
   const heightPt = 842; // A4 height in pt
-  const scale = 2; // 2x retina resolution
-  const canvasW = widthPt * scale;
-  const canvasH = heightPt * scale;
+  const scale = 1.65; // High-speed crisp A4 resolution
+  const canvasW = Math.round(widthPt * scale);
+  const canvasH = Math.round(heightPt * scale);
 
   const renderedPages: {
     dataUrl: string;
@@ -945,7 +945,7 @@ export function exportRecordsToPDF(options: {
     });
 
     renderedPages.push({
-      dataUrl: canvas.toDataURL('image/jpeg', 0.92),
+      dataUrl: canvas.toDataURL('image/jpeg', 0.86),
       widthPt,
       heightPt,
       pixelWidth: canvasW,
@@ -1086,7 +1086,7 @@ export function exportRecordsToPDF(options: {
     });
 
     renderedPages.push({
-      dataUrl: canvas.toDataURL('image/jpeg', 0.92),
+      dataUrl: canvas.toDataURL('image/jpeg', 0.86),
       widthPt,
       heightPt,
       pixelWidth: canvasW,

@@ -26,6 +26,7 @@ import {
 } from 'firebase/firestore';
 import defaultFirebaseConfig from '../../firebase-applet-config.json';
 import {
+  AccessCodeRequest,
   CustomFirebaseConfigInput,
   MASTER_OWNER_EMAILS,
   StaffAuthProvider,
@@ -1199,6 +1200,189 @@ export async function signOutFromFirebase(): Promise<void> {
   } catch {
     // ignore signout error
   }
+}
+
+export const ACCESS_CODE_REQUESTS_STORAGE_KEY = 'imam_access_code_requests_v1';
+
+/**
+ * Saves or updates a Guardian/Student Access Code Request in Firestore (`access_code_requests/{id}`)
+ * and mirrors to localStorage + BroadcastChannel for instant real-time alerts.
+ */
+export async function syncAccessCodeRequestToFirestore(
+  requestRecord: AccessCodeRequest
+): Promise<boolean> {
+  if (typeof window !== 'undefined') {
+    try {
+      const raw = window.localStorage.getItem(ACCESS_CODE_REQUESTS_STORAGE_KEY);
+      const list: AccessCodeRequest[] = raw ? JSON.parse(raw) : [];
+      const next = [
+        requestRecord,
+        ...list.filter((item) => item.id !== requestRecord.id),
+      ].slice(0, 100);
+      window.localStorage.setItem(
+        ACCESS_CODE_REQUESTS_STORAGE_KEY,
+        JSON.stringify(next)
+      );
+      if (typeof BroadcastChannel !== 'undefined') {
+        const bc = new BroadcastChannel('imam_access_code_requests_channel');
+        bc.postMessage({ type: 'ACCESS_CODE_REQUEST_UPDATED', payload: next });
+        bc.close();
+      }
+    } catch {
+      // ignore local storage quota
+    }
+  }
+
+  const cleanId = (requestRecord.id || '')
+    .replace(/[^a-zA-Z0-9_-]/g, '')
+    .slice(0, 128);
+  if (!cleanId) return false;
+
+  const ref = doc(db, 'access_code_requests', cleanId);
+  try {
+    await setDoc(
+      ref,
+      {
+        id: cleanId,
+        studentName: (requestRecord.studentName || '').trim().slice(0, 120),
+        guardianPhone: (requestRecord.guardianPhone || '').trim().slice(0, 40),
+        circleOrTeacherName: (requestRecord.circleOrTeacherName || '')
+          .trim()
+          .slice(0, 120),
+        portalType: requestRecord.portalType || 'guardian',
+        status: requestRecord.status === 'resolved' ? 'resolved' : 'pending',
+        matchedStudentId: (requestRecord.matchedStudentId || '').slice(0, 120),
+        matchedStudentName: (requestRecord.matchedStudentName || '').slice(0, 120),
+        matchedStudentCode: (requestRecord.matchedStudentCode || '').slice(0, 60),
+        matchedStudentPin: (requestRecord.matchedStudentPin || '').slice(0, 32),
+        matchedTeacherName: (requestRecord.matchedTeacherName || '').slice(0, 120),
+        matchedCircleName: (requestRecord.matchedCircleName || '').slice(0, 120),
+        createdAt: requestRecord.createdAt || new Date().toISOString(),
+        resolvedAt: requestRecord.resolvedAt || '',
+        updatedAt: serverTimestamp(),
+      },
+      { merge: true }
+    );
+    return true;
+  } catch {
+    // Gracefully succeed via local/BroadcastChannel mirror when unauthenticated or offline
+    return false;
+  }
+}
+
+/**
+ * Real-time subscription to `access_code_requests` in Firestore + BroadcastChannel + storage events
+ */
+export function subscribeToAccessCodeRequestsFromFirestore(
+  onUpdate: (requests: AccessCodeRequest[]) => void
+): () => void {
+  let unsubscribeSnapshot: (() => void) | null = null;
+  let bc: BroadcastChannel | null = null;
+  let cancelled = false;
+
+  const handleStorageEvent = (e: StorageEvent) => {
+    if (e.key === ACCESS_CODE_REQUESTS_STORAGE_KEY && e.newValue) {
+      try {
+        const parsed = JSON.parse(e.newValue) as AccessCodeRequest[];
+        if (Array.isArray(parsed)) onUpdate(parsed);
+      } catch {
+        // ignore
+      }
+    }
+  };
+
+  if (typeof window !== 'undefined') {
+    window.addEventListener('storage', handleStorageEvent);
+    if (typeof BroadcastChannel !== 'undefined') {
+      try {
+        bc = new BroadcastChannel('imam_access_code_requests_channel');
+        bc.onmessage = (ev) => {
+          if (ev.data?.type === 'ACCESS_CODE_REQUEST_UPDATED' && Array.isArray(ev.data.payload)) {
+            onUpdate(ev.data.payload as AccessCodeRequest[]);
+          }
+        };
+      } catch {
+        // ignore
+      }
+    }
+  }
+
+  void (async () => {
+    if (cancelled) return;
+    try {
+      const colRef = collection(db, 'access_code_requests');
+      unsubscribeSnapshot = onSnapshot(
+        colRef,
+        (snapshot) => {
+          if (snapshot.empty) return;
+          const list: AccessCodeRequest[] = snapshot.docs.map((d) => {
+            const data = d.data() as Record<string, unknown>;
+            return {
+              id: typeof data.id === 'string' ? data.id : d.id,
+              studentName:
+                typeof data.studentName === 'string' ? data.studentName : 'طالب الأكاديمية',
+              guardianPhone:
+                typeof data.guardianPhone === 'string' ? data.guardianPhone : '',
+              circleOrTeacherName:
+                typeof data.circleOrTeacherName === 'string'
+                  ? data.circleOrTeacherName
+                  : undefined,
+              portalType:
+                data.portalType === 'student' ? 'student' : 'guardian',
+              status: data.status === 'resolved' ? 'resolved' : 'pending',
+              matchedStudentId:
+                typeof data.matchedStudentId === 'string' && data.matchedStudentId
+                  ? data.matchedStudentId
+                  : undefined,
+              matchedStudentName:
+                typeof data.matchedStudentName === 'string' && data.matchedStudentName
+                  ? data.matchedStudentName
+                  : undefined,
+              matchedStudentCode:
+                typeof data.matchedStudentCode === 'string' && data.matchedStudentCode
+                  ? data.matchedStudentCode
+                  : undefined,
+              matchedStudentPin:
+                typeof data.matchedStudentPin === 'string' && data.matchedStudentPin
+                  ? data.matchedStudentPin
+                  : undefined,
+              matchedTeacherName:
+                typeof data.matchedTeacherName === 'string' && data.matchedTeacherName
+                  ? data.matchedTeacherName
+                  : undefined,
+              matchedCircleName:
+                typeof data.matchedCircleName === 'string' && data.matchedCircleName
+                  ? data.matchedCircleName
+                  : undefined,
+              createdAt:
+                typeof data.createdAt === 'string'
+                  ? data.createdAt
+                  : new Date().toISOString().slice(0, 16).replace('T', ' '),
+              resolvedAt:
+                typeof data.resolvedAt === 'string' && data.resolvedAt
+                  ? data.resolvedAt
+                  : undefined,
+            };
+          });
+          onUpdate(list);
+        },
+        () => {
+          // Ignore permission/offline errors
+        }
+      );
+    } catch {
+      // Ignore offline errors
+    }
+  })();
+
+  return () => {
+    cancelled = true;
+    if (unsubscribeSnapshot) unsubscribeSnapshot();
+    if (bc) bc.close();
+    if (typeof window !== 'undefined') {
+      window.removeEventListener('storage', handleStorageEvent);
+    }
+  };
 }
 
 export { onAuthStateChanged };

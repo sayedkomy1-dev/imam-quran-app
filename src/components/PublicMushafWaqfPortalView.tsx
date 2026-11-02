@@ -60,6 +60,7 @@ import {
 } from '../data/quranData';
 import { PublicBookmarkCategory, ReciterId } from '../types';
 import { AcademyPdfGuideModal } from './AcademyPdfGuideModal';
+import { MushafEngine } from './MushafEngine';
 import { ACADEMY_BRAND_CONFIG } from '../constants/brandConfig';
 const OFFICIAL_BRANDING = {
   academyName: ACADEMY_BRAND_CONFIG.platformName,
@@ -746,6 +747,7 @@ export const PublicMushafWaqfPortalView: React.FC<PublicMushafWaqfPortalViewProp
 
   // Dual-Page Open Mushaf Mode & Swipe Paging Animation
   const [dualPageMode, setDualPageMode] = useState<boolean>(false);
+  const [useKfgqpcEngineView, setUseKfgqpcEngineView] = useState<boolean>(false);
   const [pageTurnAnim, setPageTurnAnim] = useState<'none' | 'next' | 'prev'>('none');
   const touchStartXRef = useRef<number | null>(null);
 
@@ -2464,16 +2466,31 @@ export const PublicMushafWaqfPortalView: React.FC<PublicMushafWaqfPortalViewProp
                       type="button"
                       onClick={() => {
                         setMushafEdition('madinah');
+                        setUseKfgqpcEngineView(false);
                         try { localStorage.setItem('imam_mushaf_edition_mode', 'madinah'); } catch {}
                       }}
                       className={`px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer flex items-center gap-1.5 ${
-                        mushafEdition === 'madinah'
+                        mushafEdition === 'madinah' && !useKfgqpcEngineView
                           ? 'bg-[#145a3a] text-white font-black shadow-xs'
                           : 'text-slate-600 dark:text-slate-300 hover:bg-white/40'
                       }`}
                     >
                       <Sparkles className="w-3.5 h-3.5 text-amber-400" />
                       <span>مصحف المدينة المنورة المصور</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setUseKfgqpcEngineView((prev) => !prev)}
+                      className={`px-3 py-1.5 rounded-xl text-xs font-black transition cursor-pointer flex items-center gap-1.5 ${
+                        useKfgqpcEngineView
+                          ? 'bg-gradient-to-l from-[#c59b27] to-amber-500 text-[#14281d] shadow-sm'
+                          : 'text-amber-800 dark:text-amber-300 hover:bg-amber-500/15 border border-[#c59b27]/40'
+                      }`}
+                      title="تشغيل مكون MushafEngine القياسي بالخط العثماني وفلاتر الوضع الليلي وزخارف SVG"
+                    >
+                      <Sparkles className="w-3.5 h-3.5" />
+                      <span>محرك MushafEngine القياسي (SVG + وضع ليلي)</span>
                     </button>
                   </div>
 
@@ -2611,8 +2628,17 @@ export const PublicMushafWaqfPortalView: React.FC<PublicMushafWaqfPortalViewProp
               </div>
             )}
 
+            {/* Dedicated MushafEngine Component View (When toggled by user) */}
+            {useKfgqpcEngineView && (
+              <MushafEngine
+                initialPage={currentPage}
+                defaultNightMode={mushafNightMode}
+                onPageChange={(newPage) => handleGoToPage(newPage)}
+              />
+            )}
+
             {/* Madinah Mushaf Ornate Page Frame (Supports RTL Swipe Paging, Dual-Page Open Mushaf & Sajdah Badge) */}
-            {(!distractionFreeReading || immersiveFocusStyle === 'spotlight_page') && (
+            {!useKfgqpcEngineView && (!distractionFreeReading || immersiveFocusStyle === 'spotlight_page') && (
               <div
                 onTouchStart={(e) => {
                   touchStartXRef.current = e.touches[0]?.clientX ?? null;
@@ -2629,7 +2655,7 @@ export const PublicMushafWaqfPortalView: React.FC<PublicMushafWaqfPortalViewProp
                     handleGoToPage(currentPage - 1, false);
                   }
                 }}
-                className={`rounded-[32px] border-4 shadow-2xl transition-all duration-300 ${
+                className={`relative overflow-hidden rounded-[32px] border-4 shadow-2xl transition-all duration-300 ${
                   pageTurnAnim === 'next'
                     ? 'scale-[0.99] -translate-x-1'
                     : pageTurnAnim === 'prev'
@@ -2641,15 +2667,40 @@ export const PublicMushafWaqfPortalView: React.FC<PublicMushafWaqfPortalViewProp
                     : 'p-4 sm:p-8'
                 } ${
                   mushafNightMode
-                    ? 'bg-[#0c1322] border-amber-600/60 text-amber-50'
+                    ? 'bg-[#0b1325] border-amber-500/70 text-amber-50'
                     : mushafSepiaMode
                     ? 'bg-[#FDFBF7] border-amber-600/70 text-[#2b2114]'
                     : 'bg-[#fffdf7] dark:bg-slate-900 border-amber-500/70 text-slate-900 dark:text-slate-100'
                 }`}
               >
-                {/* Mushaf Top Margin Header (Surah on Right, Page Center, Juz/Hizb/Quarter on Left) */}
-                <div className="flex flex-wrap items-center justify-between gap-2 pb-4 mb-5 border-b-2 border-amber-500/40 text-xs sm:text-sm font-extrabold text-amber-900 dark:text-amber-300">
-                  <div>سورة {pageInfo.primarySurahName}</div>
+                {/* KFGQPC Decorative Mushaf Corner Ornaments (4 Corners) */}
+                <img
+                  src="/mushaf-corner.svg"
+                  alt=""
+                  className="w-12 h-12 sm:w-16 sm:h-16 absolute top-1.5 right-1.5 opacity-80 pointer-events-none select-none"
+                />
+                <img
+                  src="/mushaf-corner.svg"
+                  alt=""
+                  className="w-12 h-12 sm:w-16 sm:h-16 absolute top-1.5 left-1.5 -scale-x-100 opacity-80 pointer-events-none select-none"
+                />
+                <img
+                  src="/mushaf-corner.svg"
+                  alt=""
+                  className="w-12 h-12 sm:w-16 sm:h-16 absolute bottom-1.5 right-1.5 -scale-y-100 opacity-80 pointer-events-none select-none"
+                />
+                <img
+                  src="/mushaf-corner.svg"
+                  alt=""
+                  className="w-12 h-12 sm:w-16 sm:h-16 absolute bottom-1.5 left-1.5 -scale-x-100 -scale-y-100 opacity-80 pointer-events-none select-none"
+                />
+
+                {/* Mushaf Top Margin Header (Surah Badge on Right, Page Center, 30-Juz Ornate Badge on Left) */}
+                <div className="relative z-10 flex flex-wrap items-center justify-between gap-2 pb-4 mb-5 border-b-2 border-amber-500/40 text-xs sm:text-sm font-extrabold text-amber-900 dark:text-amber-300">
+                  <div className="inline-flex items-center gap-2 px-3.5 py-1 rounded-full bg-emerald-900/10 dark:bg-emerald-950/70 border border-amber-500/50">
+                    <span className="text-amber-600 dark:text-amber-400">۞</span>
+                    <span>سُورَةُ {pageInfo.primarySurahName}</span>
+                  </div>
                   <div className="px-3.5 py-1 rounded-full bg-amber-500/15 border border-amber-500/40 flex items-center gap-2">
                     <span>
                       {dualPageMode && currentPage < 604
@@ -2662,31 +2713,59 @@ export const PublicMushafWaqfPortalView: React.FC<PublicMushafWaqfPortalViewProp
                       </span>
                     )}
                   </div>
-                  <div>
-                    {pageInfo.juzName} • الحزب {pageInfo.hizbNumber} (الربع {pageInfo.quarterInHizb})
+                  <div className="inline-flex items-center gap-2 px-3.5 py-1 rounded-full bg-amber-500/15 border border-amber-500/50">
+                    <span className="px-2 py-0.5 rounded-full bg-amber-500 text-slate-950 text-[11px] font-black">
+                      الجزء {pageInfo.juzNumber} من 30
+                    </span>
+                    <span>
+                      {pageInfo.juzName} • الحزب {pageInfo.hizbNumber} (الربع {pageInfo.quarterInHizb})
+                    </span>
                   </div>
                 </div>
 
                 {mushafEdition !== 'digital' ? (
-                  <div className="flex flex-col items-center justify-center p-2 sm:p-4 bg-white dark:bg-slate-900 rounded-2xl border-2 border-amber-400/40 shadow-inner">
-                    <div className="flex items-center justify-between w-full pb-2 mb-3 border-b border-amber-300/40 text-xs font-bold text-amber-900 dark:text-amber-300">
+                  <div className={`flex flex-col items-center justify-center p-2 sm:p-4 rounded-2xl border-2 border-amber-400/40 shadow-inner ${
+                    mushafNightMode ? 'bg-[#091020]' : 'bg-white dark:bg-slate-900'
+                  }`}>
+                    <div className="flex flex-wrap items-center justify-between gap-2 w-full pb-2 mb-3 border-b border-amber-300/40 text-xs font-bold text-amber-900 dark:text-amber-300">
                       <span>
                         {mushafEdition === 'shamarli'
                           ? 'طبعة مصحف الشمرلي المصرية التراثية (صور عالية الدقة)'
-                          : 'طبعة مصحف المدينة المنورة (مجمع الملك فهد)'}
+                          : 'طبعة مصحف المدينة المنورة (مجمع الملك فهد — KFGQPC)'}
                       </span>
-                      <span className="font-mono">
-                        {dualPageMode && currentPage < 604
-                          ? `صفحتا ${currentPage} و ${currentPage + 1}`
-                          : `صفحة ${currentPage} من 604`}
-                      </span>
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const nextDark = !mushafNightMode;
+                            setMushafNightMode(nextDark);
+                            if (nextDark) setMushafSepiaMode(false);
+                          }}
+                          className={`px-3 py-1 rounded-xl text-[11px] font-black border transition cursor-pointer ${
+                            mushafNightMode
+                              ? 'bg-amber-400 text-slate-950 border-amber-300 shadow-xs'
+                              : 'bg-slate-900 text-amber-300 border-amber-500/50 hover:bg-slate-800'
+                          }`}
+                        >
+                          {mushafNightMode
+                            ? '🌙 الوضع الليلي للمصحف المصور (مفعل ✓)'
+                            : '🌙 تفعيل فلتر المصحف الليلي الذهبي'}
+                        </button>
+                        <span className="font-mono">
+                          {dualPageMode && currentPage < 604
+                            ? `صفحتا ${currentPage} و ${currentPage + 1}`
+                            : `صفحة ${currentPage} من 604`}
+                        </span>
+                      </div>
                     </div>
                     <div className={`w-full py-2 overflow-hidden ${dualPageMode && currentPage < 604 ? 'grid grid-cols-1 lg:grid-cols-2 gap-4 items-center' : 'flex justify-center'}`}>
                       <div className="flex flex-col items-center">
                         <img
                           src={getQuranPageImageUrl(mushafEdition, currentPage)}
                           alt={`مصحف صفحة ${currentPage}`}
-                          className="max-h-[75vh] sm:max-h-[85vh] w-auto rounded-xl shadow-xl border-2 border-amber-500/50 object-contain hover:scale-[1.01] transition-transform duration-200"
+                          className={`max-h-[75vh] sm:max-h-[85vh] w-auto rounded-xl shadow-xl border-2 border-amber-500/50 object-contain hover:scale-[1.01] transition-transform duration-200 ${
+                            mushafNightMode ? 'mushaf-dark-filter' : ''
+                          }`}
                           loading="eager"
                         />
                         <span className="mt-1.5 text-[11px] font-black text-amber-800 dark:text-amber-300">
@@ -2698,7 +2777,9 @@ export const PublicMushafWaqfPortalView: React.FC<PublicMushafWaqfPortalViewProp
                           <img
                             src={getQuranPageImageUrl(mushafEdition, currentPage + 1)}
                             alt={`مصحف صفحة ${currentPage + 1}`}
-                            className="max-h-[75vh] sm:max-h-[85vh] w-auto rounded-xl shadow-xl border-2 border-amber-500/50 object-contain hover:scale-[1.01] transition-transform duration-200"
+                            className={`max-h-[75vh] sm:max-h-[85vh] w-auto rounded-xl shadow-xl border-2 border-amber-500/50 object-contain hover:scale-[1.01] transition-transform duration-200 ${
+                              mushafNightMode ? 'mushaf-dark-filter' : ''
+                            }`}
                             loading="eager"
                           />
                           <span className="mt-1.5 text-[11px] font-black text-amber-800 dark:text-amber-300">
@@ -2716,7 +2797,7 @@ export const PublicMushafWaqfPortalView: React.FC<PublicMushafWaqfPortalViewProp
                     </p>
                   </div>
                 ) : (
-                  <div className="space-y-8">
+                  <div className="space-y-8 relative z-10">
                     {enableTajweedHighlighting && (
                       <div className="p-3 rounded-2xl bg-amber-50/80 dark:bg-amber-950/40 border border-amber-300 dark:border-amber-800 flex flex-wrap items-center justify-around gap-2 text-xs">
                         <div className="flex items-center gap-1.5 font-bold text-[#e11d48]">
@@ -2735,13 +2816,26 @@ export const PublicMushafWaqfPortalView: React.FC<PublicMushafWaqfPortalViewProp
                     )}
                     {pageSections.map((sec) => (
                       <div key={`${sec.surahId}-${sec.fromAyah}`} className="space-y-4">
-                        {/* Surah Ornate Banner */}
-                        <div className="rounded-2xl bg-gradient-to-r from-amber-500/15 via-emerald-700/15 to-amber-500/15 border-2 border-amber-500/50 py-2.5 px-4 text-center">
-                          <div className="text-base sm:text-lg font-black text-emerald-900 dark:text-amber-300">
-                            سُورَةُ {sec.surahName} — الآيات ({sec.fromAyah} إلى {sec.toAyah})
+                        {/* KFGQPC Surah Ornate Banner with SVG Cartouche & Juz Badge */}
+                        <div className="relative rounded-2xl overflow-hidden border-2 border-amber-500/70 shadow-md py-3.5 px-6 text-center bg-[#042f2e]">
+                          <img
+                            src="/mushaf-title-ornament.svg"
+                            alt=""
+                            className="absolute inset-0 w-full h-full object-cover opacity-90 pointer-events-none select-none"
+                          />
+                          <div className="relative z-10 flex flex-wrap items-center justify-between gap-2">
+                            <span className="px-3 py-1 rounded-full bg-amber-400/20 border border-amber-400/60 text-amber-200 text-xs font-black">
+                              ترتيب السورة #{sec.surahId}
+                            </span>
+                            <div className="text-base sm:text-xl font-black text-amber-200 font-uthmanic-hafs tracking-wide">
+                              ۞ سُورَةُ {sec.surahName} — الآيات ({sec.fromAyah} إلى {sec.toAyah}) ۞
+                            </div>
+                            <span className="px-3 py-1 rounded-full bg-amber-400 text-slate-950 text-xs font-black">
+                              الجزء {pageInfo.juzNumber} ({pageInfo.juzName})
+                            </span>
                           </div>
                           {sec.fromAyah === 1 && sec.surahId !== 1 && sec.surahId !== 9 && (
-                            <div className="text-lg sm:text-xl font-black text-slate-800 dark:text-amber-100 mt-1">
+                            <div className="relative z-10 text-xl sm:text-2xl font-black text-amber-100 font-uthmanic-hafs mt-2">
                               بِسْمِ ٱللَّهِ ٱلرَّحْمَٰنِ ٱلرَّحِيمِ
                             </div>
                           )}
@@ -2749,7 +2843,7 @@ export const PublicMushafWaqfPortalView: React.FC<PublicMushafWaqfPortalViewProp
 
                         {/* Continuous Uthmani Mushaf Flow with Immersive Current-Ayah Focus & Expanded Verse Area */}
                         <div
-                          className={`font-serif text-justify select-text transition-all duration-300 ${
+                          className={`font-uthmanic-hafs text-justify select-text transition-all duration-300 ${
                             distractionFreeReading
                               ? 'leading-[2.9] text-2xl sm:text-3xl md:text-4xl'
                               : 'leading-[2.65] text-xl sm:text-2xl md:text-3xl'

@@ -1,6 +1,8 @@
 import React, { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import {
   AcademySettings,
+  AccessCodeRequest,
+  ActiveRoleMode,
   AdmissionRequest,
   CircleGroup,
   ExamRecord,
@@ -13,6 +15,7 @@ import {
   OwnerEncouragementItem,
   PeerCompetitionPack,
   PeerCompetitionSubmission,
+  PortalRoute,
   PublicBookmarkCategory,
   PublicMushafBookmark,
   PublicVisitorWirdRecord,
@@ -40,6 +43,10 @@ import {
   UserRole,
   WaqfImpactStats,
 } from '../types';
+import {
+  detectPortalRouteFromLocation,
+  updatePortalManifest,
+} from '../components/PWAComponents';
 import { buildInitialPeerCompetitions } from '../data/smartQuizEngineData';
 import {
   DEFAULT_SUPERVISOR_PERMISSIONS,
@@ -71,6 +78,7 @@ import {
   canonicalJson,
 } from '../utils/wlqSyncCore';
 import {
+  ACCESS_CODE_REQUESTS_STORAGE_KEY,
   auth,
   ExtendedFamilyFields,
   fetchAcademyCloudBackupFromFirestore,
@@ -81,13 +89,15 @@ import {
   signInWithGooglePopup,
   signInWithMicrosoftPopup,
   signOutFromFirebase,
-  syncAcademySnapshotToFirestore,
-  syncExtendedFamilyRecordToFirestore,
-  syncUserProfileToFirestore,
-  syncStaffRegistrationToFirestore,
-  syncAllStaffRegistrationsToFirestore,
-  deleteStaffRegistrationFromFirestore,
+  subscribeToAccessCodeRequestsFromFirestore,
   subscribeToStaffRegistrationsFromFirestore,
+  syncAcademySnapshotToFirestore,
+  syncAccessCodeRequestToFirestore,
+  syncAllStaffRegistrationsToFirestore,
+  syncExtendedFamilyRecordToFirestore,
+  syncStaffRegistrationToFirestore,
+  syncUserProfileToFirestore,
+  deleteStaffRegistrationFromFirestore,
 } from '../utils/firebaseClient';
 import { ACADEMY_BRAND_CONFIG } from '../constants/brandConfig';
 import { DeveloperSupportModal } from '../components/DeveloperSupportModal';
@@ -210,8 +220,8 @@ interface AcademyStore {
   setActiveTab: (tab: ActiveTab) => void;
   selectedStudentId: string | null;
   setSelectedStudentId: (id: string | null) => void;
-  toastMessage: { text: string; type: 'success' | 'error' | 'info' } | null;
-  showToast: (text: string, type?: 'success' | 'error' | 'info') => void;
+  toastMessage: { text: string; type: 'success' | 'error' | 'info' | 'warning' } | null;
+  showToast: (text: string, type?: 'success' | 'error' | 'info' | 'warning') => void;
   quickSearchOpen: boolean;
   setQuickSearchOpen: (open: boolean) => void;
   isFullScreenFocus: boolean;
@@ -330,6 +340,7 @@ interface AcademyStore {
 
   // Mutations
   saveStudent: (student: Omit<Student, 'id'> & { id?: string }) => Student;
+  updateStudent: (studentId: string, patch: Partial<Student>) => void;
   deleteStudent: (id: string) => void;
   setStudentAccountStatus: (
     studentId: string,
@@ -353,6 +364,7 @@ interface AcademyStore {
   saveExam: (exam: Omit<ExamRecord, 'id'> & { id?: string }) => void;
   saveIjazah: (ijazah: Omit<IjazahRecord, 'id'> & { id?: string }) => void;
   saveTask: (task: Omit<TaskItem, 'id'> & { id?: string }) => void;
+  addTask: (task: Omit<TaskItem, 'id'> & { id?: string }) => void;
   toggleTask: (id: string) => void;
   deleteTask: (id: string) => void;
   updateStudentFee: (
@@ -548,6 +560,28 @@ interface AcademyStore {
     timeSeconds: number;
   }) => PeerCompetitionSubmission | null;
   deletePeerCompetitionPack: (id: string) => void;
+
+  // Multi-Portal URL Routing & Hierarchical Role-Mode Switcher
+  activePortalRoute: PortalRoute;
+  setActivePortalRoute: (route: PortalRoute) => void;
+  activeRoleMode: ActiveRoleMode;
+  setActiveRoleMode: (mode: ActiveRoleMode) => void;
+
+  // Guardian & Student Access Code Requests Pipeline
+  accessCodeRequests: AccessCodeRequest[];
+  submitAccessCodeRequest: (input: {
+    studentName: string;
+    guardianPhone: string;
+    circleOrTeacherName?: string;
+    portalType?: 'guardian' | 'student';
+  }) => AccessCodeRequest;
+  resolveAccessCodeRequestAndSendWhatsApp: (requestId: string) => {
+    whatsappUrl: string;
+    studentCode: string;
+    studentPin: string;
+    studentName: string;
+  } | null;
+  deleteAccessCodeRequest: (requestId: string) => void;
 }
 
 export interface StudentAudioBlobRecord {
@@ -714,7 +748,7 @@ export const AcademyProvider: React.FC<{ children: React.ReactNode }> = ({ child
   });
   const [toastMessage, setToastMessage] = useState<{
     text: string;
-    type: 'success' | 'error' | 'info';
+    type: 'success' | 'error' | 'info' | 'warning';
   } | null>(null);
   const [quickSearchOpen, setQuickSearchOpen] = useState<boolean>(false);
   const [isFullScreenFocus, setIsFullScreenFocus] = useState<boolean>(false);
@@ -2081,7 +2115,10 @@ export const AcademyProvider: React.FC<{ children: React.ReactNode }> = ({ child
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
 
-  const showToast = (text: string, type: 'success' | 'error' | 'info' = 'success') => {
+  const showToast = (
+    text: string,
+    type: 'success' | 'error' | 'info' | 'warning' = 'success'
+  ) => {
     setToastMessage({ text, type });
     setTimeout(() => {
       setToastMessage((prev) => (prev?.text === text ? null : prev));
@@ -2999,6 +3036,12 @@ export const AcademyProvider: React.FC<{ children: React.ReactNode }> = ({ child
       );
       return newStudent;
     }
+  };
+
+  const updateStudent = (studentId: string, patch: Partial<Student>) => {
+    setStudents((prev) =>
+      prev.map((st) => (st.id === studentId ? { ...st, ...patch, id: st.id } : st))
+    );
   };
 
   const setStudentAccountStatus = (
@@ -5058,6 +5101,359 @@ export const AcademyProvider: React.FC<{ children: React.ReactNode }> = ({ child
     showToast('تم حذف المسابقة التنافسية من القائمة', 'info');
   };
 
+  // Multi-Portal URL Routing State & Dynamic PWA Manifest Sync
+  const [activePortalRoute, setActivePortalRouteState] = useState<PortalRoute>(() => {
+    const detected = detectPortalRouteFromLocation();
+    return detected || 'general';
+  });
+
+  const setActivePortalRoute = (route: PortalRoute) => {
+    setActivePortalRouteState(route);
+    updatePortalManifest(route);
+    if (route === 'almushaf' || route === 'sadaqa') {
+      setPublicMushafPortalOpen(true);
+    } else if (route === 'owner') {
+      setPublicMushafPortalOpen(false);
+      if (isLoggedIn && currentStaffTier === 'owner') {
+        setActiveTab('owner_panel');
+      }
+    } else if (route === 'general') {
+      setPublicMushafPortalOpen(false);
+    }
+  };
+
+  // On initial boot, read pathname case-insensitively and route + update dynamic manifest
+  useEffect(() => {
+    const initialRoute = detectPortalRouteFromLocation();
+    if (initialRoute) {
+      setActivePortalRouteState(initialRoute);
+      updatePortalManifest(initialRoute);
+      if (initialRoute === 'almushaf' || initialRoute === 'sadaqa') {
+        setPublicMushafPortalOpen(true);
+      } else if (initialRoute === 'owner' && isLoggedIn && currentStaffTier === 'owner') {
+        setActiveTab('owner_panel');
+      }
+    } else {
+      updatePortalManifest(
+        publicMushafPortalOpen
+          ? 'almushaf'
+          : userRole === 'guardian'
+          ? 'guardian'
+          : userRole === 'student'
+          ? 'student'
+          : currentStaffTier === 'owner'
+          ? 'owner'
+          : 'general'
+      );
+    }
+  }, []);
+
+  // Hierarchical Role-Mode Switcher State (Owner -> Owner/Supervisor/Teacher | Supervisor -> Supervisor/Teacher | Teacher -> Teacher)
+  const [activeRoleMode, setActiveRoleModeState] = useState<ActiveRoleMode>(() =>
+    currentStaffTier === 'owner'
+      ? 'owner_mode'
+      : currentStaffTier === 'supervisor'
+      ? 'supervisor_mode'
+      : 'teacher_mode'
+  );
+
+  useEffect(() => {
+    if (currentStaffTier === 'owner') {
+      setActiveRoleModeState('owner_mode');
+    } else if (currentStaffTier === 'supervisor') {
+      setActiveRoleModeState((prev) =>
+        prev === 'owner_mode' ? 'supervisor_mode' : prev
+      );
+    } else {
+      setActiveRoleModeState('teacher_mode');
+    }
+  }, [currentStaffTier]);
+
+  const setActiveRoleMode = (mode: ActiveRoleMode) => {
+    if (currentStaffTier === 'teacher' && mode !== 'teacher_mode') {
+      showToast('وضع الإشراف والإدارة العليا غير متاح لحساب المحفظ', 'error');
+      return;
+    }
+    if (currentStaffTier === 'supervisor' && mode === 'owner_mode') {
+      showToast('الوضع الإداري للمالك متاح لمالك الأكاديمية فقط', 'error');
+      return;
+    }
+    setActiveRoleModeState(mode);
+    if (mode === 'teacher_mode') {
+      if (activeTab === 'owner_panel' || activeTab === 'finance') {
+        setActiveTab('session');
+      }
+      showToast(
+        '📖 تم التبديل إلى وضع المحفظ — واجهة التسميع الخماسي والسبورة والحلقات جاهزة الآن',
+        'info'
+      );
+    } else if (mode === 'supervisor_mode') {
+      showToast('🛡️ تم التبديل إلى وضع المشرف العام لمتابعة الحلقات والطلاب', 'info');
+    } else {
+      showToast('👑 تم التبديل إلى الوضع الإداري الأعلى لمالك الأكاديمية', 'success');
+    }
+  };
+
+  // Guardian & Student Access Code Requests State (`access_code_requests`)
+  const [accessCodeRequests, setAccessCodeRequests] = useState<AccessCodeRequest[]>(() => {
+    try {
+      const raw = localStorage.getItem(ACCESS_CODE_REQUESTS_STORAGE_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw) as AccessCodeRequest[];
+        if (Array.isArray(parsed)) return parsed;
+      }
+    } catch {
+      // ignore
+    }
+    return [
+      {
+        id: 'req-seed-1',
+        studentName: INITIAL_STUDENTS[0]?.name || 'عمر عبد الرحمن الفاروق',
+        guardianPhone: INITIAL_STUDENTS[0]?.whatsappPhone || '201012345678',
+        circleOrTeacherName: INITIAL_STUDENTS[0]?.circle || 'حلقة المستوى المتقدم',
+        portalType: 'guardian',
+        status: 'pending',
+        matchedStudentId: INITIAL_STUDENTS[0]?.id,
+        matchedStudentName: INITIAL_STUDENTS[0]?.name,
+        matchedStudentCode: `ST-${(INITIAL_STUDENTS[0]?.id || 'st-1').toUpperCase()}`,
+        matchedStudentPin: INITIAL_STUDENTS[0]?.guardianPin || '111111',
+        matchedCircleName: INITIAL_STUDENTS[0]?.circle,
+        matchedTeacherName: INITIAL_SETTINGS.teacherName,
+        createdAt: `${getLocalDateString(0)} 09:45`,
+      },
+    ];
+  });
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(
+        ACCESS_CODE_REQUESTS_STORAGE_KEY,
+        JSON.stringify(accessCodeRequests)
+      );
+    } catch {
+      // ignore
+    }
+  }, [accessCodeRequests]);
+
+  // Play a gentle Web Audio API notification chime when a new access code request arrives
+  const playNotificationChime = () => {
+    try {
+      const AudioCtx =
+        window.AudioContext ||
+        (window as unknown as { webkitAudioContext?: typeof AudioContext })
+          .webkitAudioContext;
+      if (!AudioCtx) return;
+      const ctx = new AudioCtx();
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(880, ctx.currentTime);
+      osc.frequency.setValueAtTime(1174.66, ctx.currentTime + 0.12);
+      gain.gain.setValueAtTime(0.08, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.35);
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start();
+      osc.stop(ctx.currentTime + 0.35);
+    } catch {
+      // ignore audio context restriction
+    }
+  };
+
+  useEffect(() => {
+    const unsub = subscribeToAccessCodeRequestsFromFirestore((incomingList) => {
+      if (!Array.isArray(incomingList) || incomingList.length === 0) return;
+      setAccessCodeRequests((prev) => {
+        const map = new Map<string, AccessCodeRequest>();
+        prev.forEach((item) => map.set(item.id, item));
+        let hasNewPending = false;
+        incomingList.forEach((item) => {
+          if (!map.has(item.id) && item.status === 'pending') {
+            hasNewPending = true;
+          }
+          map.set(item.id, item);
+        });
+        if (hasNewPending && isLoggedIn && userRole === 'teacher') {
+          playNotificationChime();
+        }
+        return Array.from(map.values()).sort((a, b) =>
+          (b.createdAt || '').localeCompare(a.createdAt || '')
+        );
+      });
+    });
+    return () => unsub();
+  }, [isLoggedIn, userRole]);
+
+  const submitAccessCodeRequest = (input: {
+    studentName: string;
+    guardianPhone: string;
+    circleOrTeacherName?: string;
+    portalType?: 'guardian' | 'student';
+  }): AccessCodeRequest => {
+    const cleanName = (input.studentName || '').trim();
+    const cleanPhone = (input.guardianPhone || '').replace(/\D/g, '');
+    const phoneTail = cleanPhone.slice(-9);
+
+    // Search students automatically by name or phone
+    const matchedStudent = students.find((st) => {
+      const stPhone = (st.whatsappPhone || st.guardianPhone || '').replace(/\D/g, '');
+      const phoneMatch = phoneTail.length >= 7 && stPhone.endsWith(phoneTail);
+      const nameMatch =
+        cleanName.length >= 3 &&
+        (st.name.includes(cleanName) || cleanName.includes(st.name));
+      return phoneMatch || nameMatch;
+    });
+
+    const matchedCircle = matchedStudent
+      ? circles.find((c) => c.name === matchedStudent.circle)
+      : undefined;
+
+    const now = new Date();
+    const createdAtStr = `${getLocalDateString(0)} ${String(now.getHours()).padStart(
+      2,
+      '0'
+    )}:${String(now.getMinutes()).padStart(2, '0')}`;
+
+    const studentCodeVal = matchedStudent
+      ? matchedStudent.code || `IMAM-${matchedStudent.id.toUpperCase()}`
+      : `IMAM-${Math.floor(1000 + Math.random() * 9000)}`;
+    const studentPinVal = matchedStudent
+      ? matchedStudent.guardianPin || '123456'
+      : String(Math.floor(100000 + Math.random() * 900000));
+
+    const newReq: AccessCodeRequest = {
+      id: `acreq-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      studentName: cleanName || matchedStudent?.name || 'طالب الأكاديمية',
+      guardianPhone: cleanPhone || input.guardianPhone.trim(),
+      circleOrTeacherName:
+        input.circleOrTeacherName?.trim() ||
+        matchedStudent?.circle ||
+        matchedCircle?.teacherName ||
+        settings.teacherName,
+      portalType: input.portalType || 'guardian',
+      status: 'pending',
+      matchedStudentId: matchedStudent?.id,
+      matchedStudentName: matchedStudent?.name,
+      matchedStudentCode: studentCodeVal,
+      matchedStudentPin: studentPinVal,
+      matchedCircleName: matchedStudent?.circle,
+      matchedTeacherName:
+        matchedStudent?.assignedTeacherName ||
+        matchedCircle?.teacherName ||
+        settings.teacherName,
+      createdAt: createdAtStr,
+    };
+
+    setAccessCodeRequests((prev) => [newReq, ...prev]);
+    void syncAccessCodeRequestToFirestore(newReq);
+    playNotificationChime();
+    showToast(
+      `🔑 تم تسجيل طلب كود الدخول للطالب (${newReq.studentName}) وإشعار الشيخ المحفظ والمشرف فوراً ✓`,
+      'success'
+    );
+    return newReq;
+  };
+
+  const resolveAccessCodeRequestAndSendWhatsApp = (requestId: string) => {
+    const req = accessCodeRequests.find((r) => r.id === requestId);
+    if (!req) return null;
+
+    // Re-check student match or generate code/pin
+    const cleanPhone = (req.guardianPhone || '').replace(/\D/g, '');
+    const phoneTail = cleanPhone.slice(-9);
+    const matchedStudent =
+      students.find((s) => s.id === req.matchedStudentId) ||
+      students.find((st) => {
+        const stPhone = (st.whatsappPhone || st.guardianPhone || '').replace(
+          /\D/g,
+          ''
+        );
+        return (
+          (phoneTail.length >= 7 && stPhone.endsWith(phoneTail)) ||
+          st.name.includes(req.studentName) ||
+          req.studentName.includes(st.name)
+        );
+      });
+
+    const finalStudentName = matchedStudent?.name || req.studentName;
+    const finalCode =
+      matchedStudent?.code ||
+      req.matchedStudentCode ||
+      (matchedStudent ? `IMAM-${matchedStudent.id.toUpperCase()}` : 'IMAM-101');
+    const finalPin =
+      matchedStudent?.guardianPin ||
+      req.matchedStudentPin ||
+      String(Math.floor(100000 + Math.random() * 900000));
+    const finalPhoneForLogin =
+      matchedStudent?.whatsappPhone || cleanPhone || req.guardianPhone;
+
+    if (matchedStudent && (!matchedStudent.guardianPin || !matchedStudent.code)) {
+      setStudents((prev) =>
+        prev.map((s) =>
+          s.id === matchedStudent.id
+            ? { ...s, guardianPin: finalPin, code: finalCode, pin: finalPin }
+            : s
+        )
+      );
+    }
+
+    const portalUrl =
+      req.portalType === 'student'
+        ? 'https://welivequranacademy.online/student'
+        : 'https://welivequranacademy.online/Guardian';
+
+    const messageText = `السلام عليكم ورحمة الله وبركاته، مرحباً بكم في أكاديمية الإمام لتحفيظ القرآن الكريم (بالقرآن نحيا). إليكم بيانات الدخول الخاصة بمتابعة الطالب ${finalStudentName}: رابط بوابة ولي الأمر: ${portalUrl} | رقم الهاتف المسجل: ${finalPhoneForLogin} | كود الطالب: ${finalCode} | رمز الدخول السري (PIN): ${finalPin}`;
+
+    const targetWhatsAppPhone =
+      cleanPhone.length >= 8 ? cleanPhone : matchedStudent?.whatsappPhone || '201068631966';
+    const whatsappUrl = `https://wa.me/${targetWhatsAppPhone}?text=${encodeURIComponent(
+      messageText
+    )}`;
+
+    const now = new Date();
+    const resolvedAtStr = `${getLocalDateString(0)} ${String(
+      now.getHours()
+    ).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+
+    const updatedReq: AccessCodeRequest = {
+      ...req,
+      status: 'resolved',
+      matchedStudentId: matchedStudent?.id || req.matchedStudentId,
+      matchedStudentName: finalStudentName,
+      matchedStudentCode: finalCode,
+      matchedStudentPin: finalPin,
+      resolvedAt: resolvedAtStr,
+    };
+
+    setAccessCodeRequests((prev) =>
+      prev.map((item) => (item.id === requestId ? updatedReq : item))
+    );
+    void syncAccessCodeRequestToFirestore(updatedReq);
+
+    queueOutboxMessage({
+      recipientName: `ولي أمر ${finalStudentName}`,
+      recipientPhone: targetWhatsAppPhone,
+      text: messageText,
+      type: 'credentials',
+    });
+
+    showToast(
+      `⚡ تم تجهيز كود الدخول (${finalPin}) للطالب (${finalStudentName}) وفتح محادثة واتساب لولي الأمر ✓`,
+      'success'
+    );
+
+    return {
+      whatsappUrl,
+      studentCode: finalCode,
+      studentPin: finalPin,
+      studentName: finalStudentName,
+    };
+  };
+
+  const deleteAccessCodeRequest = (requestId: string) => {
+    setAccessCodeRequests((prev) => prev.filter((r) => r.id !== requestId));
+  };
+
   const clearAllStudentsAndStartEmpty = () => {
     setStudents([]);
     setSessions([]);
@@ -5195,6 +5591,7 @@ export const AcademyProvider: React.FC<{ children: React.ReactNode }> = ({ child
         teacherAlerts,
         triggerPushReminderNow,
         saveStudent,
+        updateStudent,
         deleteStudent,
         setStudentAccountStatus,
         updateErrorFollowUpStatus,
@@ -5205,6 +5602,7 @@ export const AcademyProvider: React.FC<{ children: React.ReactNode }> = ({ child
         saveExam,
         saveIjazah,
         saveTask,
+        addTask: saveTask,
         toggleTask,
         deleteTask,
         updateStudentFee,
@@ -5265,6 +5663,14 @@ export const AcademyProvider: React.FC<{ children: React.ReactNode }> = ({ child
         createPeerCompetitionPack,
         submitPeerCompetitionResult,
         deletePeerCompetitionPack,
+        activePortalRoute,
+        setActivePortalRoute,
+        activeRoleMode,
+        setActiveRoleMode,
+        accessCodeRequests,
+        submitAccessCodeRequest,
+        resolveAccessCodeRequestAndSendWhatsApp,
+        deleteAccessCodeRequest,
       }}
     >
       {children}

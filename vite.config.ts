@@ -2,8 +2,12 @@ import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
 import fs from 'fs';
 import path from 'path';
+import {fileURLToPath} from 'url';
 import {defineConfig} from 'vite';
 import {VitePWA} from 'vite-plugin-pwa';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 function githubPagesDeployHelperPlugin() {
   return {
@@ -13,9 +17,34 @@ function githubPagesDeployHelperPlugin() {
         const distDir = path.resolve(__dirname, 'dist');
         if (fs.existsSync(distDir)) {
           fs.writeFileSync(path.join(distDir, 'CNAME'), 'welivequranacademy.online\n', 'utf-8');
+          fs.writeFileSync(path.join(distDir, '.nojekyll'), '', 'utf-8');
+          fs.writeFileSync(path.join(distDir, '_redirects'), '/* /index.html 200\n', 'utf-8');
+
           const indexPath = path.join(distDir, 'index.html');
           if (fs.existsSync(indexPath)) {
             fs.copyFileSync(indexPath, path.join(distDir, '404.html'));
+
+            // Create physical portal route directories so GitHub Pages returns HTTP 200 OK
+            // for every direct portal URL and PWA installation works 100% natively
+            const portalRoutes = [
+              'student',
+              'Student',
+              'guardian',
+              'Guardian',
+              'owner',
+              'Owner',
+              'general',
+              'General',
+              'almushaf',
+              'AlMushaf',
+              'sadaqa',
+              'Sadaqa',
+            ];
+            for (const route of portalRoutes) {
+              const routeDir = path.join(distDir, route);
+              fs.mkdirSync(routeDir, {recursive: true});
+              fs.copyFileSync(indexPath, path.join(routeDir, 'index.html'));
+            }
           }
         }
       } catch {
@@ -27,7 +56,7 @@ function githubPagesDeployHelperPlugin() {
 
 export default defineConfig(() => {
   return {
-    base: './',
+    base: '/',
     build: {
       rollupOptions: {
         output: {
@@ -50,6 +79,9 @@ export default defineConfig(() => {
         registerType: 'autoUpdate',
         includeAssets: [
           'sw-push.js',
+          'icon.svg',
+          'mushaf-corner.svg',
+          'mushaf-title-ornament.svg',
           'assets/aistudio/favicon_3bce66e2.png',
           'assets/aistudio/icon-96_3bce66e2.png',
           'assets/aistudio/icon-192_29a1c2ce.png',

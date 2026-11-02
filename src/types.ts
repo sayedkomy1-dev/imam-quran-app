@@ -1,4 +1,155 @@
-export type UserRole = 'teacher' | 'guardian' | 'guest';
+// src/types.ts - Unified Interfaces for Imam Quran Academy (Zero Build Errors)
+
+export type UserRole =
+  | 'owner'
+  | 'supervisor'
+  | 'teacher'
+  | 'financial'
+  | 'student'
+  | 'guardian'
+  | 'guest';
+
+export type ActiveRoleMode = 'owner_mode' | 'supervisor_mode' | 'teacher_mode';
+
+export type PortalRoute =
+  | 'student'
+  | 'guardian'
+  | 'owner'
+  | 'general'
+  | 'almushaf'
+  | 'sadaqa';
+
+export type AccountStatus = 'pending' | 'active' | 'suspended' | 'rejected';
+
+export interface StaffPermissions {
+  canManageOwnCirclesOnly: boolean;
+  canViewAllCircles: boolean;
+  canAccessFinance: boolean;
+  canCreateCompetitions: boolean;
+  canEditDeleteStudents: boolean;
+  canExportBackups: boolean;
+  canApproveTeachers: boolean;
+}
+
+export interface StaffUser {
+  id: string;
+  uid?: string;
+  name: string;
+  email: string;
+  phone: string;
+  role: 'owner' | 'supervisor' | 'teacher' | 'financial';
+  status: AccountStatus;
+  specialization?: string;
+  assignedCircleIds: string[];
+  permissions: StaffPermissions;
+  createdAt: string;
+  lastActiveAt?: string;
+  provider?: 'google' | 'microsoft' | 'email';
+}
+
+export interface AccessCodeRequest {
+  id: string;
+  studentName: string;
+  guardianName?: string;
+  guardianPhone: string;
+  circleOrTeacherName?: string;
+  portalType?: 'guardian' | 'student';
+  status: 'pending' | 'resolved';
+  matchedStudentId?: string;
+  matchedStudentName?: string;
+  matchedStudentCode?: string;
+  generatedCode?: string;
+  matchedStudentPin?: string;
+  matchedTeacherName?: string;
+  matchedCircleName?: string;
+  createdAt: string;
+  resolvedAt?: string;
+}
+
+export interface Circle {
+  id: string;
+  name: string;
+  teacherId: string;
+  teacherName: string;
+  schedule: string;
+  level: string;
+  studentCount?: number;
+  meetingLink?: string;
+}
+
+export interface SessionError {
+  id: string;
+  word: string;
+  ayahNumber: number;
+  surahName: string;
+  type: 'memorization' | 'tajweed' | 'hesitation' | 'tashkeel';
+  note?: string;
+  timestampSec?: number;
+}
+
+export interface RecitationSession {
+  id: string;
+  studentId: string;
+  studentName: string;
+  teacherId?: string;
+  date: string;
+  newMemSurah: string;
+  newMemFromAyah: number;
+  newMemToAyah: number;
+  newMemScore: number;
+  nearRevSurah?: string;
+  nearRevScore?: number;
+  farRevJuz?: string;
+  farRevScore?: number;
+  tajweedScore: number;
+  overallScore: number;
+  attendance: 'present' | 'absent' | 'excused' | 'late';
+  errors: SessionError[];
+  teacherNote?: string;
+  audioRecordingUrl?: string;
+  sentViaWhatsApp?: boolean;
+}
+
+export interface CompetitionParticipant {
+  studentId: string;
+  studentName: string;
+  circleName?: string;
+  score: number;
+  speedSeconds: number;
+  rank?: number;
+  completedAt: string;
+}
+
+export interface Competition {
+  id: string;
+  title: string;
+  surahOrJuz: string;
+  createdBy: string;
+  isActive: boolean;
+  createdAt: string;
+  participants: CompetitionParticipant[];
+}
+
+export interface SadaqahWaqfCard {
+  id: string;
+  deceasedOrBeneficiaryName: string;
+  donorName?: string;
+  duaText: string;
+  amenCount: number;
+  pagesReadCount: number;
+  createdAt: string;
+}
+
+export interface AcademyBrandConfig {
+  academyName: string;
+  slogan: string;
+  developerName: string;
+  developerTitle: string;
+  whatsappNumber: string;
+  whatsappClean: string;
+  ownerEmails: string[];
+  domainUrl: string;
+}
 
 export type StudentLevel = 'مبتدئ' | 'متوسط' | 'متقدم';
 
@@ -55,7 +206,14 @@ export type StudentAccountStatus = 'نشط' | 'متوقف' | 'مؤرشف';
 
 export type ErrorCategoryGroup = 'حفظ' | 'حروف' | 'ضبط' | 'تجويد' | 'تشكيل';
 
-export type ErrorFollowUpStatus = 'open' | 'mastered' | 'needs_review' | 'تم الإتقان';
+export type ErrorFollowUpStatus =
+  | 'open'
+  | 'mastered'
+  | 'needs_review'
+  | 'needs_practice'
+  | 'repeated'
+  | 'repeated_error'
+  | 'تم الإتقان';
 
 export type SessionSyncStatus =
   | 'مسودة محلية'
@@ -65,18 +223,30 @@ export type SessionSyncStatus =
   | 'تم فتح محادثة واتساب للمراجعة'
   | 'تم الإرسال لولي الأمر';
 
+export type ErrorHotspotStageKey =
+  | 'memorization_1' // 🔴 خطأ حفظ / نسيان (-1.0)
+  | 'tashkeel_05'    // 🟠 خطأ تشكيل / إعراب (-0.5)
+  | 'tajweed_05'     // 🟣 خطأ حكم تجويدي (-0.5)
+  | 'hesitation_025'; // 🟡 تردد / تنبيه فتح (-0.25)
+
 export interface RecitationError {
   id: string;
   type: ErrorType;
+  errorType?: string;
   context: ErrorContext;
   surahId?: number;
   surah?: string;
+  surahName?: string;
   ayah?: number;
+  ayahNumber?: number;
   word?: string;
   wordIndex?: number;
   letter?: string;
   category?: ErrorCategoryGroup;
   subType?: string;
+  note?: string;
+  deductionPoints?: number; // 1 | 0.5 | 0.25
+  hotspotStageKey?: ErrorHotspotStageKey;
   tajweedRule?: string;
   tajweedExplanation?: string;
   tajweedLetters?: string;
@@ -88,6 +258,26 @@ export interface RecitationError {
   compositeKey?: string;
   lastReviewedDate?: string;
   timestamp: string;
+}
+
+export interface MakeupSessionCard {
+  id: string;
+  studentId: string;
+  studentName: string;
+  absentDate: string;
+  attendanceStatus: 'غاب' | 'إجازة';
+  missedSurahId?: number;
+  missedSurahName: string;
+  missedFromAyah: number;
+  missedToAyah: number;
+  missedReviewLabel?: string;
+  resolutionStatus: 'pending' | 'scheduled_makeup' | 'merged_next_week' | 'completed';
+  scheduledMakeupDate?: string;
+  scheduledMakeupTime?: string;
+  mergedPlanNote?: string;
+  resolvedByRole?: 'teacher' | 'guardian';
+  resolvedAt?: string;
+  createdAt: string;
 }
 
 export type RecitationAxisKey =
@@ -239,6 +429,13 @@ export interface SessionRecord {
   createdAt: string;
 }
 
+export type VoiceNoteEvaluationRating =
+  | 'متميز'
+  | 'جيد جداً'
+  | 'جيد'
+  | 'ضعيف'
+  | 'يحتاج مراجعة';
+
 export interface TeacherRecitationVoiceNote {
   id: string;
   studentId: string;
@@ -250,9 +447,20 @@ export interface TeacherRecitationVoiceNote {
   linkedSubmissionId?: string;
   timestampSec?: number;
   category: 'تجويد' | 'حفظ' | 'تشكيل' | 'مخارج' | 'توجيه عام';
+  evaluationRating?: VoiceNoteEvaluationRating;
   title: string;
   audioDataUrl: string;
   durationSeconds: number;
+  rawSpeechTranscript?: string;
+  aiTranscript?: string;
+  aiEvaluativeText?: string;
+  aiParentSummary?: string;
+  aiStrengths?: string[];
+  aiImprovementPlan?: string;
+  aiSuggestedGrade?: GradeType;
+  aiSuggestedScore?: number;
+  aiConvertedAt?: string;
+  appliedToSessionNotes?: boolean;
   createdAt: string;
 }
 
@@ -460,6 +668,21 @@ export interface FeeRecord {
 export interface Student {
   id: string;
   name: string;
+  code?: string;
+  pin?: string;
+  phone?: string;
+  parentPhone?: string;
+  circleId?: string;
+  circleName?: string;
+  currentSurah?: string;
+  currentAyah?: number;
+  targetJuz?: number;
+  memorizedJuzCount?: number;
+  points?: number;
+  attendanceRate?: number;
+  status?: 'active' | 'inactive' | 'graduated' | string;
+  subscriptionStatus?: 'paid' | 'pending' | 'exempt';
+  createdAt?: string;
   guardianName: string;
   whatsappPhone: string; // Normalized e.g., 201012345678
   guardianPhone?: string;
@@ -539,6 +762,7 @@ export interface Student {
     surahName?: string;
   }[];
   characterHabitCompletedDates?: string[];
+  makeupSessions?: MakeupSessionCard[];
 }
 
 export interface CircleGroup {

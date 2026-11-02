@@ -8,60 +8,65 @@
     <meta property="og:title" content="أكاديمية الإمام لتحفيظ القرآن الكريم | بالقرآن نحيا — تصميم وتطوير Sayed Mohamed Elkomy" />
     <meta property="og:description" content="أكاديمية الإمام لتحفيظ القرآن الكريم | بالقرآن نحيا — تصميم وتطوير Sayed Mohamed Elkomy. منظومة متكاملة لإدارة حلقات تحفيظ القرآن الكريم، محرك التسميع الخماسي، السبورة الذكية، الاختبارات والإجازات، والمتابعة الأسرية وبوابة ولي الأمر." />
     <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://welivequranacademy.online/" />
     <meta name="twitter:card" content="summary_large_image" />
-    <meta name="theme-color" content="#145a3a" />
+    <meta name="theme-color" content="#064e3b" />
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="apple-mobile-web-app-title" content="أكاديمية الإمام" />
-    <link rel="icon" type="image/png" href="./assets/aistudio/favicon_3bce66e2.png" />
-    <link rel="apple-touch-icon" href="./assets/aistudio/icon-192_29a1c2ce.png" />
+    <link id="dynamic-pwa-manifest" rel="manifest" href="/manifest.json" />
+    <link rel="icon" type="image/svg+xml" href="/icon.svg" />
+    <link rel="alternate icon" type="image/png" href="/assets/aistudio/favicon_3bce66e2.png" />
+    <link rel="apple-touch-icon" href="/assets/aistudio/icon-192_29a1c2ce.png" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Amiri:ital,wght@0,400;0,700;1,400&family=Cairo:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet" />
   </head>
   <body class="bg-[#f6f7f2] text-[#14281d] antialiased selection:bg-[#145a3a] selection:text-white">
-    <div id="root"></div>
+    <div id="root">
+      <!-- شاشة تحميل أولية أنيقة تختفي تلقائياً فور تحميل React وتمنع أي شاشة بيضاء -->
+      <div style="min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;background:linear-gradient(135deg,#042016 0%,#064e3b 55%,#0f291e 100%);color:#ffffff;font-family:'Cairo',sans-serif;padding:24px;text-align:center;">
+        <div style="width:76px;height:76px;border-radius:22px;background:rgba(197,155,39,0.18);border:2px solid rgba(246,216,120,0.65);display:flex;align-items:center;justify-content:center;font-size:36px;margin-bottom:16px;box-shadow:0 12px 30px rgba(0,0,0,0.35);">
+          🕌
+        </div>
+        <h1 style="font-size:22px;font-weight:800;margin:0 0 6px 0;color:#f6d878;">
+          أكاديمية الإمام لتحفيظ القرآن الكريم
+        </h1>
+        <p style="font-size:14px;font-weight:700;margin:0 0 18px 0;color:#a7f3d0;">
+          بالقرآن نحيا • جارٍ فتح البوابة القرآنية...
+        </p>
+        <div style="width:180px;height:6px;border-radius:999px;background:rgba(255,255,255,0.15);overflow:hidden;">
+          <div style="width:65%;height:100%;background:linear-gradient(90deg,#c59b27,#34d399);border-radius:999px;"></div>
+        </div>
+      </div>
+    </div>
     <script>
       (function () {
-        // Clean up any stale cached Firebase Auth tokens in IndexedDB/localStorage
-        // that could trigger securetoken.googleapis.com errors on boot
         try {
-          for (var i = localStorage.length - 1; i >= 0; i--) {
-            var k = localStorage.key(i);
-            if (k && k.indexOf('firebase:') === 0) {
-              localStorage.removeItem(k);
+          var MIGRATION_KEY = 'imam_pwa_migration_v12_clean';
+          var forceReset = window.location.search.indexOf('reset_cache=1') !== -1;
+          if (!localStorage.getItem(MIGRATION_KEY) || forceReset) {
+            localStorage.setItem(MIGRATION_KEY, '1');
+            if ('serviceWorker' in navigator) {
+              navigator.serviceWorker.getRegistrations().then(function (regs) {
+                regs.forEach(function (reg) {
+                  reg.unregister();
+                });
+              }).catch(function () {});
             }
-          }
-          for (var j = sessionStorage.length - 1; j >= 0; j--) {
-            var sk = sessionStorage.key(j);
-            if (sk && sk.indexOf('firebase:') === 0) {
-              sessionStorage.removeItem(sk);
+            if (window.caches && typeof window.caches.keys === 'function') {
+              window.caches.keys().then(function (names) {
+                names.forEach(function (name) {
+                  if (name.indexOf('quran-') === -1) {
+                    window.caches.delete(name);
+                  }
+                });
+              }).catch(function () {});
             }
-          }
-          if (window.indexedDB && typeof window.indexedDB.deleteDatabase === 'function') {
-            window.indexedDB.deleteDatabase('firebaseLocalStorageDb');
           }
         } catch (e) {
           // ignore storage access errors
-        }
-
-        // Always unregister any stale root service worker and clear old script caches
-        if ('serviceWorker' in navigator) {
-          navigator.serviceWorker.getRegistrations().then(function (regs) {
-            regs.forEach(function (reg) {
-              reg.unregister();
-            });
-          }).catch(function () {});
-        }
-        if (window.caches && typeof window.caches.keys === 'function') {
-          window.caches.keys().then(function (names) {
-            names.forEach(function (name) {
-              if (name.indexOf('quran-') === -1) {
-                window.caches.delete(name);
-              }
-            });
-          }).catch(function () {});
         }
       })();
     </script>

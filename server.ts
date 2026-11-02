@@ -377,6 +377,174 @@ ${recentErrorsSummary ? `ملاحظات وأخطاء الطالب السابقة
     }
   });
 
+  // Server-side Gemini Teacher Voice Note to Pedagogical Evaluative Text Converter (محرك الحصة الخماسي)
+  app.post('/api/gemini/voice-note-to-evaluation', async (req, res) => {
+    try {
+      const apiKey = process.env.GEMINI_API_KEY;
+      if (!apiKey || apiKey === 'MY_GEMINI_API_KEY') {
+        res.status(503).json({
+          error: 'GEMINI_API_KEY_NOT_CONFIGURED',
+          message: 'مفتاح Gemini API غير مهيأ على الخادم حالياً.',
+        });
+        return;
+      }
+
+      const {
+        audioDataUrl,
+        mimeType: clientMimeType,
+        rawSpeechTranscript = '',
+        noteTitle = '',
+        category = 'تجويد',
+        evaluationRating = 'متميز',
+        contextAxis = 'التسميع',
+        studentName = 'الطالب',
+        studentLevel = 'متوسط',
+        riwayah = 'حفص عن عاصم',
+        surahName = 'النبأ',
+        fromAyah = 1,
+        toAyah = 15,
+        masteryScore = 92,
+        errorsSummary = '',
+        teacherName = 'معلم الحلقة',
+      } = req.body || {};
+
+      const ai = new GoogleGenAI({
+        apiKey,
+        httpOptions: { headers: { 'User-Agent': 'aistudio-build' } },
+      });
+
+      const parsedAudio = parseAudioDataUrl(audioDataUrl, clientMimeType);
+      const parts: Array<
+        | { inlineData: { mimeType: string; data: string } }
+        | { text: string }
+      > = [];
+
+      let transcribedSpeech = String(rawSpeechTranscript || '').trim();
+
+      if (parsedAudio) {
+        const audioPart = {
+          inlineData: {
+            mimeType: parsedAudio.mimeType,
+            data: parsedAudio.base64Data,
+          },
+        };
+        parts.push(audioPart);
+
+        if (!transcribedSpeech) {
+          try {
+            const trRes = await ai.models.generateContent({
+              model: 'gemini-3.5-transcribe',
+              contents: {
+                parts: [
+                  audioPart,
+                  {
+                    text: 'فرّغ ملاحظة المعلم الصوتية المنطوقة في هذا التسجيل باللغة العربية بدقة وأمانة. إذا كان التسجيل نغمة صوتية أو بدون كلام واضح، اترك النص فارغاً.',
+                  },
+                ],
+              },
+            });
+            const candidateTr = trRes.text?.trim() || '';
+            if (candidateTr && candidateTr.length > 3) {
+              transcribedSpeech = candidateTr;
+            }
+          } catch {
+            // Continue with main multimodal model
+          }
+        }
+      }
+
+      const prompt = `أنت مستشار تربوي قرآني ومشرف حلقات تحفيظ خبير برواية (${riwayah}).
+قام المعلم (${teacherName}) بتسجيل ملاحظة صوتية سريعة ضمن "محرك الحصة الخماسي" لتقييم مستوى الطالب (${studentName} — المستوى: ${studentLevel}).
+
+بيانات سياق الحصة والملاحظة المسجلة:
+- المحور في محرك الحصة الخماسي: (${contextAxis})
+- تصنيف التقييم الجاهز المختار من المعلم: (${evaluationRating})
+- تصنيف الملاحظة الفني: (${category})
+- السورة والآيات: سورة (${surahName}) من الآية (${fromAyah}) إلى الآية (${toAyah})
+- عنوان/وصف الملاحظة السريعة: "${noteTitle || 'ملاحظة صوتية سريعة عن مستوى الطالب'}"
+- النص المفرّغ من صوت المعلم (إن وجد): "${transcribedSpeech || 'ملاحظة صوتية مسجلة بالميكروفون'}"
+- نسبة الإتقان الحالية في الحصة: ${masteryScore}%
+- الأخطاء المسجلة في الحصة: ${errorsSummary || 'لا توجد أخطاء مسجلة'}
+
+المطلوب منك:
+1. استخراج النص المفرّغ أو المقصود من ملاحظة المعلم الصوتية (transcript) بلغة عربية واضحة.
+2. ربط تصنيف التقييم المختار من المعلم (${evaluationRating}) تلقائياً وبشكل صريح مع الملاحظة الصوتية عند تحويلها إلى "نص تقييمي تربوي وتجويدي احترافي ومفصل" (evaluativeText) بحيث يبدأ أو يتضمن التقييم التصنيف (${evaluationRating}) ويصلح للتوثيق في سجل الحصة الرسمي.
+3. صياغة "ملخص تقييمي مبسط ولطيف لولي الأمر والأم" (parentSummary) يوضح أن تصنيف تقييم الطالب هو (${evaluationRating}) مع توجيه عملي جاهز للإرسال عبر واتساب.
+4. استخلاص أهم نقاط القوة لدى الطالب (strengths) وخطة عمل محددة للحصة القادمة (improvementPlan) تتناسب مع تصنيف (${evaluationRating}).
+5. اقتراح التقدير المناسب (suggestedGrade) والدرجة المئوية المقترحة من 100 (suggestedScore) بما يتوافق مع تصنيف (${evaluationRating}).`;
+
+      parts.push({ text: prompt });
+
+      const response = await ai.models.generateContent({
+        model: 'gemini-3.8-flash',
+        contents: { parts },
+        config: {
+          responseMimeType: 'application/json',
+          responseSchema: {
+            type: Type.OBJECT,
+            properties: {
+              transcript: {
+                type: Type.STRING,
+                description: 'النص المفرغ لملاحظة المعلم الصوتية أو خلاصة ما سجله المعلم',
+              },
+              evaluativeText: {
+                type: Type.STRING,
+                description: 'النص التقييمي التربوي والتجويدي الاحترافي المحول من الملاحظة الصوتية',
+              },
+              parentSummary: {
+                type: Type.STRING,
+                description: 'رسالة تقييمية مبسطة ومشجعة لولي الأمر والأم',
+              },
+              strengths: {
+                type: Type.ARRAY,
+                items: { type: Type.STRING },
+                description: 'نقاط القوة والتميز لدى الطالب في هذا المحور',
+              },
+              improvementPlan: {
+                type: Type.STRING,
+                description: 'التوجيه العملي وخطة التحسين للحصة القادمة',
+              },
+              suggestedGrade: {
+                type: Type.STRING,
+                enum: ['ممتاز', 'جيد جداً', 'جيد', 'ضعيف', 'إعادة'],
+                description: 'التقدير المقترح بناءً على ملاحظة المعلم',
+              },
+              suggestedScore: {
+                type: Type.NUMBER,
+                description: 'الدرجة المقترحة من 100',
+              },
+            },
+            required: [
+              'transcript',
+              'evaluativeText',
+              'parentSummary',
+              'strengths',
+              'improvementPlan',
+              'suggestedGrade',
+              'suggestedScore',
+            ],
+          },
+        },
+      });
+
+      const parsedResult = JSON.parse(response.text || '{}');
+      res.json({
+        source: 'gemini-server',
+        model: 'gemini-3.8-flash',
+        convertedAt: new Date().toISOString(),
+        result: parsedResult,
+      });
+    } catch (error: unknown) {
+      const errMsg = error instanceof Error ? error.message : 'Unknown error';
+      console.error('Gemini voice note evaluation conversion error:', errMsg);
+      res.status(500).json({
+        error: 'GEMINI_VOICE_NOTE_EVAL_FAILED',
+        message: 'تعذر تحويل الملاحظة الصوتية عبر خادم Gemini حالياً.',
+        details: errMsg,
+      });
+    }
+  });
+
   if (process.env.NODE_ENV !== 'production') {
     const { createServer: createViteServer } = await import('vite');
     const vite = await createViteServer({

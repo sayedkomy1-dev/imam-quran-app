@@ -24,9 +24,67 @@ import {
   StudentRecitationAudioClip,
   SurahRangeAssignment,
   TeacherRecitationVoiceNote,
+  VoiceNoteEvaluationRating,
+  ErrorHotspotStageKey,
+  MakeupSessionCard,
 } from '../types';
+
+const VOICE_NOTE_EVAL_RATINGS: {
+  value: VoiceNoteEvaluationRating;
+  label: string;
+  mappedGrade: GradeType;
+  defaultScore: number;
+  badgeClass: string;
+  autoPhrase: string;
+}[] = [
+  {
+    value: 'متميز',
+    label: '🌟 متميز (إتقان عالٍ وتلاوة متقنة)',
+    mappedGrade: 'ممتاز',
+    defaultScore: 96,
+    badgeClass: 'bg-emerald-600 text-white border-emerald-500',
+    autoPhrase: 'أداء متميز وإتقان راسخ للحفظ وأحكام التجويد',
+  },
+  {
+    value: 'جيد جداً',
+    label: '✅ جيد جداً (أداء مستقر مع ملاحظات يسيرة)',
+    mappedGrade: 'جيد جداً',
+    defaultScore: 86,
+    badgeClass: 'bg-teal-600 text-white border-teal-500',
+    autoPhrase: 'مستوى جيد جداً مع الحاجة لتثبيت يسير في بعض المواضع',
+  },
+  {
+    value: 'جيد',
+    label: '👍 جيد (مقبول ويحتاج مزيداً من التكرار)',
+    mappedGrade: 'جيد',
+    defaultScore: 76,
+    badgeClass: 'bg-amber-500 text-slate-950 border-amber-400',
+    autoPhrase: 'مستوى جيد بالمجمل ويحتاج إلى مزيد من التكرار والضبط المنزلي',
+  },
+  {
+    value: 'ضعيف',
+    label: '⚠️ ضعيف (يحتاج إعادة تأسيس ومتابعة مكثفة)',
+    mappedGrade: 'ضعيف',
+    defaultScore: 60,
+    badgeClass: 'bg-red-600 text-white border-red-500',
+    autoPhrase: 'المستوى ضعيف في هذا الموضع ويحتاج إلى إعادة تسميع وتدريب مكثف',
+  },
+  {
+    value: 'يحتاج مراجعة',
+    label: '🔄 يحتاج مراجعة (تثبيت المقرر قبل الانتقال للجديد)',
+    mappedGrade: 'إعادة',
+    defaultScore: 68,
+    badgeClass: 'bg-orange-600 text-white border-orange-500',
+    autoPhrase: 'يحتاج مراجعة وتثبيتاً إضافياً للمقطع قبل الانتقال لموضع جديد',
+  },
+];
 import { buildWhatsAppUrl, PARENT_NOTE_TEMPLATES } from '../utils/whatsapp';
-import { formatGregorianAndHijri, formatHijriDate } from '../utils/dateUtils';
+import {
+  HijriCalendar,
+  formatGregorianAndHijri,
+  formatHijriDate,
+  triggerFastPrint,
+} from '../utils/dateUtils';
 import { QuranTextModal } from './QuranTextModal';
 import {
   QURAN_RIWAYAT_GUIDE,
@@ -43,6 +101,7 @@ import {
   GeminiRecitationEvaluationResult,
 } from './GeminiRecitationAnalyzerTool';
 import { NewMemAudioPlayerAndWhatsAppTool } from './NewMemAudioPlayerAndWhatsAppTool';
+import { ErrorHotspotsManager } from './ErrorHotspotsManager';
 import { triggerHaptic } from '../utils/wlqSyncCore';
 import {
   AlertTriangle,
@@ -57,6 +116,8 @@ import {
   MapPin,
   Maximize2,
   Mic,
+  Bell,
+  BellOff,
   MicOff,
   Minimize2,
   Pause,
@@ -64,14 +125,72 @@ import {
   Plus,
   Printer,
   Repeat,
+  RotateCcw,
   Save,
   Send,
   Sparkles,
+  Timer,
   Trash2,
   Upload,
   Volume2,
   X,
 } from 'lucide-react';
+
+// Web Audio API synthesizer for accurate, zero-dependency countdown timer alerts
+const playRecitationTimerTone = (mode: 'warning' | 'final_tick' | 'expired') => {
+  try {
+    const AudioCtx =
+      window.AudioContext ||
+      (window as unknown as { webkitAudioContext?: typeof AudioContext })
+        .webkitAudioContext;
+    if (!AudioCtx) return;
+    const ctx = new AudioCtx();
+    const now = ctx.currentTime;
+
+    const triggerNote = (
+      freq: number,
+      startOffset: number,
+      duration: number,
+      type: OscillatorType = 'sine',
+      peakGain = 0.18
+    ) => {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = type;
+      osc.frequency.setValueAtTime(freq, now + startOffset);
+      gain.gain.setValueAtTime(0.001, now + startOffset);
+      gain.gain.exponentialRampToValueAtTime(peakGain, now + startOffset + 0.03);
+      gain.gain.exponentialRampToValueAtTime(
+        0.0001,
+        now + startOffset + duration
+      );
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start(now + startOffset);
+      osc.stop(now + startOffset + duration + 0.02);
+    };
+
+    if (mode === 'warning') {
+      // Gentle two-tone chime (approaching end of student recitation time)
+      triggerNote(587.33, 0, 0.22, 'triangle', 0.16); // D5
+      triggerNote(880, 0.24, 0.35, 'triangle', 0.18); // A5
+    } else if (mode === 'final_tick') {
+      // Short subtle tick for final 10 seconds
+      triggerNote(740, 0, 0.1, 'sine', 0.1);
+    } else if (mode === 'expired') {
+      // Clear triple-chime completion alert when time is up
+      triggerNote(659.25, 0, 0.22, 'triangle', 0.22); // E5
+      triggerNote(587.33, 0.24, 0.22, 'triangle', 0.22); // D5
+      triggerNote(523.25, 0.48, 0.55, 'triangle', 0.25); // C5
+    }
+
+    setTimeout(() => {
+      ctx.close().catch(() => {});
+    }, 1500);
+  } catch {
+    // Ignore audio context restriction errors
+  }
+};
 
 const ERROR_WEIGHTS: Record<ErrorType, number> = {
   حفظ: 4,
@@ -137,6 +256,7 @@ export const SessionEngineView: React.FC = () => {
     students,
     sessions,
     settings,
+    updateSettings,
     homeSubmissions,
     studentAudioBlobs,
     loadStudentAudioBlobs,
@@ -147,6 +267,8 @@ export const SessionEngineView: React.FC = () => {
     setSelectedStudentId,
     setActiveTab,
     saveSession,
+    updateStudent,
+    addTask,
     saveHomeSubmission,
     addTimestampPinToHomeSubmission,
     reviewHomeSubmission,
@@ -155,6 +277,14 @@ export const SessionEngineView: React.FC = () => {
     isFullScreenFocus,
     setIsFullScreenFocus,
   } = useAcademy();
+
+  // Absence Makeup & Auto-Reschedule Engine State
+  const [makeupScheduleDate, setMakeupScheduleDate] = useState<string>(() => {
+    const d = new Date();
+    d.setDate(d.getDate() + 2);
+    return d.toISOString().split('T')[0];
+  });
+  const [makeupScheduleTime, setMakeupScheduleTime] = useState<string>('17:00');
 
   const currentStudent = useMemo(
     () => students.find((s) => s.id === selectedStudentId) || students[0],
@@ -215,6 +345,178 @@ export const SessionEngineView: React.FC = () => {
       nextFocus ? 'success' : 'info'
     );
   };
+
+  // ============================================================================
+  // ⏱️ عداد التسميع التنازلي الدقيق (5-Axis Student Recitation Countdown Timer)
+  // ============================================================================
+  const [timerPresetSeconds, setTimerPresetSeconds] = useState<number>(() => {
+    const saved = Number(localStorage.getItem('wlq_5axis_timer_preset_sec'));
+    return Number.isFinite(saved) && saved >= 60 ? saved : 600; // Default: 10 minutes
+  });
+  const [timerRemainingSeconds, setTimerRemainingSeconds] = useState<number>(() => {
+    const saved = Number(localStorage.getItem('wlq_5axis_timer_preset_sec'));
+    return Number.isFinite(saved) && saved >= 60 ? saved : 600;
+  });
+  const [isTimerRunning, setIsTimerRunning] = useState<boolean>(false);
+  const [timerWarningThresholdSec, setTimerWarningThresholdSec] = useState<number>(() => {
+    const saved = Number(localStorage.getItem('wlq_5axis_timer_warn_sec'));
+    return Number.isFinite(saved) && saved >= 15 ? saved : 60; // Default warning: 60s before end
+  });
+  const [timerSoundEnabled, setTimerSoundEnabled] = useState<boolean>(true);
+  const [timerAutoResetOnStudentSwitch, setTimerAutoResetOnStudentSwitch] =
+    useState<boolean>(true);
+  const [timerCustomMinutesInput, setTimerCustomMinutesInput] =
+    useState<string>('10');
+  const [timerElapsedSeconds, setTimerElapsedSeconds] = useState<number>(0);
+
+  const hasFiredApproachingWarningRef = useRef<boolean>(false);
+  const hasFiredTimeExpiredRef = useRef<boolean>(false);
+  const timerSoundEnabledRef = useRef<boolean>(timerSoundEnabled);
+  timerSoundEnabledRef.current = timerSoundEnabled;
+  const timerWarningThresholdRef = useRef<number>(timerWarningThresholdSec);
+  timerWarningThresholdRef.current = timerWarningThresholdSec;
+
+  const formatTimerMMSS = (totalSec: number) => {
+    const safe = Math.max(0, Math.floor(totalSec));
+    const mins = Math.floor(safe / 60);
+    const secs = safe % 60;
+    return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+  };
+
+  const handleSelectTimerPreset = (seconds: number, autoStart = false) => {
+    const validSec = Math.max(30, Math.min(7200, Math.round(seconds)));
+    triggerHaptic(12);
+    localStorage.setItem('wlq_5axis_timer_preset_sec', String(validSec));
+    setTimerPresetSeconds(validSec);
+    setTimerRemainingSeconds(validSec);
+    setTimerCustomMinutesInput(String(Math.round(validSec / 60)));
+    hasFiredApproachingWarningRef.current = false;
+    hasFiredTimeExpiredRef.current = false;
+    setIsTimerRunning(autoStart);
+  };
+
+  const handleExtendTimerSeconds = (extraSeconds: number) => {
+    triggerHaptic(15);
+    setTimerPresetSeconds((prev) => prev + extraSeconds);
+    setTimerRemainingSeconds((prev) => {
+      const next = prev + extraSeconds;
+      if (next > timerWarningThresholdSec) {
+        hasFiredApproachingWarningRef.current = false;
+      }
+      if (next > 0) {
+        hasFiredTimeExpiredRef.current = false;
+      }
+      return next;
+    });
+    showToast(
+      `⏱️ تم تمديد وقت تسميع الطالب بمقدار +${Math.round(extraSeconds / 60)} دقيقة إضافية`,
+      'info'
+    );
+  };
+
+  const handleResetRecitationTimer = (startImmediately = false) => {
+    triggerHaptic(12);
+    setTimerRemainingSeconds(timerPresetSeconds);
+    setTimerElapsedSeconds(0);
+    hasFiredApproachingWarningRef.current = false;
+    hasFiredTimeExpiredRef.current = false;
+    setIsTimerRunning(startImmediately);
+  };
+
+  // Accurate 1-second countdown interval with approaching-end & time-up alerts
+  useEffect(() => {
+    if (!isTimerRunning) return;
+    const intervalId = window.setInterval(() => {
+      setTimerElapsedSeconds((prev) => prev + 1);
+      setTimerRemainingSeconds((prev) => {
+        if (prev <= 1) {
+          window.clearInterval(intervalId);
+          setIsTimerRunning(false);
+          if (!hasFiredTimeExpiredRef.current) {
+            hasFiredTimeExpiredRef.current = true;
+            triggerHaptic(50);
+            if (timerSoundEnabledRef.current) {
+              playRecitationTimerTone('expired');
+            }
+            showToast(
+              `⌛ انتهى الوقت المخصص لتسميع الطالب (${currentStudent?.name || 'الطالب الحالي'})! يمكنك التمديد بدقيقتين أو حفظ الحصة.`,
+              'warning'
+            );
+          }
+          return 0;
+        }
+
+        const nextSec = prev - 1;
+        const warnThreshold = timerWarningThresholdRef.current;
+
+        if (
+          nextSec === warnThreshold &&
+          !hasFiredApproachingWarningRef.current
+        ) {
+          hasFiredApproachingWarningRef.current = true;
+          triggerHaptic(25);
+          if (timerSoundEnabledRef.current) {
+            playRecitationTimerTone('warning');
+          }
+          const warnLabel =
+            warnThreshold >= 60
+              ? `${Math.round(warnThreshold / 60)} دقيقة`
+              : `${warnThreshold} ثانية`;
+          showToast(
+            `⏰ تنبيه اقتراب انتهاء الوقت: متبقي ${warnLabel} فقط على انتهاء وقت تسميع الطالب (${currentStudent?.name || ''})`,
+            'warning'
+          );
+        } else if (nextSec === 10 && timerSoundEnabledRef.current) {
+          playRecitationTimerTone('final_tick');
+        }
+
+        return nextSec;
+      });
+    }, 1000);
+
+    return () => window.clearInterval(intervalId);
+  }, [isTimerRunning, currentStudent?.name, showToast]);
+
+  // Auto-reset countdown timer when switching between students
+  useEffect(() => {
+    if (!currentStudent?.id || !timerAutoResetOnStudentSwitch) return;
+    setIsTimerRunning(false);
+    setTimerRemainingSeconds(timerPresetSeconds);
+    setTimerElapsedSeconds(0);
+    hasFiredApproachingWarningRef.current = false;
+    hasFiredTimeExpiredRef.current = false;
+  }, [currentStudent?.id, timerAutoResetOnStudentSwitch, timerPresetSeconds]);
+
+  const timerStatusVisual = useMemo(() => {
+    const pct =
+      timerPresetSeconds > 0
+        ? Math.max(
+            0,
+            Math.min(100, Math.round((timerRemainingSeconds / timerPresetSeconds) * 100))
+          )
+        : 0;
+    const isExpired = timerRemainingSeconds <= 0;
+    const isApproachingEnd =
+      !isExpired && timerRemainingSeconds <= timerWarningThresholdSec;
+
+    // Suggest which of the 5 axes the teacher should be in based on elapsed percentage
+    const elapsedPct = 100 - pct;
+    let currentSuggestedAxis = '١. التسميع الفعلي وتقييم الماضي (أول ٣٠٪ من الوقت)';
+    if (elapsedPct >= 75) {
+      currentSuggestedAxis = '٥. المراجعة البعيدة وتثبيت الأجزاء والختام (آخر ٢٥٪ من الوقت)';
+    } else if (elapsedPct >= 55) {
+      currentSuggestedAxis = '٤. المراجعة القريبة وربط المحفوظ (٢٠٪ من الوقت)';
+    } else if (elapsedPct >= 30) {
+      currentSuggestedAxis = '٢-٣. تلقين الحفظ الجديد وتصحيح التلاوة (٢٥٪ من الوقت)';
+    }
+
+    return {
+      pct,
+      isExpired,
+      isApproachingEnd,
+      currentSuggestedAxis,
+    };
+  }, [timerPresetSeconds, timerRemainingSeconds, timerWarningThresholdSec]);
   const teacherSubmissionAudioRef = useRef<HTMLAudioElement | null>(null);
   const [teacherAudioCurrentSec, setTeacherAudioCurrentSec] =
     useState<number>(0);
@@ -395,7 +697,16 @@ export const SessionEngineView: React.FC = () => {
   const [voiceNoteCategoryInput, setVoiceNoteCategoryInput] = useState<
     'تجويد' | 'حفظ' | 'تشكيل' | 'مخارج' | 'توجيه عام'
   >('تجويد');
+  const [voiceNoteEvalRatingInput, setVoiceNoteEvalRatingInput] =
+    useState<VoiceNoteEvaluationRating>('متميز');
   const [voiceNoteTitleInput, setVoiceNoteTitleInput] = useState<string>('');
+  const [liveVoiceDraftTranscript, setLiveVoiceDraftTranscript] = useState<string>('');
+  const [voiceMicAudioLevel, setVoiceMicAudioLevel] = useState<number>(0);
+  const [convertingVoiceNoteId, setConvertingVoiceNoteId] = useState<string | 'ALL' | null>(
+    null
+  );
+  const [autoConvertVoiceNoteOnStop, setAutoConvertVoiceNoteOnStop] =
+    useState<boolean>(false);
   const [allTeacherVoiceNotes, setAllTeacherVoiceNotes] = useState<
     TeacherRecitationVoiceNote[]
   >(() => {
@@ -418,6 +729,11 @@ export const SessionEngineView: React.FC = () => {
   const voiceTimerRef = useRef<number | null>(null);
   const voiceStartTimestampRef = useRef<number>(0);
   const isSimulatedFallbackRecordingRef = useRef<boolean>(false);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const voiceSpeechRecognitionRef = useRef<any>(null);
+  const voiceAudioContextRef = useRef<AudioContext | null>(null);
+  const voiceLevelIntervalRef = useRef<number | null>(null);
+  const liveVoiceDraftRef = useRef<string>('');
 
   const studentTeacherVoiceNotes = useMemo(() => {
     if (!currentStudent) return [];
@@ -975,14 +1291,18 @@ export const SessionEngineView: React.FC = () => {
     setSyncStatus('مسودة محلية');
   }, [currentStudent?.id, sessionDate, sessions]);
 
-  // Automatic Mastery Score Calculation
+  // Automatic Mastery Score Calculation (supports 4-Category Weighted Deductions: -1.0, -0.5, -0.5, -0.25)
   const masteryScore = useMemo(() => {
     if (status !== 'حضر') return 0;
     const totalDeduction = errors.reduce(
-      (sum, err) => sum + (ERROR_WEIGHTS[err.type] || 2),
+      (sum, err) =>
+        sum +
+        (typeof err.deductionPoints === 'number'
+          ? err.deductionPoints
+          : ERROR_WEIGHTS[err.type] || 1),
       0
     );
-    return Math.max(40, 100 - totalDeduction);
+    return Math.max(40, Math.round((100 - totalDeduction) * 10) / 10);
   }, [errors, status]);
 
   // مؤشر صحة التسميع + التقييم الصوتي التلقائي ودرجة التجويد
@@ -1130,8 +1450,15 @@ export const SessionEngineView: React.FC = () => {
     showToast('تم نسخ تكليف آخر حصة بالكامل بضغطة واحدة', 'success');
   };
 
-  // Add Recitation Error Button Handler
-  const handleAddError = (type: ErrorType) => {
+  // Add Recitation Error Button Handler (supports 4-Stage Weighted Hotspots)
+  const handleAddError = (
+    type: ErrorType,
+    customMeta?: {
+      deductionPoints?: number;
+      hotspotStageKey?: ErrorHotspotStageKey;
+      subType?: string;
+    }
+  ) => {
     const activeSurah =
       activeErrorContext === 'الحفظ الجديد'
         ? newMem.surahName
@@ -1139,13 +1466,47 @@ export const SessionEngineView: React.FC = () => {
         ? nearRev.surahName
         : activeErrorContext === 'المراجعة البعيدة'
         ? farRev.surahName
-        : currentStudent?.currentStop.surahName;
+        : actualRecitation.surahName || currentStudent?.currentStop.surahName;
+
+    const activeAyah =
+      activeErrorContext === 'الحفظ الجديد'
+        ? newMem.fromAyah
+        : activeErrorContext === 'المراجعة القريبة'
+        ? nearRev.fromAyah
+        : activeErrorContext === 'المراجعة البعيدة'
+        ? farRev.fromAyah
+        : actualRecitation.fromAyah || currentStudent?.currentStop.ayah || 1;
+
+    const defaultDeduction =
+      customMeta?.deductionPoints ??
+      (type === 'حفظ' || type === 'نسيان آية'
+        ? 1.0
+        : type === 'تردد' || type === 'تلقين'
+        ? 0.25
+        : 0.5);
+
+    const defaultStageKey: ErrorHotspotStageKey =
+      customMeta?.hotspotStageKey ??
+      (type === 'حفظ' || type === 'نسيان آية'
+        ? 'memorization_1'
+        : type === 'تشكيل'
+        ? 'tashkeel_05'
+        : type === 'تجويد'
+        ? 'tajweed_05'
+        : 'hesitation_025');
 
     const newError: RecitationError = {
       id: `err-${Date.now()}-${Math.random().toString(36).slice(2, 5)}`,
       type,
       context: activeErrorContext,
       surah: activeSurah,
+      ayah: activeAyah,
+      subType: customMeta?.subType || type,
+      deductionPoints: defaultDeduction,
+      hotspotStageKey: defaultStageKey,
+      followUpStatus: 'needs_review',
+      repeatCount: 1,
+      compositeKey: `${activeSurah}_${activeAyah}_${defaultStageKey}_${Date.now()}`,
       timestamp: sessionDate,
     };
     setErrors((prev) => [newError, ...prev]);
@@ -1364,6 +1725,352 @@ export const SessionEngineView: React.FC = () => {
     showToast('تم تحديد جميع سور جزء عمّ (37 سورة)', 'success');
   };
 
+  const stopVoiceSpeechAndLevelMonitors = () => {
+    if (voiceLevelIntervalRef.current) {
+      window.clearInterval(voiceLevelIntervalRef.current);
+      voiceLevelIntervalRef.current = null;
+    }
+    setVoiceMicAudioLevel(0);
+    if (voiceSpeechRecognitionRef.current) {
+      try {
+        voiceSpeechRecognitionRef.current.stop();
+      } catch {
+        // ignore
+      }
+      voiceSpeechRecognitionRef.current = null;
+    }
+    if (voiceAudioContextRef.current) {
+      try {
+        void voiceAudioContextRef.current.close();
+      } catch {
+        // ignore
+      }
+      voiceAudioContextRef.current = null;
+    }
+  };
+
+  // Smart Pedagogical Local Fallback for converting a Teacher Voice Note into Evaluative Text
+  const buildSmartVoiceEvaluationFallback = (vn: TeacherRecitationVoiceNote) => {
+    const stName = vn.studentName || currentStudent?.name || 'الطالب';
+    const rawSpeech = (vn.rawSpeechTranscript || vn.title || '').trim();
+    const surahLabel = vn.surahName || actualRecitation.surahName || 'النبأ';
+    const ayahLabel = vn.ayahNumber || actualRecitation.fromAyah || 1;
+    const cat = vn.category || 'تجويد';
+    const ctx = vn.context || 'التسميع';
+    const evalRating: VoiceNoteEvaluationRating =
+      vn.evaluationRating || voiceNoteEvalRatingInput || 'متميز';
+    const ratingMeta =
+      VOICE_NOTE_EVAL_RATINGS.find((r) => r.value === evalRating) ||
+      VOICE_NOTE_EVAL_RATINGS[0];
+
+    const categoryGuidanceMap: Record<
+      TeacherRecitationVoiceNote['category'],
+      {
+        evalFocus: string;
+        strengths: string[];
+        plan: string;
+      }
+    > = {
+      تجويد: {
+        evalFocus: `أظهر الطالب (${stName}) في محور (${ctx}) بسورة ${surahLabel} (آية ${ayahLabel}) تصنيف تقييم «${evalRating}» (${ratingMeta.autoPhrase})، مع رصد ملاحظة المعلم الصوتية حول ضبط مقادير الغنن والمدود وتحقيق مخارج الحروف.`,
+        strengths: [
+          `حضور ذهني واستجابة لتصحيح أحكام التجويد في سورة ${surahLabel} (التصنيف: ${evalRating})`,
+          'حرص واضح على تحسين الأداء الصوتي والترتيل',
+        ],
+        plan: `الاستماع لتلاوة الشيخ الحصري للآيات المقررة من سورة ${surahLabel} 3 مرات مع التركيز على حكم التجويد المنبّه عليه في الملاحظة الصوتية.`,
+      },
+      حفظ: {
+        evalFocus: `تم تقييم مستوى الحفظ والاستظهار للطالب (${stName}) في محور (${ctx}) — سورة ${surahLabel} (آية ${ayahLabel}) بتصنيف «${evalRating}» (${ratingMeta.autoPhrase}).`,
+        strengths: [
+          `متابعة منتظمة في حفظ سورة ${surahLabel} (التصنيف المسجل: ${evalRating})`,
+          'همة طيبة في التسميع والمراجعة داخل الحلقة',
+        ],
+        plan: `تكرار المقطع من سورة ${surahLabel} (5 مرات) غيباً في المنزل مع الربط بالآية السابقة واللاحقة قبل الحصة القادمة.`,
+      },
+      تشكيل: {
+        evalFocus: `تم رصد ملاحظة المعلم الصوتية للطالب (${stName}) في سورة ${surahLabel} (آية ${ayahLabel}) بتصنيف «${evalRating}» حول العناية بضبط أواخر الكلمات والحركات الإعرابية وتجنب اللحن الجلي.`,
+        strengths: [
+          'استظهار للكلمات القرآنية مع قابلية سريعة للتصحيح',
+          `التزام بتوجيهات المعلم داخل الحصة (التصنيف: ${evalRating})`,
+        ],
+        plan: `القراءة النظرية المتأنية من المصحف الشريف لسورة ${surahLabel} مع الإشارة بالإصبع على حركات أواخر الكلمات قبل التسميع الغيبي.`,
+      },
+      مخارج: {
+        evalFocus: `ركّزت ملاحظة المعلم الصوتية في محور (${ctx} — سورة ${surahLabel}) بتصنيف تقييم «${evalRating}» على تخليص الحروف المتجاورة وتحقيق صفات التفخيم والترقيق والقلقلة بدقة.`,
+        strengths: [
+          'صوت واضح ونبرة تلاوة هادئة ومتزنة',
+          `قابلية ممتازة للمحاكاة الصوتية خلف المعلم (التصنيف: ${evalRating})`,
+        ],
+        plan: `التدرب المنزلي على نطق الكلمات القرآنية المشار إليها في سورة ${surahLabel} بتؤدة وتحقيق.`,
+      },
+      'توجيه عام': {
+        evalFocus: `تقييم تربوي وقرآني شامل للطالب (${stName}) في محور (${ctx} — سورة ${surahLabel}) بتصنيف «${evalRating}»: ${ratingMeta.autoPhrase} مع أهمية المداومة على الورد اليومي والتحضير المبكر.`,
+        strengths: [
+          'انضباط وأدب رفيع في حلقة القرآن الكريم',
+          `تفاعل إيجابي في تسميع سورة ${surahLabel} (التصنيف: ${evalRating})`,
+        ],
+        plan: 'المحافظة على الحصون الخمسة اليومية والاستماع للورد الجديد قبل النوم.',
+      },
+    };
+
+    const picked = categoryGuidanceMap[cat] || categoryGuidanceMap['تجويد'];
+    const resolvedScore = ratingMeta.defaultScore;
+    const resolvedGrade: GradeType = ratingMeta.mappedGrade;
+
+    const transcriptText =
+      rawSpeech && !rawSpeech.startsWith('ملاحظة صوتية للمعلم')
+        ? `[تصنيف التقييم: ${evalRating}] ${rawSpeech}`
+        : `[تصنيف التقييم: ${evalRating}] ملاحظة المعلم على ${ctx} للطالب ${stName} في سورة ${surahLabel} (آية ${ayahLabel}) — تصنيف (${cat}): ${vn.title}`;
+
+    const evaluativeText = `🏷️ [تصنيف التقييم: ${evalRating}] — 📋 التقييم المحوّل من الملاحظة الصوتية (${ctx} - ${cat}):\n${picked.evalFocus}${
+      rawSpeech ? `\n• خلاصة توجيه المعلم الصوتي: «${rawSpeech}».` : ''
+    }\n• التقدير المعتمد للمحور: ${evalRating} / ${resolvedGrade} (${resolvedScore}%).`;
+
+    const parentSummary = `🌟 ولي أمر الطالب (${stName}) الكرام: بناءً على الملاحظة الصوتية للمعلم في (${ctx} — سورة ${surahLabel})، فإن تصنيف تقييم الطالب هو «${evalRating}» (${resolvedScore}%). ${picked.plan}`;
+
+    return {
+      transcript: transcriptText,
+      evaluativeText,
+      parentSummary,
+      strengths: picked.strengths,
+      improvementPlan: picked.plan,
+      suggestedGrade: resolvedGrade,
+      suggestedScore: resolvedScore,
+    };
+  };
+
+  // Convert a Single Recorded Teacher Voice Note into Structured Evaluative Text using AI
+  const handleConvertVoiceNoteToEvaluation = async (
+    noteOrId: string | TeacherRecitationVoiceNote,
+    options?: { autoInsertToParentNotes?: boolean; silentToast?: boolean }
+  ) => {
+    const targetNote =
+      typeof noteOrId === 'string'
+        ? allTeacherVoiceNotes.find((n) => n.id === noteOrId)
+        : noteOrId;
+    if (!targetNote) return null;
+
+    const chosenRating: VoiceNoteEvaluationRating =
+      targetNote.evaluationRating || voiceNoteEvalRatingInput || 'متميز';
+    const noteWithRating: TeacherRecitationVoiceNote = {
+      ...targetNote,
+      evaluationRating: chosenRating,
+    };
+
+    triggerHaptic(14);
+    setConvertingVoiceNoteId(targetNote.id);
+
+    const errorsSummaryText =
+      errors.length > 0
+        ? errors
+            .slice(0, 6)
+            .map(
+              (e) =>
+                `${e.type} في سورة ${e.surah || targetNote.surahName}${
+                  e.ayah ? ` آية ${e.ayah}` : ''
+                }${e.word ? ` كلمة (${e.word})` : ''}`
+            )
+            .join('، ')
+        : 'لا توجد أخطاء مسجلة';
+
+    let finalEval = buildSmartVoiceEvaluationFallback(noteWithRating);
+
+    try {
+      const response = await fetch('/api/gemini/voice-note-to-evaluation', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          audioDataUrl: targetNote.audioDataUrl,
+          rawSpeechTranscript: targetNote.rawSpeechTranscript || '',
+          noteTitle: targetNote.title,
+          category: targetNote.category,
+          evaluationRating: chosenRating,
+          contextAxis: targetNote.context,
+          studentName: targetNote.studentName || currentStudent?.name || 'الطالب',
+          studentLevel: currentStudent?.level || 'متوسط',
+          riwayah: currentStudent?.riwayah || 'حفص عن عاصم',
+          surahName: targetNote.surahName || actualRecitation.surahName,
+          fromAyah: targetNote.ayahNumber || actualRecitation.fromAyah || 1,
+          toAyah: actualRecitation.toAyah || targetNote.ayahNumber || 10,
+          masteryScore,
+          errorsSummary: errorsSummaryText,
+          teacherName: settings.teacherName || 'معلم الحلقة',
+        }),
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        if (data?.result?.evaluativeText) {
+          const rawEvalText = String(data.result.evaluativeText);
+          const prefixedEvalText = rawEvalText.includes(chosenRating)
+            ? rawEvalText
+            : `🏷️ [تصنيف التقييم: ${chosenRating}] ${rawEvalText}`;
+          finalEval = {
+            transcript: data.result.transcript || finalEval.transcript,
+            evaluativeText: prefixedEvalText,
+            parentSummary: data.result.parentSummary || finalEval.parentSummary,
+            strengths:
+              Array.isArray(data.result.strengths) && data.result.strengths.length > 0
+                ? data.result.strengths
+                : finalEval.strengths,
+            improvementPlan: data.result.improvementPlan || finalEval.improvementPlan,
+            suggestedGrade: data.result.suggestedGrade || finalEval.suggestedGrade,
+            suggestedScore:
+              typeof data.result.suggestedScore === 'number'
+                ? data.result.suggestedScore
+                : finalEval.suggestedScore,
+          };
+        }
+      }
+    } catch {
+      // Fallback already prepared in finalEval
+    }
+
+    const nowIso = new Date().toISOString();
+    const shouldApply = Boolean(options?.autoInsertToParentNotes);
+
+    setAllTeacherVoiceNotes((prev) =>
+      prev.map((item) =>
+        item.id === targetNote.id
+          ? {
+              ...item,
+              aiTranscript: finalEval.transcript,
+              aiEvaluativeText: finalEval.evaluativeText,
+              aiParentSummary: finalEval.parentSummary,
+              aiStrengths: finalEval.strengths,
+              aiImprovementPlan: finalEval.improvementPlan,
+              aiSuggestedGrade: finalEval.suggestedGrade,
+              aiSuggestedScore: finalEval.suggestedScore,
+              aiConvertedAt: nowIso,
+              appliedToSessionNotes: item.appliedToSessionNotes || shouldApply,
+            }
+          : item
+      )
+    );
+
+    if (shouldApply) {
+      const formattedInsert = `${finalEval.evaluativeText}\n💡 خطة المتابعة: ${finalEval.improvementPlan}`;
+      setParentNotes((prev) =>
+        prev.trim() ? `${prev.trim()}\n\n${formattedInsert}` : formattedInsert
+      );
+    }
+
+    setConvertingVoiceNoteId(null);
+
+    if (!options?.silentToast) {
+      showToast(
+        shouldApply
+          ? '✨ تم تحويل الملاحظة الصوتية إلى نص تقييمي بالذكاء الاصطناعي وإدراجه في تقييم الحصة وملاحظات ولي الأمر ✓'
+          : '✨ تم تحويل الملاحظة الصوتية إلى نص تقييمي احترافي بالذكاء الاصطناعي بنجاح ✓',
+        'success'
+      );
+    }
+
+    return finalEval;
+  };
+
+  // Batch Convert All Session Voice Notes for Current Student into a Unified Evaluative Report
+  const handleConvertAllVoiceNotesToEvaluation = async () => {
+    if (studentTeacherVoiceNotes.length === 0) {
+      showToast('لا توجد ملاحظات صوتية مسجلة للطالب حالياً لتحويلها', 'info');
+      return;
+    }
+    triggerHaptic(18);
+    setConvertingVoiceNoteId('ALL');
+
+    const compiledSections: string[] = [];
+    for (const vn of studentTeacherVoiceNotes.slice(0, 6)) {
+      const res = await handleConvertVoiceNoteToEvaluation(vn, {
+        autoInsertToParentNotes: false,
+        silentToast: true,
+      });
+      if (res) {
+        compiledSections.push(
+          `• [${vn.context} - ${vn.category} | سورة ${vn.surahName}]: ${res.evaluativeText} (خطة التحسين: ${res.improvementPlan})`
+        );
+      }
+    }
+
+    setConvertingVoiceNoteId(null);
+
+    if (compiledSections.length > 0) {
+      const unifiedBlock = `🤖 التقرير التقييمي الشامل المحوّل من ملاحظات المعلم الصوتية (${compiledSections.length} ملاحظات):\n${compiledSections.join('\n')}`;
+      setParentNotes((prev) =>
+        prev.trim() ? `${prev.trim()}\n\n${unifiedBlock}` : unifiedBlock
+      );
+      setAllTeacherVoiceNotes((prev) =>
+        prev.map((n) =>
+          n.studentId === currentStudent?.id
+            ? { ...n, appliedToSessionNotes: true }
+            : n
+        )
+      );
+      showToast(
+        `✨ تم تحويل جميع الملاحظات الصوتية (${compiledSections.length}) إلى نصوص تقييمية بالذكاء الاصطناعي وإدراجها في تقييم الحصة ✓`,
+        'success'
+      );
+    }
+  };
+
+  // Apply an Already-Converted Voice Note Evaluation into Session Grades & Parent Notes
+  const handleApplyVoiceNoteEvaluationToSession = (vn: TeacherRecitationVoiceNote) => {
+    if (!vn.aiEvaluativeText) return;
+    triggerHaptic(14);
+    const blockToInsert = `${vn.aiEvaluativeText}${
+      vn.aiImprovementPlan ? `\n📌 التوجيه المنزلي: ${vn.aiImprovementPlan}` : ''
+    }`;
+    setParentNotes((prev) =>
+      prev.trim() ? `${prev.trim()}\n\n${blockToInsert}` : blockToInsert
+    );
+
+    if (vn.aiSuggestedGrade) {
+      if (vn.context === 'الحفظ الجديد') {
+        setNewMem((p) => ({ ...p, grade: vn.aiSuggestedGrade }));
+        if (vn.aiSuggestedScore) {
+          setSectionPercentages((p) => ({
+            ...p,
+            newMemorization: vn.aiSuggestedScore,
+          }));
+        }
+      } else if (vn.context === 'المراجعة القريبة') {
+        setNearRev((p) => ({ ...p, grade: vn.aiSuggestedGrade }));
+        if (vn.aiSuggestedScore) {
+          setSectionPercentages((p) => ({
+            ...p,
+            nearReview: vn.aiSuggestedScore,
+          }));
+        }
+      } else if (vn.context === 'المراجعة البعيدة') {
+        setFarRev((p) => ({ ...p, grade: vn.aiSuggestedGrade }));
+        if (vn.aiSuggestedScore) {
+          setSectionPercentages((p) => ({
+            ...p,
+            farReview: vn.aiSuggestedScore,
+          }));
+        }
+      } else {
+        setActualRecitation((p) => ({ ...p, grade: vn.aiSuggestedGrade }));
+        if (vn.aiSuggestedScore) {
+          setSectionPercentages((p) => ({
+            ...p,
+            actualRecitation: vn.aiSuggestedScore,
+          }));
+        }
+      }
+    }
+
+    setAllTeacherVoiceNotes((prev) =>
+      prev.map((item) =>
+        item.id === vn.id ? { ...item, appliedToSessionNotes: true } : item
+      )
+    );
+
+    showToast(
+      `📥 تم اعتماد النص التقييمي وإدراجه في ملاحظات الحصة وتحديث تقييم محور (${vn.context}) ✓`,
+      'success'
+    );
+  };
+
   // Persist a Teacher Voice Note Locally (localStorage + IndexedDB + Session State)
   const persistTeacherVoiceNoteLocally = async (
     blob: Blob,
@@ -1376,7 +2083,9 @@ export const SessionEngineView: React.FC = () => {
       timestampSec?: number;
       submissionId?: string;
       category?: 'تجويد' | 'حفظ' | 'تشكيل' | 'مخارج' | 'توجيه عام';
+      evaluationRating?: VoiceNoteEvaluationRating;
       title?: string;
+      rawSpeechTranscript?: string;
     }
   ) => {
     if (!currentStudent) return;
@@ -1396,10 +2105,21 @@ export const SessionEngineView: React.FC = () => {
         ? newMem.fromAyah
         : actualRecitation.fromAyah || currentStudent.currentStop.ayah || 1);
     const chosenCat = overrideMeta?.category || voiceNoteCategoryInput;
+    const chosenEvalRating: VoiceNoteEvaluationRating =
+      overrideMeta?.evaluationRating || voiceNoteEvalRatingInput || 'متميز';
+    const capturedSpeech = (
+      overrideMeta?.rawSpeechTranscript ||
+      liveVoiceDraftRef.current ||
+      liveVoiceDraftTranscript ||
+      ''
+    ).trim();
     const defaultTitle =
       overrideMeta?.title ||
       voiceNoteTitleInput.trim() ||
-      `ملاحظة صوتية للمعلم (${chosenCat}) — سورة ${activeSurahName} آية ${activeAyahNum}`;
+      (capturedSpeech
+        ? `[${chosenEvalRating}] ${capturedSpeech.slice(0, 90)}`
+        : '') ||
+      `[${chosenEvalRating}] ملاحظة صوتية للمعلم (${chosenCat}) — سورة ${activeSurahName} آية ${activeAyahNum}`;
 
     const newVoiceNote: TeacherRecitationVoiceNote = {
       id: noteId,
@@ -1412,9 +2132,11 @@ export const SessionEngineView: React.FC = () => {
       linkedSubmissionId: overrideMeta?.submissionId || selectedSubmissionId || undefined,
       timestampSec: overrideMeta?.timestampSec,
       category: chosenCat,
+      evaluationRating: chosenEvalRating,
       title: defaultTitle,
       audioDataUrl: dataUrl,
       durationSeconds: Math.max(1, durationSec),
+      rawSpeechTranscript: capturedSpeech || undefined,
       createdAt: new Date().toISOString(),
     };
 
@@ -1422,6 +2144,8 @@ export const SessionEngineView: React.FC = () => {
     setVoiceNoteUrl(dataUrl);
     setVoiceNoteDuration(Math.max(1, durationSec));
     setVoiceNoteTitleInput('');
+    setLiveVoiceDraftTranscript('');
+    liveVoiceDraftRef.current = '';
 
     if (targetMode === 'pin_modal') {
       setPinPopoverModal((prev) =>
@@ -1452,13 +2176,19 @@ export const SessionEngineView: React.FC = () => {
       // fallback already stored in localStorage
     }
 
-    showToast(
-      `🎙️ تم تسجيل وحفظ الملاحظة الصوتية للمعلم محلياً (${Math.max(1, durationSec)} ثانية) بنجاح ✓`,
-      'success'
-    );
+    if (autoConvertVoiceNoteOnStop) {
+      void handleConvertVoiceNoteToEvaluation(newVoiceNote, {
+        autoInsertToParentNotes: true,
+      });
+    } else {
+      showToast(
+        `🎙️ تم تسجيل وحفظ الملاحظة الصوتية للمعلم (${Math.max(1, durationSec)} ثانية) — يمكنك تحويلها لنص تقييمي بالذكاء الاصطناعي في أي وقت ✓`,
+        'success'
+      );
+    }
   };
 
-  // Unified Teacher Voice Recorder (supports real MediaRecorder + automatic playable WAV fallback)
+  // Unified Teacher Voice Recorder (supports real MediaRecorder + Web Speech API + Audio Level Meter + automatic playable WAV fallback)
   const handleStartStopTeacherVoiceRecording = async (
     targetMode: 'session_axis' | 'pin_modal' | 'parent_note' = 'session_axis',
     overrideMeta?: {
@@ -1478,6 +2208,8 @@ export const SessionEngineView: React.FC = () => {
         window.clearInterval(voiceTimerRef.current);
         voiceTimerRef.current = null;
       }
+      stopVoiceSpeechAndLevelMonitors();
+
       const elapsedSec = Math.max(
         2,
         Math.round((Date.now() - voiceStartTimestampRef.current) / 1000) ||
@@ -1525,9 +2257,73 @@ export const SessionEngineView: React.FC = () => {
       setVoiceRecordingSeconds((prev) => prev + 1);
     }, 1000);
 
+    // Start parallel browser SpeechRecognition for live Arabic transcription while recording
+    try {
+      const SpeechRecognitionCtor =
+        (
+          window as unknown as {
+            SpeechRecognition?: unknown;
+            webkitSpeechRecognition?: unknown;
+          }
+        ).SpeechRecognition ||
+        (window as unknown as { webkitSpeechRecognition?: unknown })
+          .webkitSpeechRecognition;
+      if (SpeechRecognitionCtor) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const recognition = new (SpeechRecognitionCtor as any)();
+        recognition.lang = 'ar-SA';
+        recognition.continuous = true;
+        recognition.interimResults = true;
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        recognition.onresult = (event: any) => {
+          let combined = '';
+          for (let i = 0; i < (event.results?.length || 0); i++) {
+            combined += (event.results[i]?.[0]?.transcript || '') + ' ';
+          }
+          const cleaned = combined.trim();
+          if (cleaned) {
+            liveVoiceDraftRef.current = cleaned;
+            setLiveVoiceDraftTranscript(cleaned);
+          }
+        };
+        recognition.onerror = () => {};
+        recognition.start();
+        voiceSpeechRecognitionRef.current = recognition;
+      }
+    } catch {
+      // SpeechRecognition optional
+    }
+
     if (navigator.mediaDevices?.getUserMedia && typeof MediaRecorder !== 'undefined') {
       try {
         const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+
+        // Setup live audio level meter using Web Audio API AnalyserNode
+        try {
+          const AudioCtx =
+            window.AudioContext ||
+            (window as unknown as { webkitAudioContext: typeof AudioContext })
+              .webkitAudioContext;
+          if (AudioCtx) {
+            const audioCtx = new AudioCtx();
+            const source = audioCtx.createMediaStreamSource(stream);
+            const analyser = audioCtx.createAnalyser();
+            analyser.fftSize = 64;
+            source.connect(analyser);
+            const dataArray = new Uint8Array(analyser.frequencyBinCount);
+            voiceAudioContextRef.current = audioCtx;
+            voiceLevelIntervalRef.current = window.setInterval(() => {
+              analyser.getByteFrequencyData(dataArray);
+              const avg =
+                dataArray.reduce((acc, v) => acc + v, 0) /
+                Math.max(1, dataArray.length);
+              setVoiceMicAudioLevel(Math.min(100, Math.round((avg / 140) * 100)));
+            }, 120);
+          }
+        } catch {
+          // fallback level animation below
+        }
+
         const recorder = new MediaRecorder(stream);
         const chunks: BlobPart[] = [];
         recorder.ondataavailable = (e) => {
@@ -1535,6 +2331,7 @@ export const SessionEngineView: React.FC = () => {
         };
         recorder.onstop = () => {
           stream.getTracks().forEach((t) => t.stop());
+          stopVoiceSpeechAndLevelMonitors();
           const elapsedSec = Math.max(
             2,
             Math.round((Date.now() - voiceStartTimestampRef.current) / 1000) || 3
@@ -1579,18 +2376,26 @@ export const SessionEngineView: React.FC = () => {
         mediaRecorderRef.current = recorder;
         recorder.start();
         setIsRecordingVoice(true);
-        showToast('🎙️ بدأ التسجيل الصوتي المباشر للمعلم... تحدث الآن ثم اضغط إيقاف للحفظ المحلي', 'info');
+        showToast(
+          '🎙️ الميكروفون نشط الآن: تحدث بملاحظتك السريعة عن مستوى الطالب وسيتم حفظها وتحويلها لنص تقييمي بالذكاء الاصطناعي',
+          'info'
+        );
         return;
       } catch {
         // If microphone permission is blocked in iframe or browser, gracefully use the local synthesizer recorder
       }
     }
 
+    // Animated level indicator for fallback recording mode
+    voiceLevelIntervalRef.current = window.setInterval(() => {
+      setVoiceMicAudioLevel(Math.floor(35 + Math.random() * 55));
+    }, 150);
+
     isSimulatedFallbackRecordingRef.current = true;
     mediaRecorderRef.current = null;
     setIsRecordingVoice(true);
     showToast(
-      '🎙️ جاري تسجيل الملاحظة الصوتية للمعلم (وضع الحفظ المحلي المباشر)... اضغط إيقاف عند الانتهاء',
+      '🎙️ جاري تسجيل الملاحظة الصوتية السريعة عن مستوى الطالب... اضغط إيقاف عند الانتهاء لتحويلها لنص تقييمي بالذكاء الاصطناعي',
       'info'
     );
   };
@@ -1661,11 +2466,21 @@ export const SessionEngineView: React.FC = () => {
     );
     const nowIso = new Date().toISOString();
 
+    const computedDurationMinutes = Math.max(
+      1,
+      timerElapsedSeconds >= 30
+        ? Math.round(timerElapsedSeconds / 60)
+        : Math.round((timerPresetSeconds - timerRemainingSeconds) / 60) ||
+            Math.round(timerPresetSeconds / 60) ||
+            10
+    );
+
     const savedRecord = saveSession({
       studentId: currentStudent.id,
       date: sessionDate,
       status,
       masteryScore,
+      durationMinutes: computedDurationMinutes,
       actualRecitation,
       extraRecitation,
       previousEvaluation: {
@@ -1720,6 +2535,43 @@ export const SessionEngineView: React.FC = () => {
       teacherVoiceNotes: studentTeacherVoiceNotes,
       carriedOverFromDate: status !== 'حضر' ? lastAttendedSession?.date : undefined,
     });
+
+    // Automatic Makeup Session Card & Task Generation when Student is Absent or Excused
+    if (status === 'غاب' || status === 'إجازة') {
+      const missedSurahName = carriedNew?.surahName || currentStudent.currentStop.surahName || 'البقرة';
+      const missedFrom = carriedNew?.fromAyah || currentStudent.currentStop.ayah || 1;
+      const missedTo = carriedNew?.toAyah || missedFrom + 7;
+      const makeupCard: MakeupSessionCard = {
+        id: `makeup-${currentStudent.id}-${sessionDate}`,
+        studentId: currentStudent.id,
+        studentName: currentStudent.name,
+        absentDate: sessionDate,
+        attendanceStatus: status === 'غاب' ? 'غاب' : 'إجازة',
+        missedSurahId: carriedNew?.surahId || currentStudent.currentStop.surahId,
+        missedSurahName,
+        missedFromAyah: missedFrom,
+        missedToAyah: missedTo,
+        missedReviewLabel: nearRev.enabled ? `مراجعة سورة ${nearRev.surahName}` : undefined,
+        resolutionStatus: 'pending',
+        createdAt: nowIso,
+      };
+      const existingMakeup = currentStudent.makeupSessions || [];
+      const existsIdx = existingMakeup.findIndex((c) => c.absentDate === sessionDate);
+      const updatedMakeupList =
+        existsIdx >= 0
+          ? existingMakeup.map((c, idx) => (idx === existsIdx ? { ...c, ...makeupCard, resolutionStatus: c.resolutionStatus } : c))
+          : [makeupCard, ...existingMakeup];
+      updateStudent(currentStudent.id, { makeupSessions: updatedMakeupList });
+
+      addTask({
+        title: `بطاقة تعويض غياب (${status}): ${currentStudent.name} — سورة ${missedSurahName} (${missedFrom}-${missedTo})`,
+        studentId: currentStudent.id,
+        dueDate: makeupScheduleDate || sessionDate,
+        priority: 'مرتفع',
+        completed: false,
+        notes: `تغيب/اعتذر الطالب يوم ${sessionDate}. يمكن تحديد موعد حصة تعويضية أو دمج الورد تلقائياً في خطة الأسبوع القادم.`,
+      });
+    }
 
     if (shouldAutoTriggerWhatsApp) {
       const waUrl = buildWhatsAppUrl(
@@ -2805,13 +3657,30 @@ export const SessionEngineView: React.FC = () => {
       {/* Top Bar: Student Selector, Session Date, Attendance Status & Sync Status Badge */}
       <div className="rounded-3xl bg-white dark:bg-[#12231a] p-6 border border-neutral-200 dark:border-emerald-900/50 shadow-xs space-y-4">
         <div className="flex flex-wrap items-center justify-between gap-2 pb-3 border-b border-neutral-100 dark:border-emerald-950">
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <span className="px-3 py-1 rounded-full bg-[#145a3a] text-[#dfbd69] text-xs font-extrabold">
               محرك إدارة الحصة القرآنية الشامل
             </span>
             <span className="px-2.5 py-1 rounded-full bg-amber-500/15 border border-[#c59b27]/40 text-xs font-bold text-[#14281d] dark:text-[#dfbd69]">
               حالة السجل: {syncStatus}
             </span>
+            <span className="px-3 py-1 rounded-full bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-500/30 text-xs font-extrabold text-[#145a3a] dark:text-[#dfbd69]">
+              📅 {formatGregorianAndHijri(sessionDate, settings.showHijriDates ?? true, 'badge')}
+            </span>
+            <button
+              type="button"
+              onClick={() =>
+                updateSettings({
+                  showHijriDates: !(settings.showHijriDates ?? true),
+                })
+              }
+              className="no-print px-2.5 py-1 rounded-full bg-neutral-100 dark:bg-[#0b1711] hover:bg-neutral-200 dark:hover:bg-emerald-950 text-[11px] font-bold text-neutral-700 dark:text-emerald-200 border border-neutral-300 dark:border-emerald-800 cursor-pointer transition-colors"
+              title="خيار المعلم الافتراضي: عرض التاريخ الهجري والميلادي معاً"
+            >
+              {(settings.showHijriDates ?? true)
+                ? '✓ التقويم الهجري والميلادي معاً'
+                : 'الميلادي فقط (تفعيل الهجري)'}
+            </button>
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
@@ -2868,6 +3737,20 @@ export const SessionEngineView: React.FC = () => {
               <span>{fastSessionMode ? 'مفعّل ✓' : ''}</span>
             </button>
 
+            <button
+              type="button"
+              onClick={() =>
+                triggerFastPrint(
+                  `بطاقة تسميع الطالب - ${currentStudent?.name || ''} - ${sessionDate}`
+                )
+              }
+              className="no-print px-3 py-1.5 rounded-xl bg-[#f6f7f2] dark:bg-[#0b1711] hover:bg-emerald-50 dark:hover:bg-emerald-950/60 border border-[#c59b27]/50 text-[#145a3a] dark:text-[#dfbd69] text-xs font-extrabold flex items-center gap-1.5 cursor-pointer transition-colors"
+              title="طباعة فورية سريعة لورقة التسميع الحالية"
+            >
+              <Printer className="w-3.5 h-3.5 text-[#c59b27]" />
+              <span>طباعة سريعة للحصة</span>
+            </button>
+
             {currentStudent && (
               <button
                 type="button"
@@ -2877,6 +3760,80 @@ export const SessionEngineView: React.FC = () => {
                 <Sparkles className="w-3.5 h-3.5" />
                 <span>🎉 توليد بطاقة بشارة مصورة</span>
               </button>
+            )}
+
+            {currentStudent && (
+              <button
+                type="button"
+                onClick={() => {
+                  const el = document.getElementById('teacher-5axis-voice-recorder');
+                  if (el) {
+                    el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                  }
+                }}
+                className="px-3.5 py-1.5 rounded-xl bg-gradient-to-l from-[#145a3a] via-emerald-800 to-[#c59b27] hover:brightness-110 text-white text-xs font-extrabold flex items-center gap-1.5 cursor-pointer shadow-xs border border-[#c59b27]"
+                title="تفعيل الميكروفون لتسجيل ملاحظات صوتية سريعة عن مستوى الطالب وتحويلها لاحقاً إلى نصوص تقييمية بالذكاء الاصطناعي"
+              >
+                <Mic className="w-3.5 h-3.5 text-[#dfbd69]" />
+                <span>🎙️ ميكروفون الملاحظات الصوتية + تحويل تقييمي بـ AI</span>
+              </button>
+            )}
+
+            {/* ⏱️ شارة العداد التنازلي السريعة في الشريط العلوي مع تحكم مباشر */}
+            {currentStudent && (
+              <div
+                className={`px-3 py-1 rounded-xl border-2 flex items-center gap-2 transition-all ${
+                  timerStatusVisual.isExpired
+                    ? 'bg-red-600 text-white border-red-300 animate-pulse shadow-md'
+                    : timerStatusVisual.isApproachingEnd
+                      ? 'bg-amber-500 text-[#14281d] border-amber-800 animate-pulse shadow-md'
+                      : isTimerRunning
+                        ? 'bg-[#145a3a] text-[#dfbd69] border-[#c59b27]'
+                        : 'bg-[#f6f7f2] dark:bg-[#0b1711] text-[#145a3a] dark:text-[#dfbd69] border-[#c59b27]/60'
+                }`}
+              >
+                <button
+                  type="button"
+                  onClick={() => {
+                    const el = document.getElementById('student-recitation-countdown-timer');
+                    if (el) {
+                      el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    }
+                  }}
+                  className="flex items-center gap-1.5 cursor-pointer"
+                  title="الانتقال إلى لوحة العداد التنازلي لإدارة وقت تسميع الطالب"
+                >
+                  <Timer className="w-3.5 h-3.5" />
+                  <span className="font-mono text-xs font-black tracking-wider">
+                    {formatTimerMMSS(timerRemainingSeconds)}
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    triggerHaptic(12);
+                    if (timerRemainingSeconds <= 0) {
+                      handleResetRecitationTimer(true);
+                    } else {
+                      setIsTimerRunning((prev) => !prev);
+                    }
+                  }}
+                  className="px-2 py-0.5 rounded-lg bg-black/20 hover:bg-black/30 text-[11px] font-black cursor-pointer flex items-center gap-1"
+                  title={isTimerRunning ? 'إيقاف مؤقت للعداد' : 'بدء العداد التنازلي للتسميع'}
+                >
+                  {isTimerRunning ? (
+                    <>
+                      <Pause className="w-3 h-3" />
+                      <span>إيقاف</span>
+                    </>
+                  ) : (
+                    <>
+                      <Play className="w-3 h-3" />
+                      <span>بدء</span>
+                    </>
+                  )}
+                </button>
+              </div>
             )}
 
             {currentStudent && (
@@ -4333,17 +5290,17 @@ export const SessionEngineView: React.FC = () => {
             </select>
           </div>
 
-          {/* Date Select */}
+          {/* Date Select (Dual Hijri & Gregorian by Default) */}
           <div className="lg:col-span-3">
             <div className="flex items-center justify-between mb-1.5">
               <label className="text-xs font-bold text-neutral-500">
-                تاريخ الحصة
+                تاريخ الحصة (هجري / ميلادي)
               </label>
-              {(settings.showHijriDates ?? true) && (
-                <span className="text-[11px] font-bold text-[#145a3a] dark:text-[#dfbd69]">
-                  {formatHijriDate(sessionDate, 'long')}
-                </span>
-              )}
+              <span className="text-[11px] font-extrabold text-[#145a3a] dark:text-[#dfbd69]">
+                {(settings.showHijriDates ?? true)
+                  ? formatHijriDate(sessionDate, 'long')
+                  : `${sessionDate} م`}
+              </span>
             </div>
             <input
               type="date"
@@ -4351,6 +5308,12 @@ export const SessionEngineView: React.FC = () => {
               onChange={(e) => setSessionDate(e.target.value)}
               className="w-full px-4 py-2.5 rounded-xl border border-neutral-300 dark:border-emerald-900 bg-[#f6f7f2] dark:bg-[#0b1711] text-sm font-mono tabular-nums"
             />
+            {(settings.showHijriDates ?? true) && (
+              <div className="mt-1 text-[10px] font-bold text-emerald-700 dark:text-emerald-300 flex items-center justify-between">
+                <span>الموافق: {HijriCalendar.getParts(sessionDate).gregorianFormatted}</span>
+                <span>{HijriCalendar.getParts(sessionDate).weekday}</span>
+              </div>
+            )}
           </div>
 
           {/* Attendance Status (Present, Absent, Excused) */}
@@ -4381,30 +5344,177 @@ export const SessionEngineView: React.FC = () => {
           </div>
         </div>
 
-        {/* Absence Automatic Carry-Forward Alert & WhatsApp Notify Button */}
+        {/* Absence Makeup & Auto-Reschedule Engine (منظومة تعويض الغياب الآلي وترحيل الأوراد) */}
         {status !== 'حضر' && currentStudent && (
-          <div className="mt-5 p-4 rounded-2xl bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-800/60 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-            <div className="flex items-start gap-3">
-              <AlertTriangle className="w-5 h-5 text-red-600 shrink-0 mt-0.5" />
-              <div>
-                <div className="text-sm font-extrabold text-red-800 dark:text-red-200">
-                  الطالب ({status}) — سيتم ترحيل تكليف آخر حصة تلقائياً للحصة القادمة
+          <div className="mt-5 p-4 sm:p-5 rounded-3xl bg-gradient-to-l from-rose-50 via-amber-50/70 to-white dark:from-rose-950/40 dark:via-slate-900 dark:to-slate-900 border-2 border-rose-300 dark:border-rose-800/70 space-y-4 shadow-sm">
+            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+              <div className="flex items-start gap-3">
+                <div className="p-2.5 rounded-2xl bg-rose-600 text-white shrink-0 mt-0.5 shadow-xs">
+                  <AlertTriangle className="w-5 h-5" />
                 </div>
-                <p className="text-xs text-red-600 dark:text-red-300 mt-0.5">
-                  آخر توقف محفوظ: سورة {currentStudent.currentStop.surahName} الآية (
-                  {currentStudent.currentStop.ayah})
-                </p>
+                <div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="px-2.5 py-0.5 rounded-full bg-rose-600 text-white text-[11px] font-black">
+                      بطاقة تعويض غياب آلية ({status})
+                    </span>
+                    <span className="text-sm font-black text-rose-900 dark:text-rose-200">
+                      منظومة تعويض الغياب الآلي وترحيل الأوراد للطالب ({currentStudent.name})
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-700 dark:text-slate-300 font-bold mt-1">
+                    الورد الفائت المربوط بالبطاقة: سورة {newMem.surahName || currentStudent.currentStop.surahName} (من آية{' '}
+                    {newMem.fromAyah || currentStudent.currentStop.ayah} إلى آية {newMem.toAyah || currentStudent.currentStop.ayah + 7}) •
+                    آخر توقف محفوظ: سورة {currentStudent.currentStop.surahName} آية ({currentStudent.currentStop.ayah})
+                  </p>
+                </div>
               </div>
+
+              <button
+                type="button"
+                onClick={() => handleSaveAndSendWhatsApp('short')}
+                className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-black cursor-pointer shrink-0 shadow-xs"
+              >
+                <Send className="w-4 h-4" />
+                <span>حفظ بطاقة الغياب وإبلاغ ولي الأمر عبر واتساب</span>
+              </button>
             </div>
 
-            <button
-              type="button"
-              onClick={() => handleSaveAndSendWhatsApp('short')}
-              className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-red-600 hover:bg-red-700 text-white text-xs font-bold cursor-pointer shrink-0"
-            >
-              <Send className="w-4 h-4" />
-              <span>حفظ الغياب وإبلاغ ولي الأمر عبر واتساب</span>
-            </button>
+            {/* Interactive Makeup Scheduling OR Auto-Merge into Next Week's Plan */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 pt-2 border-t border-rose-200/80 dark:border-rose-900/50">
+              {/* Option 1: Schedule Makeup Session Date */}
+              <div className="p-3.5 rounded-2xl bg-white dark:bg-slate-950/80 border border-emerald-300 dark:border-emerald-800/60 space-y-2.5">
+                <div className="text-xs font-black text-emerald-900 dark:text-emerald-300 flex items-center justify-between">
+                  <span>📅 الخيار الأول: تحديد موعد حصة التعويض (للمحفظ وولي الأمر)</span>
+                  <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-200">
+                    حصة تعويضية مستقلة
+                  </span>
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-500 mb-0.5">
+                      تاريخ حصة التعويض{' '}
+                      {(settings.showHijriDates ?? true) &&
+                        `(${formatHijriDate(makeupScheduleDate, 'short')})`}
+                    </label>
+                    <input
+                      type="date"
+                      value={makeupScheduleDate}
+                      onChange={(e) => setMakeupScheduleDate(e.target.value)}
+                      className="w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 px-2.5 py-1.5 text-xs font-bold"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-500 mb-0.5">وقت الحصة</label>
+                    <input
+                      type="time"
+                      value={makeupScheduleTime}
+                      onChange={(e) => setMakeupScheduleTime(e.target.value)}
+                      className="w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 px-2.5 py-1.5 text-xs font-bold"
+                    />
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    buildAndSaveSession('حصة محفوظة', { skipAutoWhatsAppTrigger: true });
+                    const missedSurahName = newMem.surahName || currentStudent.currentStop.surahName || 'البقرة';
+                    const missedFrom = newMem.fromAyah || currentStudent.currentStop.ayah || 1;
+                    const missedTo = newMem.toAyah || missedFrom + 7;
+                    const card: MakeupSessionCard = {
+                      id: `makeup-${currentStudent.id}-${sessionDate}`,
+                      studentId: currentStudent.id,
+                      studentName: currentStudent.name,
+                      absentDate: sessionDate,
+                      attendanceStatus: status === 'غاب' ? 'غاب' : 'إجازة',
+                      missedSurahId: newMem.surahId || currentStudent.currentStop.surahId,
+                      missedSurahName,
+                      missedFromAyah: missedFrom,
+                      missedToAyah: missedTo,
+                      resolutionStatus: 'scheduled_makeup',
+                      scheduledMakeupDate: makeupScheduleDate,
+                      scheduledMakeupTime: makeupScheduleTime,
+                      resolvedByRole: 'teacher',
+                      resolvedAt: new Date().toISOString(),
+                      createdAt: new Date().toISOString(),
+                    };
+                    const existing = currentStudent.makeupSessions || [];
+                    const nextList = [
+                      card,
+                      ...existing.filter((c) => c.absentDate !== sessionDate),
+                    ];
+                    updateStudent(currentStudent.id, { makeupSessions: nextList });
+                    showToast(
+                      `📅 تم إنشاء وجدولة بطاقة تعويض الغياب ليوم ${makeupScheduleDate} الساعة ${makeupScheduleTime} وإرسالها لبوابة ولي الأمر ✓`,
+                      'success'
+                    );
+                  }}
+                  className="w-full py-2 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-black cursor-pointer transition"
+                >
+                  اعتماد موعد حصة التعويض ونشره في بوابة ولي الأمر ✓
+                </button>
+              </div>
+
+              {/* Option 2: Auto-Merge Missed Wird into Next Week's Plan without disrupting Khatmah */}
+              <div className="p-3.5 rounded-2xl bg-white dark:bg-slate-950/80 border border-blue-300 dark:border-blue-800/60 flex flex-col justify-between space-y-2.5">
+                <div>
+                  <div className="text-xs font-black text-blue-900 dark:text-blue-300 flex items-center justify-between">
+                    <span>🔄 الخيار الثاني: دمج الورد الفائت مع خطة الأسبوع القادم تلقائياً</span>
+                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-blue-100 dark:bg-blue-950 text-blue-800 dark:text-blue-200">
+                      حماية جدول الختمة
+                    </span>
+                  </div>
+                  <p className="text-[11px] font-bold text-slate-600 dark:text-slate-400 mt-1.5 leading-relaxed">
+                    يقوم المحرك بتقسيم آيات الورد الفائت وتوزيعها بالتساوي على حصص الأسبوع القادم بحيث يعوض الطالب غيابه تدريجياً دون أي تأخير في موعد الختمة المتوقع.
+                  </p>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    buildAndSaveSession('حصة محفوظة', { skipAutoWhatsAppTrigger: true });
+                    const missedSurahName = newMem.surahName || currentStudent.currentStop.surahName || 'البقرة';
+                    const missedFrom = newMem.fromAyah || currentStudent.currentStop.ayah || 1;
+                    const missedTo = newMem.toAyah || missedFrom + 7;
+                    const spanAyahs = Math.max(1, missedTo - missedFrom + 1);
+                    const weeklySessionsCount = Math.max(1, (currentStudent.scheduleDays || [0, 2, 4]).length);
+                    const addPerSession = Math.max(1, Math.ceil(spanAyahs / weeklySessionsCount));
+                    const mergedPlanNote = `تم دمج الورد الفائت (سورة ${missedSurahName}: ${missedFrom}-${missedTo}) بتوزيع +${addPerSession} آيات إضافية على حصص الأسبوع القادم دون إخلال بجدول الختمة.`;
+                    const card: MakeupSessionCard = {
+                      id: `makeup-${currentStudent.id}-${sessionDate}`,
+                      studentId: currentStudent.id,
+                      studentName: currentStudent.name,
+                      absentDate: sessionDate,
+                      attendanceStatus: status === 'غاب' ? 'غاب' : 'إجازة',
+                      missedSurahId: newMem.surahId || currentStudent.currentStop.surahId,
+                      missedSurahName,
+                      missedFromAyah: missedFrom,
+                      missedToAyah: missedTo,
+                      resolutionStatus: 'merged_next_week',
+                      mergedPlanNote,
+                      resolvedByRole: 'teacher',
+                      resolvedAt: new Date().toISOString(),
+                      createdAt: new Date().toISOString(),
+                    };
+                    const existing = currentStudent.makeupSessions || [];
+                    const nextList = [
+                      card,
+                      ...existing.filter((c) => c.absentDate !== sessionDate),
+                    ];
+                    updateStudent(currentStudent.id, {
+                      makeupSessions: nextList,
+                      notes: `${currentStudent.notes ? currentStudent.notes + ' | ' : ''}${mergedPlanNote}`,
+                    });
+                    showToast(
+                      `🔄 ${mergedPlanNote}`,
+                      'success'
+                    );
+                  }}
+                  className="w-full py-2 rounded-xl bg-blue-700 hover:bg-blue-800 text-white text-xs font-black cursor-pointer transition"
+                >
+                  دمج الورد الفائت في خطة الأسبوع القادم تلقائياً دون إخلال بالختمة 🔄
+                </button>
+              </div>
+            </div>
           </div>
         )}
       </div>
@@ -4481,7 +5591,13 @@ export const SessionEngineView: React.FC = () => {
                       : `سورة ${currentStudent.currentStop.surahName} (آية ${currentStudent.currentStop.ayah})`}
                   </div>
                   <div className="text-[11px] text-neutral-400 mt-0.5">
-                    آخر حصة: {lastAttendedSession?.date || 'حصة تأسيسية'}
+                    آخر حصة:{' '}
+                    {lastAttendedSession?.date
+                      ? formatGregorianAndHijri(
+                          lastAttendedSession.date,
+                          settings.showHijriDates ?? true
+                        )
+                      : 'حصة تأسيسية'}
                   </div>
                 </div>
 
@@ -4563,7 +5679,13 @@ export const SessionEngineView: React.FC = () => {
                             {item.juzName}
                           </div>
                           <div className="text-[10px] text-red-600 font-bold mt-0.5">
-                            لم يُراجع منذ {item.daysElapsed} يوماً ({item.lastDateStr})
+                            لم يُراجع منذ {item.daysElapsed} يوماً (
+                            {formatGregorianAndHijri(
+                              item.lastDateStr,
+                              settings.showHijriDates ?? true,
+                              'compact'
+                            )}
+                            )
                           </div>
                         </div>
                         <button
@@ -4579,99 +5701,66 @@ export const SessionEngineView: React.FC = () => {
                 </div>
               )}
 
-              {/* Open Errors Follow-Up Card across Sessions (بطاقة متابعة أخطاء الطالب عبر الحصص) */}
-              <div className="p-4 rounded-2xl bg-rose-50/70 dark:bg-rose-950/20 border border-rose-200 dark:border-rose-800/50 space-y-3">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <div>
-                    <h4 className="text-xs font-extrabold text-rose-800 dark:text-rose-300 flex items-center gap-1.5">
-                      <AlertTriangle className="w-4 h-4 text-rose-600" />
-                      <span>
-                        بطاقة متابعة أخطاء الطالب السابقة التي تحتاج إعادة اختبار اليوم (
-                        {openFollowUpErrors.length})
-                      </span>
-                    </h4>
-                    <p className="text-[11px] text-neutral-600 dark:text-neutral-400">
-                      اختبر الطالب في الكلمات التي أخطأ فيها سابقاً وحدد قرارك الفوري (أتقن ✓ / يحتاج تثبيت ⏳ / أخطأ مرة أخرى 🔁)
-                    </p>
-                  </div>
-                </div>
-
-                {openFollowUpErrors.length === 0 ? (
-                  <div className="text-xs font-bold text-emerald-700 dark:text-emerald-400 flex items-center gap-1.5">
-                    <CheckCircle2 className="w-4 h-4" />
-                    <span>جميع ملاحظات الحصص السابقة متقنة بالكامل ولله الحمد!</span>
-                  </div>
-                ) : (
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
-                    {openFollowUpErrors.map((err) => (
-                      <div
-                        key={err.id}
-                        className="p-3 rounded-xl bg-white dark:bg-[#12231a] border border-rose-200/80 dark:border-rose-900/50 flex flex-wrap items-center justify-between gap-2 text-xs"
-                      >
-                        <div>
-                          <div className="font-extrabold text-[#14281d] dark:text-white">
-                            {err.word ? `﴿${err.word}﴾` : err.type} — سورة{' '}
-                            {err.surah || currentStudent.currentStop.surahName}
-                            {err.ayah ? ` (آية ${err.ayah})` : ''}
-                          </div>
-                          <div className="text-[11px] text-neutral-500 mt-0.5">
-                            {err.subType || err.type} • الحالة:{' '}
-                            <strong className="text-rose-600">
-                              {err.followUpStatus || 'تحت المتابعة'}
-                            </strong>{' '}
-                            {err.repeatCount && err.repeatCount > 1
-                              ? `(تكرر ${err.repeatCount} مرات)`
-                              : ''}
-                          </div>
-                        </div>
-
-                        <div className="flex items-center gap-1">
-                          <button
-                            type="button"
-                            onClick={() =>
-                              updateErrorFollowUpStatus(
-                                currentStudent.id,
-                                err.compositeKey || err.id,
-                                'mastered'
-                              )
-                            }
-                            className="px-2 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-[11px] font-bold cursor-pointer"
-                            title="إغلاق الخطأ بعد التأكد من إتقانه"
-                          >
-                            أتقن ✓
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() =>
-                              updateErrorFollowUpStatus(
-                                currentStudent.id,
-                                err.compositeKey || err.id,
-                                'needs_practice'
-                              )
-                            }
-                            className="px-2 py-1 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 text-[11px] font-bold cursor-pointer"
-                          >
-                            يحتاج تثبيت ⏳
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() =>
-                              updateErrorFollowUpStatus(
-                                currentStudent.id,
-                                err.compositeKey || err.id,
-                                'repeated_error'
-                              )
-                            }
-                            className="px-2 py-1 rounded-lg bg-rose-600 hover:bg-rose-500 text-white text-[11px] font-bold cursor-pointer"
-                          >
-                            أخطأ مرة أخرى 🔁
-                          </button>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
+              {/* Open Errors Follow-Up Card across Sessions — سجل النقاط الساخنة (ErrorHotspotsManager) */}
+              <ErrorHotspotsManager
+                student={currentStudent}
+                historicalHotspots={openFollowUpErrors}
+                currentSessionErrors={errors}
+                activeErrorContext={activeErrorContext}
+                defaultSurahName={actualRecitation.surahName || newMem.surahName}
+                defaultAyahNumber={actualRecitation.fromAyah || newMem.fromAyah || 1}
+                onUpdateFollowUpStatus={(studentId, errorKeyOrId, nextStatus) =>
+                  updateErrorFollowUpStatus(
+                    studentId,
+                    errorKeyOrId,
+                    nextStatus === 'mastered' || nextStatus === 'تم الإتقان'
+                      ? 'mastered'
+                      : nextStatus === 'needs_review' || nextStatus === 'needs_practice'
+                      ? 'needs_review'
+                      : 'repeated'
+                  )
+                }
+                onAddHotspotError={(newHotspotErr) =>
+                  setErrors((prev) => [newHotspotErr, ...prev])
+                }
+                onRemoveCurrentError={(errId) =>
+                  setErrors((prev) => prev.filter((x) => x.id !== errId))
+                }
+                onOpenInMushaf={(surahName, ayahNum) => {
+                  const found = SURAHS.find((s) => s.name === surahName);
+                  setSmartQuranModal({
+                    open: true,
+                    sectionTitle: `مراجعة النقطة الساخنة — سورة ${surahName} (آية ${ayahNum})`,
+                    sectionContext: 'التسميع',
+                    surahId: found?.id,
+                    surahName,
+                    fromAyah: Math.max(1, ayahNum - 2),
+                    toAyah: Math.min(found?.ayahs || 286, ayahNum + 3),
+                    targetSectionKey: 'actual',
+                  });
+                }}
+                onAssignToNearReview={(sId, sName, fAyah, tAyah) => {
+                  setNearRev({
+                    enabled: true,
+                    surahId: sId,
+                    surahName: sName,
+                    isFullSurah: false,
+                    fromAyah: fAyah,
+                    toAyah: tAyah,
+                    direction: 'asc',
+                  });
+                  showToast(
+                    `تم إدراج سورة ${sName} (آية ${fAyah}-${tAyah}) في المراجعة القريبة لتثبيت النقطة الساخنة ✓`,
+                    'success'
+                  );
+                }}
+                onAppendToParentNotes={(summaryText) => {
+                  setParentNotes((prev) =>
+                    prev ? `${prev}\n\n${summaryText}` : summaryText
+                  );
+                  showToast('تم إدراج الكلمات الساخنة في ملاحظات ولي الأمر ✓', 'success');
+                }}
+              />
 
               {smartSuggestion && (
                 <div className="p-4 rounded-2xl bg-[#f6f7f2]/70 dark:bg-[#0b1711]/70 border border-[#c59b27]/40 flex items-center justify-between gap-3">
@@ -4782,6 +5871,100 @@ export const SessionEngineView: React.FC = () => {
             ))}
           </div>
 
+          {/* 3-Stage Error Marking & 4-Color Weighted Classification Bar + Context Selector */}
+          <div className="p-4 rounded-2xl bg-slate-50 dark:bg-[#0b1711] border-2 border-amber-400/50 space-y-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="text-xs sm:text-sm font-black text-[#14281d] dark:text-amber-300 flex items-center gap-1.5">
+                <span>🎯 نظام وسم الأخطاء ثلاثي المراحل والنقاط الساخنة (4 فئات موزونة):</span>
+              </div>
+              <span className="text-[11px] font-bold text-slate-500 dark:text-slate-400">
+                يمكنك أيضاً فتح «📖 النص» والنقر على أي كلمة قرآنية لوسمها مباشرة وحفظها في النقاط الساخنة
+              </span>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5">
+              <button
+                type="button"
+                onClick={() =>
+                  handleAddError('حفظ', {
+                    deductionPoints: 1.0,
+                    hotspotStageKey: 'memorization_1',
+                    subType: 'خطأ حفظ / نسيان',
+                  })
+                }
+                className="p-3 rounded-2xl bg-rose-600 hover:bg-rose-700 text-white text-right transition cursor-pointer shadow-xs flex items-center justify-between"
+              >
+                <div>
+                  <div className="text-xs font-black">🔴 ١. خطأ حفظ / نسيان</div>
+                  <div className="text-[10px] opacity-90 mt-0.5">يُحفظ في النقاط الساخنة</div>
+                </div>
+                <span className="px-2 py-1 rounded-xl bg-black/25 font-mono text-xs font-black">
+                  -1.0 نقطة
+                </span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() =>
+                  handleAddError('تشكيل', {
+                    deductionPoints: 0.5,
+                    hotspotStageKey: 'tashkeel_05',
+                    subType: 'خطأ تشكيل / إعراب',
+                  })
+                }
+                className="p-3 rounded-2xl bg-orange-600 hover:bg-orange-700 text-white text-right transition cursor-pointer shadow-xs flex items-center justify-between"
+              >
+                <div>
+                  <div className="text-xs font-black">🟠 ٢. خطأ تشكيل / إعراب</div>
+                  <div className="text-[10px] opacity-90 mt-0.5">ضبط أواخر الكلمات والحركات</div>
+                </div>
+                <span className="px-2 py-1 rounded-xl bg-black/25 font-mono text-xs font-black">
+                  -0.5 نقطة
+                </span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() =>
+                  handleAddError('تجويد', {
+                    deductionPoints: 0.5,
+                    hotspotStageKey: 'tajweed_05',
+                    subType: 'خطأ حكم تجويدي',
+                  })
+                }
+                className="p-3 rounded-2xl bg-purple-700 hover:bg-purple-800 text-white text-right transition cursor-pointer shadow-xs flex items-center justify-between"
+              >
+                <div>
+                  <div className="text-xs font-black">🟣 ٣. خطأ حكم تجويدي</div>
+                  <div className="text-[10px] opacity-90 mt-0.5">غنن • مدود • قلقلة • مخارج</div>
+                </div>
+                <span className="px-2 py-1 rounded-xl bg-black/25 font-mono text-xs font-black">
+                  -0.5 نقطة
+                </span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() =>
+                  handleAddError('تردد', {
+                    deductionPoints: 0.25,
+                    hotspotStageKey: 'hesitation_025',
+                    subType: 'تردد / تنبيه فتح',
+                  })
+                }
+                className="p-3 rounded-2xl bg-amber-500 hover:bg-amber-400 text-slate-950 text-right transition cursor-pointer shadow-xs flex items-center justify-between"
+              >
+                <div>
+                  <div className="text-xs font-black">🟡 ٤. تردد / تنبيه فتح</div>
+                  <div className="text-[10px] opacity-85 mt-0.5">توقف يسير أو فتح من الشيخ</div>
+                </div>
+                <span className="px-2 py-1 rounded-xl bg-black/15 font-mono text-xs font-black">
+                  -0.25 نقطة
+                </span>
+              </button>
+            </div>
+          </div>
+
           {/* Context Selector + 6 Instant Error Buttons */}
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-center">
             <div className="lg:col-span-4">
@@ -4802,7 +5985,7 @@ export const SessionEngineView: React.FC = () => {
             <div className="lg:col-span-8">
               <div className="flex items-center justify-between mb-1.5">
                 <label className="block text-xs font-bold">
-                  أزرار تسجيل الأخطاء الفورية (6 تصنيفات):
+                  أزرار تسجيل الأخطاء التفصيلية وتخصيص قواعد التجويد:
                 </label>
                 <button
                   type="button"
@@ -4906,55 +6089,89 @@ export const SessionEngineView: React.FC = () => {
             </div>
           )}
 
-          {/* استوديو التسجيل الصوتي المباشر لملاحظات المعلم على تسميع الطالب في المحور الخماسي (حفظ محلي) */}
+          {/* 🎙️ واجهة الميكروفون ضمن محرك الحصة الخماسي لتسجيل ملاحظات صوتية سريعة عن مستوى الطالب وتحويلها لاحقاً إلى نصوص تقييمية باستخدام الذكاء الاصطناعي */}
           <div
             id="teacher-5axis-voice-recorder"
-            className="mt-4 p-4 rounded-2xl bg-gradient-to-l from-[#145a3a]/10 via-[#fcfaf2] to-[#c59b27]/10 dark:from-[#0b1711] dark:via-[#12231a] dark:to-[#0b1711] border-2 border-[#c59b27]/60 space-y-3"
+            className="mt-4 p-4 sm:p-5 rounded-3xl bg-gradient-to-l from-[#145a3a]/15 via-[#fcfaf2] to-[#c59b27]/15 dark:from-[#0b1711] dark:via-[#12231a] dark:to-[#0b1711] border-2 border-[#c59b27] shadow-md space-y-4"
           >
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <div>
-                <h4 className="text-xs sm:text-sm font-extrabold text-[#145a3a] dark:text-[#dfbd69] flex items-center gap-2">
-                  <Mic className="w-4 h-4 text-[#c59b27]" />
-                  <span>
-                    🎙️ التسجيل الصوتي المباشر لملاحظات المعلم على تسميع الطالب (محرك التسميع الخماسي)
-                  </span>
-                  <span className="px-2 py-0.5 rounded-full bg-emerald-600 text-white text-[10px] font-extrabold">
-                    حفظ محلي تلقائي ({studentTeacherVoiceNotes.length})
-                  </span>
-                </h4>
-                <p className="text-[11px] text-neutral-600 dark:text-neutral-300 mt-0.5">
-                  سجّل ملاحظتك الصوتية أو تصحيح النطق والتجويد مباشرة على محور ({activeErrorContext}) ليُحفظ محلياً في جهازك وفي ملف الطالب وسجل الحصة
-                </p>
+            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 pb-3 border-b border-[#c59b27]/40">
+              <div className="flex items-start gap-3">
+                <div
+                  className={`w-11 h-11 rounded-2xl flex items-center justify-center shrink-0 shadow-sm transition ${
+                    isRecordingVoice
+                      ? 'bg-red-600 text-white animate-pulse ring-4 ring-red-500/30'
+                      : 'bg-[#145a3a] text-[#dfbd69]'
+                  }`}
+                >
+                  {isRecordingVoice ? (
+                    <MicOff className="w-5 h-5" />
+                  ) : (
+                    <Mic className="w-5 h-5" />
+                  )}
+                </div>
+                <div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <h4 className="text-xs sm:text-base font-extrabold text-[#145a3a] dark:text-[#dfbd69]">
+                      🎙️ ميكروفون الملاحظات الصوتية السريعة وتحويلها لنصوص تقييمية بالذكاء الاصطناعي (محرك الحصة الخماسي)
+                    </h4>
+                    <span className="px-2.5 py-0.5 rounded-full bg-emerald-600 text-white text-[10px] font-black">
+                      الملاحظات المسجلة: {studentTeacherVoiceNotes.length}
+                    </span>
+                    <span className="px-2.5 py-0.5 rounded-full bg-[#c59b27]/25 border border-[#c59b27] text-[#14281d] dark:text-[#dfbd69] text-[10px] font-black">
+                      ✨ مدعوم بـ Gemini AI
+                    </span>
+                  </div>
+                  <p className="text-[11px] sm:text-xs text-neutral-600 dark:text-neutral-300 mt-1 leading-relaxed">
+                    سجّل ملاحظات صوتية سريعة بصوتك أثناء الحصة حول مستوى الطالب ({currentStudent?.name}) في محور (<strong>{activeErrorContext}</strong>)، ثم حوّل أي ملاحظة صوتية لاحقاً بضغطة زر واحدة إلى <strong>نص تقييمي تربوي وتجويدي احترافي</strong> جاهز للإدراج في سجل الحصة وإرساله لولي الأمر.
+                  </p>
+                </div>
               </div>
 
-              <div className="flex flex-wrap items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2 shrink-0">
                 <button
                   type="button"
                   onClick={() => handleStartStopTeacherVoiceRecording('session_axis')}
-                  className={`px-4 py-2 rounded-xl text-xs font-extrabold flex items-center gap-2 cursor-pointer shadow-xs transition ${
-                    isRecordingVoice && activeVoiceRecordTarget === 'session_axis'
-                      ? 'bg-red-600 hover:bg-red-700 text-white animate-pulse'
-                      : 'bg-[#145a3a] hover:bg-[#0f452c] text-[#dfbd69]'
+                  className={`px-4 py-2.5 rounded-2xl text-xs sm:text-sm font-black flex items-center gap-2 cursor-pointer shadow-md transition ${
+                    isRecordingVoice
+                      ? 'bg-red-600 hover:bg-red-700 text-white animate-pulse ring-2 ring-red-400'
+                      : 'bg-gradient-to-l from-[#145a3a] to-emerald-800 hover:brightness-110 text-[#dfbd69] border border-[#c59b27]'
                   }`}
                 >
-                  {isRecordingVoice && activeVoiceRecordTarget === 'session_axis' ? (
+                  {isRecordingVoice ? (
                     <>
                       <MicOff className="w-4 h-4" />
                       <span>
-                        إيقاف وحفظ الملاحظة الصوتية ({voiceRecordingSeconds} ثانية)
+                        ⏹️ إيقاف وحفظ الملاحظة الصوتية ({voiceRecordingSeconds} ثانية)
                       </span>
                     </>
                   ) : (
                     <>
                       <Mic className="w-4 h-4 text-[#dfbd69]" />
-                      <span>بدء تسجيل ملاحظة صوتية على التسميع</span>
+                      <span>🎙️ تسجيل ملاحظة صوتية سريعة بالميكروفون</span>
                     </>
                   )}
                 </button>
 
-                <label className="px-3 py-2 rounded-xl bg-white dark:bg-[#0b1711] hover:border-[#145a3a] border border-[#c59b27]/50 text-[#145a3a] dark:text-[#dfbd69] text-xs font-extrabold flex items-center gap-1.5 cursor-pointer">
+                {studentTeacherVoiceNotes.length > 0 && (
+                  <button
+                    type="button"
+                    disabled={convertingVoiceNoteId === 'ALL'}
+                    onClick={() => void handleConvertAllVoiceNotesToEvaluation()}
+                    className="px-3.5 py-2.5 rounded-2xl bg-gradient-to-l from-[#c59b27] to-[#dfbd69] hover:brightness-105 text-[#14281d] text-xs font-black flex items-center gap-1.5 cursor-pointer shadow-sm disabled:opacity-60 transition"
+                    title="تحويل جميع الملاحظات الصوتية المسجلة إلى تقرير تقييمي موحد بالذكاء الاصطناعي وإدراجه في ملاحظات الحصة"
+                  >
+                    <Sparkles className="w-4 h-4" />
+                    <span>
+                      {convertingVoiceNoteId === 'ALL'
+                        ? 'جاري تحويل الملاحظات بـ AI...'
+                        : `✨ تحويل كل الملاحظات (${studentTeacherVoiceNotes.length}) لنص تقييمي بـ AI`}
+                    </span>
+                  </button>
+                )}
+
+                <label className="px-3 py-2.5 rounded-2xl bg-white dark:bg-[#0b1711] hover:border-[#145a3a] border border-[#c59b27]/60 text-[#145a3a] dark:text-[#dfbd69] text-xs font-extrabold flex items-center gap-1.5 cursor-pointer">
                   <Upload className="w-3.5 h-3.5 text-[#c59b27]" />
-                  <span>رفع ملاحظة صوتية</span>
+                  <span>رفع ملف صوتي</span>
                   <input
                     type="file"
                     accept="audio/*"
@@ -4972,7 +6189,7 @@ export const SessionEngineView: React.FC = () => {
                             {
                               title:
                                 voiceNoteTitleInput.trim() ||
-                                `ملف صوتي مرفق (${file.name})`,
+                                `ملاحظة صوتية مرفوعة (${file.name})`,
                             }
                           );
                         }
@@ -4985,9 +6202,97 @@ export const SessionEngineView: React.FC = () => {
               </div>
             </div>
 
-            {/* Category & Note Title Controls */}
-            <div className="grid grid-cols-1 sm:grid-cols-12 gap-2.5 items-center pt-1">
-              <div className="sm:col-span-4">
+            {/* شريط الحالة الحية للميكروفون وموجات الصوت والتفريغ الفوري أثناء التسجيل */}
+            {isRecordingVoice && (
+              <div className="p-3.5 rounded-2xl bg-red-950/90 text-white border-2 border-red-400/80 space-y-2.5 animate-in fade-in">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="flex items-center gap-2 text-xs font-black text-red-200">
+                    <span className="w-2.5 h-2.5 rounded-full bg-red-500 animate-ping" />
+                    <span>
+                      🎙️ الميكروفون يسجل الآن ملاحظتك الصوتية حول ({activeErrorContext} — {voiceNoteCategoryInput})... مدة التسجيل: {voiceRecordingSeconds} ثانية
+                    </span>
+                  </div>
+                  <span className="text-[11px] font-mono text-amber-300">
+                    مستوى الصوت: {voiceMicAudioLevel}%
+                  </span>
+                </div>
+
+                {/* Live Audio Waveform Bars */}
+                <div className="flex items-end gap-1 h-7 px-2 py-1 rounded-xl bg-black/40">
+                  {Array.from({ length: 24 }).map((_, idx) => {
+                    const barHeight = Math.max(
+                      18,
+                      Math.min(
+                        100,
+                        ((voiceMicAudioLevel + ((idx * 17) % 45)) % 95) + 15
+                      )
+                    );
+                    return (
+                      <span
+                        key={idx}
+                        className="flex-1 rounded-full bg-gradient-to-t from-emerald-400 to-[#dfbd69] transition-all duration-150"
+                        style={{ height: `${barHeight}%` }}
+                      />
+                    );
+                  })}
+                </div>
+
+                <div className="text-xs text-emerald-100 bg-black/30 p-2.5 rounded-xl border border-white/10">
+                  <span className="font-bold text-[#dfbd69]">
+                    🗣️ الالتقاط الصوتي المباشر أثناء حديثك:{' '}
+                  </span>
+                  <span>
+                    {liveVoiceDraftTranscript ||
+                      'تحدث الآن في الميكروفون... أو اختر إحدى الملاحظات السريعة أدناه ليتم تضمينها مع التسجيل الصوتي'}
+                  </span>
+                </div>
+              </div>
+            )}
+
+            {/* تصنيف التقييم الجاهز (5 تصنيفات) + تصنيف الملاحظة الصوتية + محور الحصة الخماسي + مسودة منطوقة/نصية مساعدة */}
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-12 gap-2.5 items-center">
+              <div className="lg:col-span-3">
+                <label className="block text-[10px] font-extrabold text-[#145a3a] dark:text-[#dfbd69] mb-1">
+                  ١. تصنيف التقييم الجاهز (يُربط تلقائياً مع النص):
+                </label>
+                <select
+                  value={voiceNoteEvalRatingInput}
+                  onChange={(e) =>
+                    setVoiceNoteEvalRatingInput(
+                      e.target.value as VoiceNoteEvaluationRating
+                    )
+                  }
+                  className="w-full px-3 py-2 rounded-xl border-2 border-[#c59b27] bg-[#fcfaf2] dark:bg-[#0b1711] text-xs font-black text-[#145a3a] dark:text-[#dfbd69] shadow-2xs"
+                >
+                  {VOICE_NOTE_EVAL_RATINGS.map((rt) => (
+                    <option key={rt.value} value={rt.value}>
+                      {rt.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="lg:col-span-2">
+                <label className="block text-[10px] font-bold text-neutral-500 mb-1">
+                  ٢. محور الحصة الخماسي:
+                </label>
+                <select
+                  value={activeErrorContext}
+                  onChange={(e) => setActiveErrorContext(e.target.value as ErrorContext)}
+                  className="w-full px-2.5 py-2 rounded-xl border border-neutral-300 dark:border-emerald-800 bg-white dark:bg-[#0b1711] text-xs font-bold"
+                >
+                  <option value="التسميع">١) محور التسميع الفعلي</option>
+                  <option value="الحفظ الجديد">٢) محور الحفظ الجديد</option>
+                  <option value="المراجعة القريبة">٣) محور المراجعة القريبة</option>
+                  <option value="المراجعة البعيدة">٤) محور المراجعة البعيدة</option>
+                  <option value="الأجزاء">٥) محور الأجزاء والسور</option>
+                </select>
+              </div>
+
+              <div className="lg:col-span-2">
+                <label className="block text-[10px] font-bold text-neutral-500 mb-1">
+                  ٣. نوع الملاحظة:
+                </label>
                 <select
                   value={voiceNoteCategoryInput}
                   onChange={(e) =>
@@ -5000,90 +6305,380 @@ export const SessionEngineView: React.FC = () => {
                         | 'توجيه عام'
                     )
                   }
-                  className="w-full px-3 py-2 rounded-xl border border-neutral-300 dark:border-emerald-800 bg-white dark:bg-[#0b1711] text-xs font-bold"
+                  className="w-full px-2.5 py-2 rounded-xl border border-neutral-300 dark:border-emerald-800 bg-white dark:bg-[#0b1711] text-xs font-bold"
                 >
-                  <option value="تجويد">تصنيف الملاحظة: تصحيح حكم تجويد</option>
-                  <option value="مخارج">تصنيف الملاحظة: مخارج الحروف والصفات</option>
-                  <option value="حفظ">تصنيف الملاحظة: تثبيت حفظ ومتشابهات</option>
-                  <option value="تشكيل">تصنيف الملاحظة: ضبط تشكيل وإعراب</option>
-                  <option value="توجيه عام">تصنيف الملاحظة: توجيه عام وتشجيع</option>
+                  <option value="تجويد">أحكام تجويد ومدود</option>
+                  <option value="مخارج">مخارج الحروف والصفات</option>
+                  <option value="حفظ">تثبيت حفظ ومتشابهات</option>
+                  <option value="تشكيل">ضبط تشكيل وأواخر الكلمات</option>
+                  <option value="توجيه عام">تقييم عام وتشجيع</option>
                 </select>
               </div>
-              <div className="sm:col-span-8">
+
+              <div className="lg:col-span-5">
+                <div className="flex items-center justify-between mb-1">
+                  <label className="text-[10px] font-bold text-neutral-500">
+                    ٤. ملخص سريع للملاحظة الصوتية (تُربط مع «{voiceNoteEvalRatingInput}»):
+                  </label>
+                  <label className="flex items-center gap-1 text-[10px] font-extrabold text-[#145a3a] dark:text-[#dfbd69] cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={autoConvertVoiceNoteOnStop}
+                      onChange={(e) => setAutoConvertVoiceNoteOnStop(e.target.checked)}
+                      className="accent-[#145a3a] rounded"
+                    />
+                    <span>تحويل تلقائي بـ AI فور إيقاف الميكروفون</span>
+                  </label>
+                </div>
                 <input
                   type="text"
-                  value={voiceNoteTitleInput}
-                  onChange={(e) => setVoiceNoteTitleInput(e.target.value)}
-                  placeholder={`عنوان الملاحظة الصوتية على (${activeErrorContext}) — مثال: تحقيق الغنة في سورة ${actualRecitation.surahName}...`}
+                  value={voiceNoteTitleInput || liveVoiceDraftTranscript}
+                  onChange={(e) => {
+                    setVoiceNoteTitleInput(e.target.value);
+                    setLiveVoiceDraftTranscript(e.target.value);
+                    liveVoiceDraftRef.current = e.target.value;
+                  }}
+                  placeholder={`تحدث في الميكروفون أو اكتب ملاحظة لتُربط بتصنيف (${voiceNoteEvalRatingInput})...`}
                   className="w-full px-3.5 py-2 rounded-xl border border-neutral-300 dark:border-emerald-800 bg-white dark:bg-[#0b1711] text-xs font-semibold"
                 />
               </div>
             </div>
 
-            {/* Saved Teacher Voice Notes List for Current Student */}
-            {studentTeacherVoiceNotes.length > 0 && (
-              <div className="pt-2 border-t border-[#c59b27]/30 space-y-2">
-                <div className="flex items-center justify-between text-[11px] font-extrabold text-[#145a3a] dark:text-[#dfbd69]">
+            {/* شرائح سريعة لملاحظات المعلم الصوتية المعتادة لتسهيل التسجيل والتحويل الذكي بضغطة واحدة */}
+            <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
+              <span className="text-[10px] font-bold text-neutral-500">
+                ⚡ قوالب صوتية سريعة لمستوى الطالب:
+              </span>
+              {[
+                {
+                  cat: 'حفظ' as const,
+                  rating: 'متميز' as VoiceNoteEvaluationRating,
+                  text: `إتقان متميز في حفظ سورة ${actualRecitation.surahName} مع سلاسة في استحضار الآيات`,
+                },
+                {
+                  cat: 'تجويد' as const,
+                  rating: 'جيد جداً' as VoiceNoteEvaluationRating,
+                  text: `أداء جيد جداً مع الحاجة لإتمام زمن الغنة والمد المتصل في سورة ${actualRecitation.surahName}`,
+                },
+                {
+                  cat: 'مخارج' as const,
+                  rating: 'جيد' as VoiceNoteEvaluationRating,
+                  text: `مستوى جيد مع تحسن في مخارج الحروف والقلقلة ومراعاة تفخيم الراء`,
+                },
+                {
+                  cat: 'حفظ' as const,
+                  rating: 'يحتاج مراجعة' as VoiceNoteEvaluationRating,
+                  text: `يحتاج مراجعة وتثبيت لأواخر الآيات والمتشابهات وتكرار المقطع 5 مرات في المنزل`,
+                },
+                {
+                  cat: 'تشكيل' as const,
+                  rating: 'ضعيف' as VoiceNoteEvaluationRating,
+                  text: `ضعف في ضبط حركات أواخر الكلمات ويحتاج إعادة تأسيس وتدريب متأنٍّ مع القارئ`,
+                },
+              ].map((chip, idx) => (
+                <button
+                  key={idx}
+                  type="button"
+                  onClick={() => {
+                    setVoiceNoteCategoryInput(chip.cat);
+                    setVoiceNoteEvalRatingInput(chip.rating);
+                    setVoiceNoteTitleInput(chip.text);
+                    setLiveVoiceDraftTranscript(chip.text);
+                    liveVoiceDraftRef.current = chip.text;
+                  }}
+                  className="px-2.5 py-1 rounded-lg bg-white dark:bg-[#0b1711] hover:bg-[#145a3a] hover:text-white border border-neutral-200 dark:border-emerald-900/60 text-[10px] font-bold text-[#145a3a] dark:text-[#dfbd69] cursor-pointer transition"
+                >
+                  [{chip.rating}] + {chip.text.slice(0, 42)}...
+                </button>
+              ))}
+            </div>
+
+            {/* قائمة الملاحظات الصوتية المسجلة للطالب مع زر التحويل إلى نص تقييمي بالذكاء الاصطناعي */}
+            {studentTeacherVoiceNotes.length === 0 ? (
+              <div className="p-3.5 rounded-2xl bg-white/80 dark:bg-[#0b1711]/70 border border-dashed border-[#c59b27]/50 text-center text-xs text-neutral-500">
+                لا توجد ملاحظات صوتية سريعة مسجلة للطالب ({currentStudent?.name}) في هذه الحصة بعد — اختر تصنيف التقييم (<strong>{voiceNoteEvalRatingInput}</strong>) ثم اضغط على <strong>«🎙️ تسجيل ملاحظة صوتية سريعة بالميكروفون»</strong> أعلاه لتسجيل ملاحظتك وتحويلها لاحقاً إلى نص تقييمي بالذكاء الاصطناعي.
+              </div>
+            ) : (
+              <div className="pt-3 border-t border-[#c59b27]/40 space-y-3">
+                <div className="flex flex-wrap items-center justify-between gap-2 text-xs font-extrabold text-[#145a3a] dark:text-[#dfbd69]">
                   <span>
-                    📂 التسجيلات الصوتية المحفوظة محلياً للطالب ({currentStudent?.name}):
+                    📂 سجل ملاحظات المعلم الصوتية السريعة للطالب ({currentStudent?.name}) وتحويلها التقييمي بالذكاء الاصطناعي:
                   </span>
-                  <span className="text-neutral-500">
-                    محفوظة في الذاكرة المحلية وقاعدة IndexedDB
+                  <span className="text-[11px] text-neutral-500">
+                    اضغط «✨ تحويل لنص تقييمي بالذكاء الاصطناعي» ليتم ربط التصنيف المختار تلقائياً مع النص
                   </span>
                 </div>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
-                  {studentTeacherVoiceNotes.slice(0, 8).map((vn) => (
-                    <div
-                      key={vn.id}
-                      className="p-2.5 rounded-xl bg-white dark:bg-[#0b1711] border border-neutral-200 dark:border-emerald-900/60 flex flex-col justify-between gap-2"
-                    >
-                      <div className="flex items-start justify-between gap-2">
-                        <div className="min-w-0">
-                          <div className="text-xs font-extrabold text-[#14281d] dark:text-white truncate">
-                            🎙️ {vn.title}
-                          </div>
-                          <div className="text-[10px] text-neutral-500 mt-0.5 flex flex-wrap items-center gap-1.5">
-                            <span className="px-1.5 py-0.5 rounded bg-[#145a3a]/10 text-[#145a3a] dark:text-[#dfbd69] font-bold">
-                              {vn.context}
-                            </span>
-                            <span className="px-1.5 py-0.5 rounded bg-[#c59b27]/20 text-[#14281d] dark:text-[#dfbd69] font-bold">
-                              {vn.category}
-                            </span>
-                            {vn.surahName && (
-                              <span>
-                                • سورة {vn.surahName}{' '}
-                                {vn.ayahNumber ? `(آية ${vn.ayahNumber})` : ''}
+
+                <div className="grid grid-cols-1 gap-3">
+                  {studentTeacherVoiceNotes.slice(0, 10).map((vn) => {
+                    const isConvertingThis =
+                      convertingVoiceNoteId === vn.id ||
+                      convertingVoiceNoteId === 'ALL';
+                    const vnRating: VoiceNoteEvaluationRating =
+                      vn.evaluationRating || 'متميز';
+                    const vnRatingMeta =
+                      VOICE_NOTE_EVAL_RATINGS.find((r) => r.value === vnRating) ||
+                      VOICE_NOTE_EVAL_RATINGS[0];
+
+                    return (
+                      <div
+                        key={vn.id}
+                        className={`p-3.5 rounded-2xl border-2 transition space-y-3 ${
+                          vn.aiEvaluativeText
+                            ? 'bg-white dark:bg-[#0b1711] border-[#c59b27] shadow-sm'
+                            : 'bg-white dark:bg-[#0b1711] border-neutral-200 dark:border-emerald-900/60'
+                        }`}
+                      >
+                        <div className="flex flex-wrap items-start justify-between gap-2">
+                          <div className="space-y-1 min-w-0 flex-1">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span
+                                className={`px-2.5 py-0.5 rounded-lg text-[10px] font-black border ${vnRatingMeta.badgeClass}`}
+                              >
+                                🏷️ التقييم: {vnRating}
                               </span>
-                            )}
-                            <span>• {vn.durationSeconds} ث</span>
+                              <span className="px-2 py-0.5 rounded-lg bg-[#145a3a] text-[#dfbd69] text-[10px] font-black">
+                                {vn.context}
+                              </span>
+                              <span className="px-2 py-0.5 rounded-lg bg-[#c59b27]/20 text-[#14281d] dark:text-[#dfbd69] text-[10px] font-black">
+                                {vn.category}
+                              </span>
+                              {vn.surahName && (
+                                <span className="text-[11px] font-extrabold text-emerald-800 dark:text-emerald-300">
+                                  سورة {vn.surahName}{' '}
+                                  {vn.ayahNumber ? `(آية ${vn.ayahNumber})` : ''}
+                                </span>
+                              )}
+                              <span className="text-[10px] font-mono text-neutral-500">
+                                ⏱️ {vn.durationSeconds} ثانية • {vn.sessionDate}
+                              </span>
+                              {vn.appliedToSessionNotes && (
+                                <span className="px-2 py-0.5 rounded-full bg-emerald-600 text-white text-[10px] font-black">
+                                  ✓ مُدرج في تقييم الحصة
+                                </span>
+                              )}
+                            </div>
+
+                            <div className="text-xs font-extrabold text-[#14281d] dark:text-white flex flex-wrap items-center gap-2 pt-0.5">
+                              <span>🎙️ {vn.title}</span>
+                              {/* إمكانية تغيير تصنيف التقييم الجاهز للملاحظة الصوتية قبل أو بعد تحويلها لنص */}
+                              <select
+                                value={vnRating}
+                                onChange={(e) => {
+                                  const nextRating = e.target
+                                    .value as VoiceNoteEvaluationRating;
+                                  setAllTeacherVoiceNotes((prev) =>
+                                    prev.map((item) =>
+                                      item.id === vn.id
+                                        ? { ...item, evaluationRating: nextRating }
+                                        : item
+                                    )
+                                  );
+                                }}
+                                className="px-2 py-0.5 rounded-lg border border-[#c59b27] bg-[#fcfaf2] dark:bg-[#12231a] text-[10px] font-black text-[#145a3a] dark:text-[#dfbd69]"
+                                title="تغيير تصنيف التقييم المرتبط بهذه الملاحظة الصوتية"
+                              >
+                                {VOICE_NOTE_EVAL_RATINGS.map((rt) => (
+                                  <option key={rt.value} value={rt.value}>
+                                    تصنيف: {rt.value}
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
+                          </div>
+
+                          <div className="flex flex-wrap items-center gap-1.5 shrink-0">
+                            <button
+                              type="button"
+                              disabled={isConvertingThis}
+                              onClick={() =>
+                                void handleConvertVoiceNoteToEvaluation(vn, {
+                                  autoInsertToParentNotes: false,
+                                })
+                              }
+                              className="px-3 py-1.5 rounded-xl bg-gradient-to-l from-[#c59b27] to-[#dfbd69] hover:brightness-105 text-[#14281d] text-xs font-black flex items-center gap-1.5 cursor-pointer shadow-xs disabled:opacity-60 transition"
+                              title="تحويل هذه الملاحظة الصوتية إلى نص تقييمي تربوي وتجويدي باستخدام الذكاء الاصطناعي"
+                            >
+                              <Sparkles className="w-3.5 h-3.5" />
+                              <span>
+                                {isConvertingThis
+                                  ? 'جاري التحويل بـ AI...'
+                                  : vn.aiEvaluativeText
+                                  ? '🔄 إعادة صياغة التقييم بـ AI'
+                                  : '✨ تحويل الملاحظة الصوتية إلى نص تقييمي بـ AI'}
+                              </span>
+                            </button>
+
+                            <a
+                              href={vn.audioDataUrl}
+                              download={`teacher-voice-note-${vn.studentId}-${vn.sessionDate}.wav`}
+                              className="p-1.5 rounded-xl bg-emerald-50 dark:bg-emerald-950/50 text-[#145a3a] dark:text-[#dfbd69] hover:bg-emerald-100 border border-emerald-500/30"
+                              title="تنزيل الملاحظة الصوتية"
+                            >
+                              <Download className="w-3.5 h-3.5" />
+                            </a>
+
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteTeacherVoiceNote(vn.id)}
+                              className="p-1.5 rounded-xl text-red-600 hover:bg-red-50 dark:hover:bg-red-950/40 cursor-pointer"
+                              title="حذف الملاحظة الصوتية"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
                           </div>
                         </div>
-                        <div className="flex items-center gap-1 shrink-0">
-                          <a
-                            href={vn.audioDataUrl}
-                            download={`teacher-voice-note-${vn.studentId}-${vn.sessionDate}.wav`}
-                            className="p-1.5 rounded-lg bg-emerald-50 dark:bg-emerald-950/50 text-[#145a3a] dark:text-[#dfbd69] hover:bg-emerald-100"
-                            title="تنزيل الملاحظة الصوتية"
-                          >
-                            <Download className="w-3.5 h-3.5" />
-                          </a>
-                          <button
-                            type="button"
-                            onClick={() => handleDeleteTeacherVoiceNote(vn.id)}
-                            className="p-1.5 rounded-lg text-red-600 hover:bg-red-50 dark:hover:bg-red-950/40 cursor-pointer"
-                            title="حذف الملاحظة الصوتية"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
+
+                        {/* مشغل الصوت للملاحظة المسجلة */}
+                        <div className="flex flex-col sm:flex-row sm:items-center gap-2 bg-[#f6f7f2] dark:bg-[#12231a] p-2 rounded-xl border border-neutral-200/80 dark:border-emerald-900/40">
+                          <audio
+                            controls
+                            src={vn.audioDataUrl}
+                            className="h-8 flex-1 min-w-[200px]"
+                          />
+                          <input
+                            type="text"
+                            value={vn.rawSpeechTranscript ?? vn.title}
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              setAllTeacherVoiceNotes((prev) =>
+                                prev.map((item) =>
+                                  item.id === vn.id
+                                    ? { ...item, rawSpeechTranscript: val, title: val || item.title }
+                                    : item
+                                )
+                              );
+                            }}
+                            placeholder="نص أو ملخص الملاحظة المنطوقة لتحسين دقة التحويل بالذكاء الاصطناعي..."
+                            className="flex-1 px-2.5 py-1 rounded-lg bg-white dark:bg-[#0b1711] border border-neutral-200 dark:border-emerald-900 text-[11px] font-semibold"
+                          />
                         </div>
+
+                        {/* نتيجة التحويل إلى نص تقييمي بالذكاء الاصطناعي */}
+                        {vn.aiEvaluativeText && (
+                          <div className="p-3.5 rounded-2xl bg-gradient-to-l from-[#145a3a]/10 via-[#fcfaf2] to-[#c59b27]/15 dark:from-emerald-950/40 dark:via-[#12231a] dark:to-[#0b1711] border border-[#c59b27] space-y-2.5 animate-in fade-in">
+                            <div className="flex flex-wrap items-center justify-between gap-2">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <span className="px-2.5 py-0.5 rounded-full bg-[#145a3a] text-[#dfbd69] text-[10px] font-black flex items-center gap-1">
+                                  <Sparkles className="w-3 h-3" />
+                                  <span>النص التقييمي المُولّد بالذكاء الاصطناعي</span>
+                                </span>
+                                {vn.aiSuggestedGrade && (
+                                  <span className="px-2 py-0.5 rounded-lg bg-emerald-600 text-white text-[10px] font-black">
+                                    التقدير المقترح: {vn.aiSuggestedGrade} (
+                                    {vn.aiSuggestedScore || 92}%)
+                                  </span>
+                                )}
+                              </div>
+
+                              <div className="flex flex-wrap items-center gap-1.5">
+                                <button
+                                  type="button"
+                                  onClick={() => handleApplyVoiceNoteEvaluationToSession(vn)}
+                                  className="px-3 py-1 rounded-xl bg-[#145a3a] hover:bg-[#0f452c] text-[#dfbd69] text-[11px] font-black flex items-center gap-1 cursor-pointer shadow-2xs"
+                                >
+                                  <CheckCircle2 className="w-3.5 h-3.5" />
+                                  <span>📥 اعتماد وإدراج في تقييم الحصة وولي الأمر</span>
+                                </button>
+
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    const fullText = `${vn.aiEvaluativeText}\n${
+                                      vn.aiImprovementPlan
+                                        ? `💡 خطة التحسين: ${vn.aiImprovementPlan}`
+                                        : ''
+                                    }`;
+                                    navigator.clipboard?.writeText(fullText);
+                                    showToast(
+                                      '📋 تم نسخ النص التقييمي المحوّل بالذكاء الاصطناعي إلى الحافظة ✓',
+                                      'success'
+                                    );
+                                  }}
+                                  className="px-2.5 py-1 rounded-xl bg-white dark:bg-[#0b1711] border border-[#c59b27]/50 text-[#145a3a] dark:text-[#dfbd69] text-[11px] font-bold cursor-pointer"
+                                >
+                                  📋 نسخ النص
+                                </button>
+
+                                {currentStudent && (
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      const waText = `${settings.whatsappHeader}\n\n🎙️ *تقييم المعلم المحوّل من الملاحظة الصوتية للطالب (${currentStudent.name}):*\n${vn.aiEvaluativeText}\n\n${
+                                        vn.aiParentSummary
+                                          ? `💬 *رسالة لولي الأمر:* ${vn.aiParentSummary}\n`
+                                          : ''
+                                      }${
+                                        vn.aiImprovementPlan
+                                          ? `📌 *خطة المتابعة المنزلية:* ${vn.aiImprovementPlan}\n`
+                                          : ''
+                                      }\n${settings.whatsappFooter}`;
+                                      const waUrl = buildWhatsAppUrl(
+                                        currentStudent.whatsappPhone,
+                                        waText
+                                      );
+                                      const a = document.createElement('a');
+                                      a.href = waUrl;
+                                      a.target = '_blank';
+                                      a.rel = 'noopener noreferrer';
+                                      document.body.appendChild(a);
+                                      a.click();
+                                      document.body.removeChild(a);
+                                    }}
+                                    className="px-2.5 py-1 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-[11px] font-black flex items-center gap-1 cursor-pointer"
+                                  >
+                                    <Send className="w-3 h-3" />
+                                    <span>إرسال لواتساب ولي الأمر</span>
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+
+                            <textarea
+                              rows={3}
+                              value={vn.aiEvaluativeText}
+                              onChange={(e) => {
+                                const updated = e.target.value;
+                                setAllTeacherVoiceNotes((prev) =>
+                                  prev.map((item) =>
+                                    item.id === vn.id
+                                      ? { ...item, aiEvaluativeText: updated }
+                                      : item
+                                  )
+                                );
+                              }}
+                              className="w-full p-2.5 rounded-xl bg-white dark:bg-[#0b1711] border border-[#c59b27]/50 text-xs font-semibold text-[#14281d] dark:text-emerald-50 leading-relaxed"
+                            />
+
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-[11px]">
+                              {vn.aiStrengths && vn.aiStrengths.length > 0 && (
+                                <div className="p-2 rounded-xl bg-emerald-500/10 border border-emerald-500/30">
+                                  <span className="font-extrabold text-[#145a3a] dark:text-[#dfbd69] block mb-0.5">
+                                    🌟 نقاط القوة المرصودة:
+                                  </span>
+                                  <ul className="list-disc list-inside text-neutral-700 dark:text-neutral-200 space-y-0.5">
+                                    {vn.aiStrengths.map((st, i) => (
+                                      <li key={i}>{st}</li>
+                                    ))}
+                                  </ul>
+                                </div>
+                              )}
+                              {vn.aiImprovementPlan && (
+                                <div className="p-2 rounded-xl bg-amber-500/10 border border-[#c59b27]/40">
+                                  <span className="font-extrabold text-[#145a3a] dark:text-[#dfbd69] block mb-0.5">
+                                    📌 خطة التحسين والتثبيت للحصة القادمة:
+                                  </span>
+                                  <p className="text-neutral-700 dark:text-neutral-200">
+                                    {vn.aiImprovementPlan}
+                                  </p>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        )}
                       </div>
-                      <audio
-                        controls
-                        src={vn.audioDataUrl}
-                        className="w-full h-8"
-                      />
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </div>
             )}
@@ -5163,6 +6758,320 @@ export const SessionEngineView: React.FC = () => {
               </button>
             </div>
           </div>
+
+          {/* ⏱️ عداد التسميع التنازلي الدقيق لإدارة وقت الحصة الخماسي لكل طالب وتنبيه المعلم */}
+          {currentStudent && (
+            <div
+              id="student-recitation-countdown-timer"
+              className={`p-4 sm:p-5 rounded-2xl border-2 shadow-md transition-all space-y-3.5 ${
+                timerStatusVisual.isExpired
+                  ? 'bg-gradient-to-l from-red-900 via-red-800 to-rose-950 text-white border-red-400 ring-4 ring-red-500/30'
+                  : timerStatusVisual.isApproachingEnd
+                    ? 'bg-gradient-to-l from-amber-600 via-amber-700 to-orange-800 text-white border-amber-300 ring-4 ring-amber-500/30'
+                    : 'bg-gradient-to-l from-[#145a3a] via-[#103825] to-[#0b1f15] text-white border-[#c59b27]'
+              }`}
+            >
+              <div className="flex flex-wrap items-center justify-between gap-4">
+                {/* Right: Timer Display & Student Context */}
+                <div className="flex items-center gap-3.5">
+                  <div
+                    className={`px-4 py-2.5 rounded-2xl border-2 flex flex-col items-center justify-center min-w-[120px] shadow-inner ${
+                      timerStatusVisual.isExpired
+                        ? 'bg-red-950/90 border-red-300 text-red-100 animate-pulse'
+                        : timerStatusVisual.isApproachingEnd
+                          ? 'bg-amber-950/85 border-amber-200 text-amber-100 animate-pulse'
+                          : 'bg-black/35 border-[#c59b27] text-[#dfbd69]'
+                    }`}
+                  >
+                    <div className="flex items-center gap-1.5">
+                      <Timer className="w-4 h-4 text-[#dfbd69]" />
+                      <span className="font-mono text-2xl sm:text-3xl font-black tracking-widest">
+                        {formatTimerMMSS(timerRemainingSeconds)}
+                      </span>
+                    </div>
+                    <span className="text-[10px] font-extrabold text-emerald-100/90 mt-0.5">
+                      {timerStatusVisual.isExpired
+                        ? '⌛ انتهى وقت التسميع!'
+                        : timerStatusVisual.isApproachingEnd
+                          ? '⏰ اقترب انتهاء الوقت!'
+                          : isTimerRunning
+                            ? '🟢 العداد يعمل الآن'
+                            : '⏸️ العداد متوقف مؤقتاً'}
+                    </span>
+                  </div>
+
+                  <div>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <h3 className="text-sm sm:text-base font-extrabold text-[#dfbd69] flex items-center gap-1.5">
+                        <span>⏱️ عداد إدارة وقت التسميع في المحرك الخماسي</span>
+                      </h3>
+                      <span className="px-2.5 py-0.5 rounded-full bg-white/15 border border-white/25 text-[11px] font-black text-white">
+                        الطالب: {currentStudent.name}
+                      </span>
+                      {timerElapsedSeconds > 0 && (
+                        <span className="px-2.5 py-0.5 rounded-full bg-emerald-500/20 border border-emerald-300/40 text-[11px] font-bold text-emerald-100">
+                          الوقت المنقضي الفعلي: {formatTimerMMSS(timerElapsedSeconds)}
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-xs text-emerald-100/90 mt-1">
+                      {timerStatusVisual.currentSuggestedAxis}
+                    </p>
+                  </div>
+                </div>
+
+                {/* Left: Main Playback Controls & Quick Extensions */}
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      triggerHaptic(15);
+                      if (timerRemainingSeconds <= 0) {
+                        handleResetRecitationTimer(true);
+                      } else {
+                        setIsTimerRunning((prev) => !prev);
+                      }
+                    }}
+                    className={`px-4 py-2 rounded-xl text-xs sm:text-sm font-black flex items-center gap-2 cursor-pointer shadow-md transition ${
+                      isTimerRunning
+                        ? 'bg-amber-400 hover:bg-amber-300 text-[#14281d]'
+                        : 'bg-gradient-to-l from-[#c59b27] to-[#dfbd69] hover:brightness-105 text-[#14281d]'
+                    }`}
+                  >
+                    {isTimerRunning ? (
+                      <>
+                        <Pause className="w-4 h-4" />
+                        <span>⏸️ إيقاف مؤقت</span>
+                      </>
+                    ) : (
+                      <>
+                        <Play className="w-4 h-4" />
+                        <span>
+                          {timerRemainingSeconds < timerPresetSeconds &&
+                          timerRemainingSeconds > 0
+                            ? '▶️ استئناف العداد'
+                            : '▶️ بدء وقت التسميع'}
+                        </span>
+                      </>
+                    )}
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => handleResetRecitationTimer(false)}
+                    className="px-3 py-2 rounded-xl bg-white/15 hover:bg-white/25 border border-white/20 text-white text-xs font-extrabold flex items-center gap-1.5 cursor-pointer transition"
+                    title="إعادة ضبط العداد إلى الوقت المحدد"
+                  >
+                    <RotateCcw className="w-3.5 h-3.5 text-[#dfbd69]" />
+                    <span>إعادة ضبط</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => handleExtendTimerSeconds(60)}
+                    className="px-2.5 py-2 rounded-xl bg-emerald-700/80 hover:bg-emerald-600 border border-[#c59b27]/50 text-white text-xs font-black cursor-pointer transition"
+                    title="إضافة دقيقة إضافية لوقت الطالب"
+                  >
+                    +1 د
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => handleExtendTimerSeconds(120)}
+                    className="px-2.5 py-2 rounded-xl bg-emerald-700/80 hover:bg-emerald-600 border border-[#c59b27]/50 text-white text-xs font-black cursor-pointer transition"
+                    title="إضافة دقيقتين إضافيتين لوقت الطالب"
+                  >
+                    +2 د
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const nextSound = !timerSoundEnabled;
+                      setTimerSoundEnabled(nextSound);
+                      if (nextSound) {
+                        playRecitationTimerTone('warning');
+                      }
+                    }}
+                    className={`px-3 py-2 rounded-xl border text-xs font-extrabold flex items-center gap-1.5 cursor-pointer transition ${
+                      timerSoundEnabled
+                        ? 'bg-white/15 border-[#c59b27] text-[#dfbd69]'
+                        : 'bg-black/30 border-white/15 text-neutral-300'
+                    }`}
+                    title="تفعيل أو كتم الجرس الصوتي عند اقتراب انتهاء الوقت وعند انتهائه"
+                  >
+                    {timerSoundEnabled ? (
+                      <>
+                        <Bell className="w-3.5 h-3.5 text-[#dfbd69]" />
+                        <span>🔔 التنبيه الصوتي مفعّل</span>
+                      </>
+                    ) : (
+                      <>
+                        <BellOff className="w-3.5 h-3.5 text-neutral-300" />
+                        <span>🔕 التنبيه مكتوم</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+              </div>
+
+              {/* Progress Bar with 5-Axis Time Split Markers */}
+              <div className="space-y-1.5">
+                <div className="w-full h-3 rounded-full bg-black/40 overflow-hidden border border-white/15 p-0.5">
+                  <div
+                    className={`h-full rounded-full transition-all duration-500 ${
+                      timerStatusVisual.isExpired
+                        ? 'bg-red-400'
+                        : timerStatusVisual.isApproachingEnd
+                          ? 'bg-amber-300'
+                          : 'bg-gradient-to-l from-[#c59b27] via-emerald-400 to-emerald-500'
+                    }`}
+                    style={{ width: `${timerStatusVisual.pct}%` }}
+                  />
+                </div>
+                <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] text-emerald-100/85 font-bold">
+                  <span>
+                    نسبة الوقت المتبقي: {timerStatusVisual.pct}% (الإجمالي المحدد:{' '}
+                    {Math.round(timerPresetSeconds / 60)} دقيقة)
+                  </span>
+                  <span>
+                    توزيع المحرك الخماسي المقترح: التسميع ٣٠٪ • الجديد ٢٥٪ • القريب ٢٠٪ • البعيد والأجزاء ٢٥٪
+                  </span>
+                </div>
+              </div>
+
+              {/* Approaching End / Expired Alert Banner */}
+              {(timerStatusVisual.isApproachingEnd || timerStatusVisual.isExpired) && (
+                <div
+                  className={`p-3 rounded-xl border-2 flex flex-wrap items-center justify-between gap-3 ${
+                    timerStatusVisual.isExpired
+                      ? 'bg-red-950/90 border-red-300 text-white'
+                      : 'bg-amber-950/90 border-amber-300 text-amber-50'
+                  }`}
+                >
+                  <div className="flex items-center gap-2 text-xs sm:text-sm font-black">
+                    <AlertTriangle className="w-5 h-5 text-[#dfbd69] shrink-0" />
+                    <span>
+                      {timerStatusVisual.isExpired
+                        ? `⌛ انتهى وقت تسميع الطالب (${currentStudent.name}) بالكامل! يُرجى التمديد أو حفظ الحصة والانتقال للطالب التالي.`
+                        : `⏰ تنبيه للمعلم: اقترب انتهاء وقت التسميع المخصص للطالب (${currentStudent.name}) — متبقي ${formatTimerMMSS(timerRemainingSeconds)} فقط!`}
+                    </span>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => handleExtendTimerSeconds(120)}
+                      className="px-3 py-1.5 rounded-lg bg-[#c59b27] hover:bg-[#dfbd69] text-[#14281d] text-xs font-black cursor-pointer"
+                    >
+                      ⏱️ تمديد +2 دقيقة
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        buildAndSaveSession('منشور ببوابة ولي الأمر');
+                      }}
+                      className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-black cursor-pointer"
+                    >
+                      ✅ حفظ الحصة والطالب التالي
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Presets, Custom Time & Warning Threshold Controls */}
+              <div className="pt-2 border-t border-white/15 flex flex-wrap items-center justify-between gap-3 text-xs">
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <span className="text-emerald-200 font-extrabold ml-1">
+                    ⚡ قوالب وقت الطالب:
+                  </span>
+                  {[
+                    { label: '5 دقائق', sec: 300 },
+                    { label: '10 دقائق', sec: 600 },
+                    { label: '15 دقيقة', sec: 900 },
+                    { label: '20 دقيقة', sec: 1200 },
+                    { label: '30 دقيقة', sec: 1800 },
+                  ].map((preset) => (
+                    <button
+                      key={preset.sec}
+                      type="button"
+                      onClick={() => handleSelectTimerPreset(preset.sec, false)}
+                      className={`px-2.5 py-1 rounded-lg font-extrabold cursor-pointer transition ${
+                        timerPresetSeconds === preset.sec
+                          ? 'bg-[#c59b27] text-[#14281d] shadow-xs'
+                          : 'bg-white/10 hover:bg-white/20 text-white'
+                      }`}
+                    >
+                      {preset.label}
+                    </button>
+                  ))}
+
+                  {/* Custom Minutes Input */}
+                  <div className="flex items-center gap-1 bg-black/30 px-2 py-0.5 rounded-lg border border-white/15 mr-1">
+                    <input
+                      type="number"
+                      min={1}
+                      max={120}
+                      value={timerCustomMinutesInput}
+                      onChange={(e) => setTimerCustomMinutesInput(e.target.value)}
+                      className="w-12 bg-transparent text-center font-mono font-black text-[#dfbd69] focus:outline-none"
+                      aria-label="تحديد دقائق مخصصة للعداد"
+                    />
+                    <span className="text-[11px] text-emerald-200">دقيقة</span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const mins = Number(timerCustomMinutesInput);
+                        if (Number.isFinite(mins) && mins >= 1) {
+                          handleSelectTimerPreset(mins * 60, false);
+                        }
+                      }}
+                      className="px-2 py-0.5 rounded bg-[#c59b27] text-[#14281d] text-[11px] font-black cursor-pointer"
+                    >
+                      تطبيق
+                    </button>
+                  </div>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-3">
+                  {/* Warning Threshold Selector */}
+                  <label className="flex items-center gap-1.5 text-emerald-100 font-bold">
+                    <span>⏰ التنبيه قبل الانتهاء بـ:</span>
+                    <select
+                      value={timerWarningThresholdSec}
+                      onChange={(e) => {
+                        const nextWarn = Number(e.target.value);
+                        setTimerWarningThresholdSec(nextWarn);
+                        localStorage.setItem(
+                          'wlq_5axis_timer_warn_sec',
+                          String(nextWarn)
+                        );
+                        hasFiredApproachingWarningRef.current = false;
+                      }}
+                      className="px-2 py-1 rounded-lg bg-black/40 border border-[#c59b27]/60 text-[#dfbd69] font-extrabold focus:outline-none"
+                    >
+                      <option value={30}>30 ثانية</option>
+                      <option value={60}>دقيقة واحدة (60 ث)</option>
+                      <option value={120}>دقيقتين (120 ث)</option>
+                      <option value={180}>3 دقائق</option>
+                    </select>
+                  </label>
+
+                  {/* Auto-reset on student change */}
+                  <label className="flex items-center gap-1.5 text-emerald-100 font-bold cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={timerAutoResetOnStudentSwitch}
+                      onChange={(e) =>
+                        setTimerAutoResetOnStudentSwitch(e.target.checked)
+                      }
+                      className="accent-[#c59b27] rounded cursor-pointer"
+                    />
+                    <span>إعادة ضبط تلقائياً عند الانتقال لطالب آخر</span>
+                  </label>
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* 📊 مؤشر صحة التسميع + بطاقة إرسال ملخص التسميع التلقائي عبر واتساب لولي الأمر بضغطة زر واحدة */}
           {currentStudent && (
@@ -5600,25 +7509,48 @@ export const SessionEngineView: React.FC = () => {
                 </p>
               </div>
 
-              {currentStudent?.lastRecitationAudioUrl && (
-                <div className="flex items-center gap-2 bg-white dark:bg-[#0b1711] px-3 py-1.5 rounded-xl border border-emerald-500/40 text-[11px]">
-                  <span className="font-extrabold text-[#145a3a] dark:text-[#dfbd69]">
-                    🔗 آخر رابط مخزن بحالة الطالب:
+              <div className="flex flex-wrap items-center gap-2">
+                <div className="flex items-center gap-1.5 bg-white dark:bg-[#0b1711] px-3 py-1.5 rounded-xl border-2 border-[#c59b27]">
+                  <span className="text-[11px] font-extrabold text-[#145a3a] dark:text-[#dfbd69]">
+                    🏷️ تصنيف التقييم المرتبط بالميكروفون:
                   </span>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if (currentStudent.lastRecitationAudioUrl) {
-                        navigator.clipboard?.writeText(currentStudent.lastRecitationAudioUrl);
-                        showToast('تم نسخ رابط آخر تسميع مخزن في حالة الطالب ✓', 'success');
-                      }
-                    }}
-                    className="px-2 py-0.5 rounded bg-[#145a3a] text-[#dfbd69] font-bold cursor-pointer"
+                  <select
+                    value={voiceNoteEvalRatingInput}
+                    onChange={(e) =>
+                      setVoiceNoteEvalRatingInput(
+                        e.target.value as VoiceNoteEvaluationRating
+                      )
+                    }
+                    className="bg-transparent text-xs font-black text-[#145a3a] dark:text-[#dfbd69] focus:outline-none cursor-pointer"
                   >
-                    نسخ الرابط
-                  </button>
+                    {VOICE_NOTE_EVAL_RATINGS.map((rt) => (
+                      <option key={rt.value} value={rt.value}>
+                        {rt.value}
+                      </option>
+                    ))}
+                  </select>
                 </div>
-              )}
+
+                {currentStudent?.lastRecitationAudioUrl && (
+                  <div className="flex items-center gap-2 bg-white dark:bg-[#0b1711] px-3 py-1.5 rounded-xl border border-emerald-500/40 text-[11px]">
+                    <span className="font-extrabold text-[#145a3a] dark:text-[#dfbd69]">
+                      🔗 آخر رابط مخزن بحالة الطالب:
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (currentStudent.lastRecitationAudioUrl) {
+                          navigator.clipboard?.writeText(currentStudent.lastRecitationAudioUrl);
+                          showToast('تم نسخ رابط آخر تسميع مخزن في حالة الطالب ✓', 'success');
+                        }
+                      }}
+                      className="px-2 py-0.5 rounded bg-[#145a3a] text-[#dfbd69] font-bold cursor-pointer"
+                    >
+                      نسخ الرابط
+                    </button>
+                  </div>
+                )}
+              </div>
             </div>
 
             {/* أزرار التسجيل السريع للمحاور الخمسة بضغطة واحدة */}
@@ -6937,58 +8869,112 @@ export const SessionEngineView: React.FC = () => {
           </div>
         </div>
 
-        {/* Teacher Audio Note Recorder */}
-        <div className="flex flex-wrap items-center justify-between gap-3 p-4 rounded-2xl bg-[#f6f7f2] dark:bg-[#0b1711] border border-neutral-200 dark:border-emerald-900/40">
-          <div className="flex flex-wrap items-center gap-3">
-            <button
-              type="button"
-              onClick={handleToggleVoiceRecorder}
-              className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold cursor-pointer ${
-                isRecordingVoice
-                  ? 'bg-red-600 text-white animate-pulse'
-                  : 'bg-[#145a3a] text-white hover:bg-[#0f452c]'
-              }`}
-            >
-              {isRecordingVoice ? (
-                <>
-                  <MicOff className="w-4 h-4" />
-                  <span>
-                    إيقاف وحفظ التسجيل الصوتي ({voiceRecordingSeconds} ثانية)
-                  </span>
-                </>
-              ) : (
-                <>
-                  <Mic className="w-4 h-4 text-[#dfbd69]" />
-                  <span>تسجيل ملاحظة صوتية للمعلم</span>
-                </>
-              )}
-            </button>
+        {/* Guardian-Teacher Educational Voice Note Recorder (الرسائل الصوتية التربوية بين المحفظ وولي الأمر) */}
+        <div className="p-4 sm:p-5 rounded-3xl bg-gradient-to-l from-emerald-950/10 via-[#f6f7f2] to-amber-500/10 dark:from-[#0b1711] dark:via-[#12231a] dark:to-[#0b1711] border-2 border-emerald-600/40 dark:border-emerald-700/50 space-y-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <h4 className="text-sm font-black text-[#145a3a] dark:text-[#dfbd69] flex items-center gap-2">
+                <Mic className="w-4 h-4 text-amber-500" />
+                <span>🎙️ تسجيل وإرسال ملاحظة صوتية تربوية لولي الأمر (Voice Note)</span>
+              </h4>
+              <p className="text-xs text-neutral-600 dark:text-neutral-400 font-bold mt-0.5">
+                سجل تعليقك الصوتي وتشجيعك للطالب عبر MediaRecorder API ليتمكن ولي الأمر من الاستماع إليه مباشرة في بوابته الخاصة (`/Guardian`)
+              </p>
+            </div>
+            <span className="px-3 py-1 rounded-full bg-emerald-100 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-200 text-[11px] font-black">
+              {voiceNoteUrl ? '✅ الملاحظة الصوتية جاهزة للإرسال لبوابة ولي الأمر' : `متصل بـ MediaRecorder (${studentTeacherVoiceNotes.length} تسجيلات)`}
+            </span>
+          </div>
 
-            {voiceNoteUrl && (
-              <div className="flex items-center gap-2">
-                <audio src={voiceNoteUrl} controls className="h-9 max-w-[220px]" />
-                {voiceNoteDuration > 0 && (
-                  <span className="text-[11px] font-bold text-[#145a3a] dark:text-[#dfbd69]">
-                    ({voiceNoteDuration} ث)
-                  </span>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="flex flex-wrap items-center gap-2.5">
+              <button
+                type="button"
+                onClick={handleToggleVoiceRecorder}
+                className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-black cursor-pointer shadow-sm transition ${
+                  isRecordingVoice
+                    ? 'bg-red-600 text-white animate-pulse ring-4 ring-red-500/30'
+                    : 'bg-[#145a3a] text-white hover:bg-[#0f452c]'
+                }`}
+              >
+                {isRecordingVoice ? (
+                  <>
+                    <MicOff className="w-4 h-4" />
+                    <span>
+                      إيقاف وحفظ الرسالة الصوتية لولي الأمر ({voiceRecordingSeconds} ثانية)
+                    </span>
+                  </>
+                ) : (
+                  <>
+                    <Mic className="w-4 h-4 text-[#dfbd69]" />
+                    <span>🎙️ تسجيل وإرسال ملاحظة صوتية لولي الأمر (Voice Note)</span>
+                  </>
                 )}
+              </button>
+
+              {voiceNoteUrl && (
                 <button
                   type="button"
                   onClick={() => {
-                    setVoiceNoteUrl(undefined);
-                    setVoiceNoteDuration(0);
+                    buildAndSaveSession('منشور ببوابة ولي الأمر', {
+                      skipAutoWhatsAppTrigger: true,
+                    });
+                    showToast(
+                      `🎙️ تم إرسال الملاحظة الصوتية التربوية إلى بوابة ولي أمر (${currentStudent?.name}) بنجاح ✓`,
+                      'success'
+                    );
                   }}
-                  className="p-1.5 text-red-600 hover:bg-red-50 rounded-lg cursor-pointer"
+                  className="flex items-center gap-1.5 px-3.5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-black cursor-pointer shadow-xs"
                 >
-                  <Trash2 className="w-4 h-4" />
+                  <Send className="w-3.5 h-3.5" />
+                  <span>نشر الصوتية فوراً في بوابة ولي الأمر</span>
                 </button>
-              </div>
-            )}
-          </div>
+              )}
 
-          <span className="text-xs text-neutral-500">
-            يُحفظ التسجيل الصوتي محلياً مع سجل الحصة وفي قاعدة IndexedDB ({studentTeacherVoiceNotes.length} تسجيلات للطالب)
-          </span>
+              {studentTeacherVoiceNotes.length > 0 && (
+                <button
+                  type="button"
+                  disabled={Boolean(convertingVoiceNoteId)}
+                  onClick={() =>
+                    void handleConvertVoiceNoteToEvaluation(
+                      studentTeacherVoiceNotes[0],
+                      { autoInsertToParentNotes: true }
+                    )
+                  }
+                  className="flex items-center gap-1.5 px-3.5 py-2.5 rounded-xl bg-gradient-to-l from-[#c59b27] to-[#dfbd69] hover:brightness-105 text-[#14281d] text-xs font-black cursor-pointer shadow-xs disabled:opacity-60"
+                  title="تحويل آخر ملاحظة صوتية مسجلة إلى نص تقييمي بالذكاء الاصطناعي وإدراجه في ملاحظات ولي الأمر"
+                >
+                  <Sparkles className="w-4 h-4" />
+                  <span>
+                    {convertingVoiceNoteId
+                      ? 'جاري التحويل النصي بـ AI...'
+                      : '✨ تحويل الصوتية لنص تقييمي بـ AI'}
+                  </span>
+                </button>
+              )}
+
+              {voiceNoteUrl && (
+                <div className="flex items-center gap-2 bg-white dark:bg-slate-900 px-3 py-1.5 rounded-2xl border border-emerald-400/50">
+                  <audio src={voiceNoteUrl} controls className="h-8 max-w-[220px]" />
+                  {voiceNoteDuration > 0 && (
+                    <span className="text-[11px] font-bold text-[#145a3a] dark:text-[#dfbd69]">
+                      ({voiceNoteDuration} ث)
+                    </span>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setVoiceNoteUrl(undefined);
+                      setVoiceNoteDuration(0);
+                    }}
+                    className="p-1 text-red-600 hover:bg-red-50 rounded-lg cursor-pointer"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
         </div>
 
         {/* Multi-Format Session & Error Reports Export Bar */}

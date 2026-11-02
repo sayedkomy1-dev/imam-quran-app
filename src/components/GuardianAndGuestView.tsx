@@ -36,6 +36,7 @@ import {
   StudentIdCardModal,
 } from './StudentIdAndReceiptModals';
 import { NewMemAudioPlayerAndWhatsAppTool } from './NewMemAudioPlayerAndWhatsAppTool';
+import { QuranCoverageAndGoalEngine } from './QuranCoverageAndGoalEngine';
 import {
   Award,
   Bell,
@@ -92,6 +93,8 @@ import {
 import { FaithOasisView } from './FaithOasisView';
 import { SmartQuizAndCompetitionsSection } from './SmartQuizAndCompetitionsSection';
 import { ACADEMY_BRAND_CONFIG } from '../constants/brandConfig';
+import { PortalAISuiteModal } from './PortalAISuiteModal';
+import { PWAInstallButton } from './PWAComponents';
 
 const FORTRESS_TASKS: {
   key: FiveFortressTaskKey;
@@ -1037,6 +1040,7 @@ export const GuardianAndGuestView: React.FC = () => {
     setPublicMushafPortalOpen,
     updateSettings,
     saveStudent,
+    updateStudent,
     addStudentXp,
     awardStudentBadge,
     logout,
@@ -1048,6 +1052,8 @@ export const GuardianAndGuestView: React.FC = () => {
     setIsStaffPortalPreview,
     publishFamilyGuidanceToGuardian,
     updateStudentPrivacyPreference,
+    activePortalRoute,
+    setActivePortalRoute,
     showToast,
   } = useAcademy();
   const [familyCertificateModalOpen, setFamilyCertificateModalOpen] =
@@ -1058,6 +1064,7 @@ export const GuardianAndGuestView: React.FC = () => {
     useState<boolean>(false);
   const [revealGuardianFinanceInPrivateMode, setRevealGuardianFinanceInPrivateMode] =
     useState<boolean>(false);
+  const [portalAiModalOpen, setPortalAiModalOpen] = useState<boolean>(false);
 
   // Role-based View Persona inside GuardianAndGuestView:
   // - 'guardian': What the Parent sees (follow-up, charts, schedule timeline, receipts, teacher evaluation)
@@ -1065,7 +1072,23 @@ export const GuardianAndGuestView: React.FC = () => {
   // - 'staff_supervision': Exclusive view when Owner / Supervisor / Teacher previews the portal
   const [portalViewPersona, setPortalViewPersona] = useState<
     'guardian' | 'student' | 'staff_supervision'
-  >(() => (isStaffPortalPreview ? 'staff_supervision' : 'guardian'));
+  >(() =>
+    isStaffPortalPreview
+      ? 'staff_supervision'
+      : activePortalRoute === 'student'
+      ? 'student'
+      : 'guardian'
+  );
+
+  useEffect(() => {
+    if (!isStaffPortalPreview) {
+      if (activePortalRoute === 'student') {
+        setPortalViewPersona('student');
+      } else if (activePortalRoute === 'guardian') {
+        setPortalViewPersona('guardian');
+      }
+    }
+  }, [activePortalRoute, isStaffPortalPreview]);
 
   // Internal sub-tabs inside the Tahfeez Studio so it is button-driven and never a long scroll
   const [tahfeezSubTab, setTahfeezSubTab] = useState<
@@ -2286,7 +2309,10 @@ export const GuardianAndGuestView: React.FC = () => {
               <div className="flex items-center bg-black/25 p-1 rounded-xl border border-[#dfbd69]/40">
                 <button
                   type="button"
-                  onClick={() => setPortalViewPersona('guardian')}
+                  onClick={() => {
+                    setPortalViewPersona('guardian');
+                    setActivePortalRoute('guardian');
+                  }}
                   className={`px-3 py-1.5 rounded-lg text-xs font-extrabold transition cursor-pointer whitespace-nowrap shrink-0 ${
                     portalViewPersona === 'guardian'
                       ? 'bg-[#dfbd69] text-[#14281d] shadow-xs'
@@ -2297,7 +2323,10 @@ export const GuardianAndGuestView: React.FC = () => {
                 </button>
                 <button
                   type="button"
-                  onClick={() => setPortalViewPersona('student')}
+                  onClick={() => {
+                    setPortalViewPersona('student');
+                    setActivePortalRoute('student');
+                  }}
                   className={`px-3 py-1.5 rounded-lg text-xs font-extrabold transition cursor-pointer whitespace-nowrap shrink-0 ${
                     portalViewPersona === 'student'
                       ? 'bg-[#dfbd69] text-[#14281d] shadow-xs'
@@ -2321,6 +2350,23 @@ export const GuardianAndGuestView: React.FC = () => {
                 )}
               </div>
             )}
+
+            <PWAInstallButton
+              route={portalViewPersona === 'student' ? 'student' : 'guardian'}
+            />
+
+            <button
+              type="button"
+              onClick={() => setPortalAiModalOpen(true)}
+              className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-gradient-to-l from-amber-400 to-[#c59b27] hover:opacity-95 text-[#14281d] text-xs font-black shadow-xs transition cursor-pointer whitespace-nowrap shrink-0"
+            >
+              <Sparkles className="w-4 h-4" />
+              <span>
+                {portalViewPersona === 'student'
+                  ? '🤖 المعلم الذكي والمتشابهات'
+                  : '🤖 المستشار التربوي الذكي للأسرة'}
+              </span>
+            </button>
 
             <button
               type="button"
@@ -3140,6 +3186,36 @@ export const GuardianAndGuestView: React.FC = () => {
                             </div>
                           </div>
 
+                          {/* 🎙️ الرسائل الصوتية التربوية من الشيخ المحفظ لولي الأمر (Guardian-Teacher Voice Note) */}
+                          {(sess.voiceNoteDataUrl || (sess.teacherVoiceNotes && sess.teacherVoiceNotes.length > 0)) && (
+                            <div className="p-3.5 rounded-2xl bg-gradient-to-l from-emerald-900/15 via-amber-500/10 to-white dark:from-emerald-950/70 dark:via-slate-900 dark:to-slate-900 border-2 border-emerald-500/50 flex flex-wrap items-center justify-between gap-3">
+                              <div className="flex items-center gap-2.5">
+                                <div className="w-9 h-9 rounded-xl bg-[#145a3a] text-[#dfbd69] flex items-center justify-center shrink-0">
+                                  <Mic className="w-4 h-4" />
+                                </div>
+                                <div>
+                                  <div className="text-xs font-black text-[#145a3a] dark:text-[#dfbd69] flex items-center gap-1.5">
+                                    <span>🎙️ رسالة صوتية تربوية وتشجيعية من الشيخ المحفظ لولي الأمر</span>
+                                    {sess.teacherVoiceNotes?.[0]?.evaluationRating && (
+                                      <span className="px-2 py-0.5 rounded-full bg-amber-400 text-slate-950 text-[10px] font-black">
+                                        {sess.teacherVoiceNotes[0].evaluationRating}
+                                      </span>
+                                    )}
+                                  </div>
+                                  <div className="text-[11px] font-bold text-slate-600 dark:text-slate-300 mt-0.5">
+                                    {sess.teacherVoiceNotes?.[0]?.title ||
+                                      'استمع لتعليق الشيخ الصوتي المباشر حول تلاوة الطالب ومستوى إتقانه في هذه الحصة'}
+                                  </div>
+                                </div>
+                              </div>
+                              <audio
+                                controls
+                                src={sess.voiceNoteDataUrl || sess.teacherVoiceNotes?.[0]?.audioDataUrl}
+                                className="h-9 max-w-[240px]"
+                              />
+                            </div>
+                          )}
+
                           {/* صندوق التقرير النصي المرسل على واتساب ولي الأمر + أزرار المشاركة والاستماع */}
                           <div className="p-3 rounded-xl bg-white dark:bg-[#0b1711] border border-[#c59b27]/40 space-y-2">
                             <div className="flex flex-wrap items-center justify-between gap-2">
@@ -3212,6 +3288,19 @@ export const GuardianAndGuestView: React.FC = () => {
                   </div>
                 )}
               </div>
+
+              {/* 🧭 خريطة تغطية القرآن الكريم (30 جزءاً / 114 سورة / 604 صفحات) وحاسبة موعد الختمة ومنظومة تعويض الغياب في الوضع المبسط */}
+              <QuranCoverageAndGoalEngine
+                student={student}
+                sessions={sessions}
+                roleMode={portalViewPersona === 'student' ? 'student' : 'guardian'}
+                onUpdateStudent={updateStudent}
+                onShowToast={showToast}
+                onOpenSurahInMushaf={(sId) => {
+                  setSurahId(sId);
+                  setShowEmbeddedParentMushaf(true);
+                }}
+              />
 
               {/* شريط سفلي هادئ للانتقال للعرض التفصيلي عند الرغبة */}
               <div className="pt-2 flex flex-wrap items-center justify-between gap-3 border-t border-[#c59b27]/30 text-xs">
@@ -3382,6 +3471,19 @@ export const GuardianAndGuestView: React.FC = () => {
           {/* TAB 1: OVERVIEW (Compact Single-Screen Daily Status + Progress Chart) */}
           {guardianScreenTab === 'overview' && (
             <>
+              {/* 🧭 مؤشر تغطية القرآن الكريم وتخطيط الأهداف (30 جزءاً / 114 سورة / 604 صفحات) + حاسبة الختمة + تعويض الغياب */}
+              <QuranCoverageAndGoalEngine
+                student={student}
+                sessions={sessions}
+                roleMode={portalViewPersona === 'student' ? 'student' : 'guardian'}
+                onUpdateStudent={updateStudent}
+                onShowToast={showToast}
+                onOpenSurahInMushaf={(sId) => {
+                  setSurahId(sId);
+                  setGuardianScreenTab('tahfeez_studio');
+                }}
+              />
+
               {/* STAFF SUPERVISION DIAGNOSTIC CONSOLE (Only visible in Staff/Owner/Supervisor lens) */}
               {portalViewPersona === 'staff_supervision' && (
                 <div className="rounded-2xl bg-white dark:bg-[#112119] p-5 border border-[#c59b27]/60 shadow-xs space-y-4">
@@ -6797,6 +6899,13 @@ export const GuardianAndGuestView: React.FC = () => {
           </div>
         </div>
       )}
+
+      <PortalAISuiteModal
+        isOpen={portalAiModalOpen}
+        onClose={() => setPortalAiModalOpen(false)}
+        defaultPortal={portalViewPersona === 'student' ? 'student' : 'guardian'}
+        studentName={student?.name}
+      />
     </div>
   );
 };

@@ -1,0 +1,34 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 110" fill="none">
+  <defs>
+    <linearGradient id="bannerGold" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#9A6F0B" />
+      <stop offset="25%" stop-color="#D4AF37" />
+      <stop offset="50%" stop-color="#FFF3B0" />
+      <stop offset="75%" stop-color="#D4AF37" />
+      <stop offset="100%" stop-color="#9A6F0B" />
+    </linearGradient>
+    <linearGradient id="bannerBg" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#042f2e" />
+      <stop offset="50%" stop-color="#064e3b" />
+      <stop offset="100%" stop-color="#042f2e" />
+    </linearGradient>
+  </defs>
+  <!-- Main Ornate Cartouche Frame -->
+  <rect x="8" y="8" width="784" height="94" rx="18" fill="url(#bannerBg)" stroke="url(#bannerGold)" stroke-width="3.5" />
+  <rect x="16" y="16" width="768" height="78" rx="12" fill="none" stroke="url(#bannerGold)" stroke-width="1.5" stroke-dasharray="6 3" opacity="0.8" />
+  <!-- Left Medallion -->
+  <g transform="translate(70, 55)">
+    <circle cx="0" cy="0" r="28" fill="#022c22" stroke="url(#bannerGold)" stroke-width="2.5" />
+    <polygon points="0,-22 6,-6 22,0 6,6 0,22 -6,6 -22,0 -6,-6" fill="url(#bannerGold)" opacity="0.35" />
+    <circle cx="0" cy="0" r="10" fill="none" stroke="url(#bannerGold)" stroke-width="1.5" />
+  </g>
+  <!-- Right Medallion -->
+  <g transform="translate(730, 55)">
+    <circle cx="0" cy="0" r="28" fill="#022c22" stroke="url(#bannerGold)" stroke-width="2.5" />
+    <polygon points="0,-22 6,-6 22,0 6,6 0,22 -6,6 -22,0 -6,-6" fill="url(#bannerGold)" opacity="0.35" />
+    <circle cx="0" cy="0" r="10" fill="none" stroke="url(#bannerGold)" stroke-width="1.5" />
+  </g>
+  <!-- Top & Bottom Central Crown Accents -->
+  <path d="M350 8 L400 2 L450 8 Z" fill="url(#bannerGold)" />
+  <path d="M350 102 L400 108 L450 102 Z" fill="url(#bannerGold)" />
+</svg>

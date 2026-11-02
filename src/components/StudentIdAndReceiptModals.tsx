@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { AcademySettings, FeeRecord, FeeStatus, Student } from '../types';
 import { DAY_NAMES } from '../data/quranData';
 import { OFFICIAL_ACADEMY_WHATSAPP } from '../data/hybridFoundationData';
-import { formatGregorianAndHijri } from '../utils/dateUtils';
+import { formatGregorianAndHijri, triggerFastPrint } from '../utils/dateUtils';
 import { buildWhatsAppUrl } from '../utils/whatsapp';
 import {
   CheckCircle2,
@@ -606,7 +606,9 @@ export const StudentIdCardModal: React.FC<StudentIdCardModalProps> = ({
 
             <button
               type="button"
-              onClick={() => window.print()}
+              onClick={() =>
+                triggerFastPrint(`بطاقة الطالب - ${student.name} - ${settings.academyName}`)
+              }
               className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-[#145a3a] hover:bg-[#0f452c] text-white text-xs font-extrabold cursor-pointer"
             >
               <Printer className="w-3.5 h-3.5 text-[#dfbd69]" />
@@ -1125,7 +1127,9 @@ export const PaymentReceiptModal: React.FC<PaymentReceiptModalProps> = ({
 
           <button
             type="button"
-            onClick={() => window.print()}
+            onClick={() =>
+              triggerFastPrint(`إيصال سداد - ${receiptNumber} - ${student.name}`)
+            }
             className="py-2.5 px-4 rounded-xl bg-[#145a3a] hover:bg-[#0f452c] text-white text-xs font-extrabold flex items-center justify-center gap-1.5 cursor-pointer"
           >
             <Printer className="w-4 h-4 text-[#dfbd69]" />

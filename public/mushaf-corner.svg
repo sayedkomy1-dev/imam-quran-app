@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" fill="none">
+  <defs>
+    <linearGradient id="goldGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#D4AF37" />
+      <stop offset="50%" stop-color="#F3E5AB" />
+      <stop offset="100%" stop-color="#AA7C11" />
+    </linearGradient>
+    <linearGradient id="emeraldGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#065F46" />
+      <stop offset="100%" stop-color="#047857" />
+    </linearGradient>
+  </defs>
+  <!-- Outer Corner Frame -->
+  <path d="M4 4 H116 V14 H14 V116 H4 Z" fill="url(#goldGrad)" opacity="0.9" />
+  <path d="M18 18 H96 V22 H22 V96 H18 Z" fill="url(#goldGrad)" opacity="0.65" />
+  <!-- Islamic Geometric Rosette in Corner -->
+  <g transform="translate(36, 36)">
+    <polygon points="0,-22 6,-6 22,0 6,6 0,22 -6,6 -22,0 -6,-6" fill="url(#emeraldGrad)" stroke="url(#goldGrad)" stroke-width="2" />
+    <polygon points="0,-16 11,-11 16,0 11,11 0,16 -11,11 -16,0 -11,-11" fill="none" stroke="url(#goldGrad)" stroke-width="1.5" opacity="0.85" />
+    <circle cx="0" cy="0" r="5" fill="url(#goldGrad)" />
+  </g>
+  <!-- Decorative Arabesque Dots -->
+  <circle cx="72" cy="9" r="2.5" fill="url(#goldGrad)" />
+  <circle cx="92" cy="9" r="2" fill="url(#goldGrad)" />
+  <circle cx="9" cy="72" r="2.5" fill="url(#goldGrad)" />
+  <circle cx="9" cy="92" r="2" fill="url(#goldGrad)" />
+</svg>

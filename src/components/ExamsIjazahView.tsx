@@ -3,7 +3,7 @@ import { useAcademy } from '../context/AcademyContext';
 import { getLocalDateString } from '../data/seedData';
 import { SURAHS } from '../data/quranData';
 import { ExamRecord, GradeType } from '../types';
-import { formatGregorianAndHijri } from '../utils/dateUtils';
+import { formatGregorianAndHijri, triggerFastPrint } from '../utils/dateUtils';
 import { generateVerificationHash } from '../utils/wlqSyncCore';
 import { PedagogicalDiagnosticCard } from './PedagogicalAdvisorModal';
 import { SmartQuizAndCompetitionsSection } from './SmartQuizAndCompetitionsSection';
@@ -1109,7 +1109,11 @@ export const ExamsIjazahView: React.FC = () => {
               </span>
               <div className="flex items-center gap-2">
                 <button
-                  onClick={() => window.print()}
+                  onClick={() =>
+                    triggerFastPrint(
+                      `${printData.title} - ${printData.studentName} - ${printData.certNumber}`
+                    )
+                  }
                   className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-[#145a3a] text-white text-xs font-bold cursor-pointer"
                 >
                   <Printer className="w-4 h-4" />

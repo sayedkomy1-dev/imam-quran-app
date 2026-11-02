@@ -40,6 +40,8 @@ import {
 } from './PedagogicalAdvisorModal';
 import { GamificationDashboard } from './GamificationDashboard';
 import { NewMemAudioPlayerAndWhatsAppTool } from './NewMemAudioPlayerAndWhatsAppTool';
+import { QuranCoverageAndGoalEngine } from './QuranCoverageAndGoalEngine';
+import { MushafEngine } from './MushafEngine';
 import { ERROR_PEDAGOGICAL_COACHING_MAP } from '../data/pedagogicalAdvisorData';
 import {
   AlertTriangle,
@@ -86,6 +88,7 @@ export const StudentsView: React.FC = () => {
     setSelectedStudentId,
     setActiveTab,
     saveStudent,
+    updateStudent,
     deleteStudent,
     saveSession,
     setStudentAccountStatus,
@@ -1268,6 +1271,16 @@ export const StudentsView: React.FC = () => {
                       contextLocation="student_profile"
                     />
 
+                    {/* 🧭 مؤشر تغطية القرآن الكريم (30 جزءاً / 114 سورة / 604 صفحات) وحاسبة موعد الختمة المتوقع ومنظومة تعويض الغياب */}
+                    <QuranCoverageAndGoalEngine
+                      student={activeStudent}
+                      sessions={sessions}
+                      roleMode="teacher"
+                      onUpdateStudent={updateStudent}
+                      onShowToast={showToast}
+                      onOpenSurahInMushaf={() => setMushafModalOpen(true)}
+                    />
+
                     {/* Progress KPIs */}
                     <div className="grid grid-cols-2 sm:grid-cols-4 gap-3.5">
                       <div className="p-4 rounded-2xl border border-neutral-200 dark:border-emerald-900/50">
@@ -2097,9 +2110,24 @@ export const StudentsView: React.FC = () => {
                   </div>
                 )}
 
-                {/* Tab 2: Interactive Mushaf Progress Map (30 Juz / 114 Surahs) */}
+                {/* Tab 2: Interactive Mushaf Progress Map (30 Juz / 114 Surahs) + KFGQPC MushafEngine */}
                 {profileTab === 'mushaf' && (
                   <div className="space-y-4">
+                    <MushafEngine
+                      initialSurahId={activeStudent.currentStop.surahId}
+                      fromAyah={1}
+                      historicalHotspots={sessions
+                        .filter((s) => s.studentId === activeStudent.id)
+                        .flatMap((s) => s.errors || [])}
+                    />
+                    <QuranCoverageAndGoalEngine
+                      student={activeStudent}
+                      sessions={sessions}
+                      roleMode="teacher"
+                      onUpdateStudent={updateStudent}
+                      onShowToast={showToast}
+                      onOpenSurahInMushaf={() => setMushafModalOpen(true)}
+                    />
                     <div className="flex flex-wrap items-center justify-between gap-2">
                       <div className="text-xs text-neutral-500">
                         انقر على أي سورة أو جزء لتبديل حالة الحفظ (محفوظ / غير محفوظ) مباشرةً:
