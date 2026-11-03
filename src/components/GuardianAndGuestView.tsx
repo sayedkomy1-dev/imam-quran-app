@@ -37,6 +37,8 @@ import {
 } from './StudentIdAndReceiptModals';
 import { NewMemAudioPlayerAndWhatsAppTool } from './NewMemAudioPlayerAndWhatsAppTool';
 import { QuranCoverageAndGoalEngine } from './QuranCoverageAndGoalEngine';
+import { Accordion } from './ui/Accordion';
+import { MoreMenu } from './ui/MoreMenu';
 import {
   Award,
   Bell,
@@ -3320,77 +3322,54 @@ export const GuardianAndGuestView: React.FC = () => {
         </section>
       )}
 
-      {/* Guardian & Student Interactive Segmented Navigation Bar (6 Focused Single-Screen Tabs) */}
+      {/* Guardian & Student Interactive Segmented Navigation Bar (4 Ultra-Clean Minimalist Focus Tabs) */}
       {userRole === 'guardian' && student && !easyParentStudentMode && (
         <nav
           aria-label="أقسام بوابة ولي الأمر والطالب"
-          className="rounded-2xl bg-white/95 dark:bg-[#112119]/95 backdrop-blur-md p-2 border border-neutral-200/90 dark:border-emerald-900/60 flex items-center justify-between gap-2 shadow-sm sticky top-2 z-20 overflow-x-auto"
+          className="rounded-2xl bg-white/95 dark:bg-[#112119]/95 backdrop-blur-md p-1.5 border border-neutral-200/90 dark:border-emerald-900/60 shadow-sm sticky top-2 z-20"
         >
-          <div className="flex items-center gap-1.5 min-w-max">
-            {(
-              [
-                {
-                  id: 'overview' as const,
-                  label:
-                    portalViewPersona === 'student'
-                      ? 'الحصون الخمسة وأوراد اليوم'
-                      : 'الملخص اليومي وحالة الحفظ',
-                  icon: Layers,
-                  badge: `${completedFortressCount}/4`,
-                },
-                {
-                  id: 'schedule_timeline' as const,
-                  label:
-                    portalViewPersona === 'student'
-                      ? 'رحلتي اليوم والمنبه'
-                      : 'الجدول الزمني والمنبه الذكي',
-                  icon: Calendar,
-                  badge: student.scheduleTime,
-                },
-                {
-                  id: 'tahfeez_studio' as const,
-                  label: 'المصحف المعلم والتسميع',
-                  icon: Volume2,
-                  badge: 'تلقين وتسجيل',
-                },
-                {
-                  id: 'competitions_quiz' as const,
-                  label: 'المسابقات والاختبارات الذكية',
-                  icon: Trophy,
-                  badge: 'لوحة الشرف 🏆',
-                },
-                {
-                  id: 'followup_log' as const,
-                  label: 'رسم التقدم وسجل الحصص',
-                  icon: TrendingUp,
-                  badge: `${studentSessions.length} حصص`,
-                },
-                {
-                  id: 'family_oasis' as const,
-                  label:
-                    portalViewPersona === 'student'
-                      ? 'شجرة النور وبرّ الوالدين'
-                      : 'تاج الوقار وتقييم المعلم',
-                  icon: Crown,
-                },
-                {
-                  id: 'documents_billing' as const,
-                  label:
-                    portalViewPersona === 'student'
-                      ? 'بطاقة الطالب الذكية'
-                      : 'البطاقة الذكية والإيصالات',
-                  icon: IdCard,
-                },
-              ]
-            ).map((tab) => {
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-1.5 w-full">
+            {[
+              {
+                id: 'overview' as const,
+                label: '📈 ملخص المستوى والورد',
+                icon: Layers,
+                badge: `${completedFortressCount}/4`,
+              },
+              {
+                id: 'tahfeez_studio' as const,
+                label: '📖 المصحف والتدريب',
+                icon: Volume2,
+                badge: 'تلقين',
+              },
+              {
+                id: 'competitions_quiz' as const,
+                label: '🏆 الأوسمة والمسابقات',
+                icon: Trophy,
+                badge: 'لوحة الشرف',
+              },
+              {
+                id: 'followup_log' as const,
+                label: '💬 ملاحظات الشيخ والتقارير',
+                icon: TrendingUp,
+                badge: `${studentSessions.length} حصص`,
+              },
+            ].map((tab) => {
               const IconComp = tab.icon;
-              const isActive = guardianScreenTab === tab.id;
+              const isActive =
+                guardianScreenTab === tab.id ||
+                (tab.id === 'overview' &&
+                  guardianScreenTab === 'schedule_timeline') ||
+                (tab.id === 'competitions_quiz' &&
+                  guardianScreenTab === 'family_oasis') ||
+                (tab.id === 'followup_log' &&
+                  guardianScreenTab === 'documents_billing');
               return (
                 <button
                   key={tab.id}
                   type="button"
                   onClick={() => setGuardianScreenTab(tab.id)}
-                  className={`px-3.5 py-2.5 rounded-xl text-xs font-extrabold flex items-center gap-2 transition-all cursor-pointer whitespace-nowrap shrink-0 ${
+                  className={`py-2.5 px-3 rounded-xl text-xs font-black flex items-center justify-center gap-1.5 transition-all cursor-pointer truncate ${
                     isActive
                       ? 'bg-[#145a3a] text-white shadow-xs ring-1 ring-[#c59b27]'
                       : 'bg-transparent text-neutral-700 dark:text-emerald-100/80 hover:bg-neutral-100 dark:hover:bg-emerald-950/60'
@@ -3398,13 +3377,15 @@ export const GuardianAndGuestView: React.FC = () => {
                 >
                   <IconComp
                     className={`w-4 h-4 shrink-0 ${
-                      isActive ? 'text-[#dfbd69]' : 'text-[#145a3a] dark:text-[#c59b27]'
+                      isActive
+                        ? 'text-[#dfbd69]'
+                        : 'text-[#145a3a] dark:text-[#c59b27]'
                     }`}
                   />
-                  <span>{tab.label}</span>
+                  <span className="truncate">{tab.label}</span>
                   {tab.badge && (
                     <span
-                      className={`text-[10px] font-mono tabular-nums font-extrabold px-2 py-0.5 rounded-md ${
+                      className={`hidden sm:inline-block text-[10px] font-mono tabular-nums font-extrabold px-1.5 py-0.5 rounded-md ${
                         isActive
                           ? 'bg-[#c59b27] text-[#14281d]'
                           : 'bg-neutral-100 dark:bg-emerald-950 text-neutral-600 dark:text-emerald-300'
@@ -4105,8 +4086,16 @@ export const GuardianAndGuestView: React.FC = () => {
           )}
 
           {/* TAB 2: SCHEDULE TIMELINE & SMART REMINDER (الجدول الزمني التفاعلي للمهام القادمة والمنبه الذكي) */}
-          {guardianScreenTab === 'schedule_timeline' && (
-            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-stretch">
+          {(guardianScreenTab === 'schedule_timeline' ||
+            guardianScreenTab === 'overview') && (
+            <Accordion
+              title="⏱️ الجدول الزمني التفاعلي والمنبه الذكي لليوم"
+              subtitle={`موعد الحلقة: ${student.scheduleTime} • التنبيهات المباشرة ومراحل التحضير`}
+              icon={<Calendar className="w-4 h-4 text-[#c59b27]" />}
+              defaultOpen={guardianScreenTab === 'schedule_timeline'}
+            >
+              <div className="pt-3">
+                <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-stretch">
               {/* Right Col: Interactive Visual Timeline for Upcoming Tasks (7 cols) */}
               <div className="lg:col-span-7 rounded-3xl bg-white dark:bg-[#112119] p-5 sm:p-6 border border-neutral-200/90 dark:border-emerald-900/60 shadow-xs flex flex-col justify-between space-y-4">
                 <div className="flex flex-wrap items-center justify-between gap-2 pb-3 border-b border-neutral-100 dark:border-emerald-950">
@@ -4355,6 +4344,8 @@ export const GuardianAndGuestView: React.FC = () => {
                 </div>
               </div>
             </div>
+              </div>
+            </Accordion>
           )}
 
           {/* 2.2. شاشة سجل المتابعة وتطور الحفظ الأسبوعي (Follow-up Log & Weekly Memorization Progress Screen) */}
@@ -4674,8 +4665,16 @@ export const GuardianAndGuestView: React.FC = () => {
           )}
 
           {/* 2.5. Official Student Smart ID Card & Monthly Payment Receipts Hub */}
-          {guardianScreenTab === 'documents_billing' && (
-          <div className="rounded-3xl bg-white dark:bg-[#12231a] p-6 border-2 border-[#c59b27]/50 shadow-xs space-y-4">
+          {(guardianScreenTab === 'documents_billing' ||
+            guardianScreenTab === 'followup_log') && (
+            <Accordion
+              title="🧾 البطاقة الذكية وإيصالات السداد الشهرية"
+              subtitle="بطاقة الهوية القرآنية برمز QR وسجل المدفوعات المعتمد"
+              icon={<IdCard className="w-4 h-4 text-[#c59b27]" />}
+              defaultOpen={guardianScreenTab === 'documents_billing'}
+            >
+              <div className="pt-3">
+                <div className="rounded-3xl bg-white dark:bg-[#12231a] p-6 border-2 border-[#c59b27]/50 shadow-xs space-y-4">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div className="flex items-center gap-2.5">
                 <div className="p-2.5 rounded-2xl bg-[#145a3a] text-[#dfbd69]">
@@ -4889,11 +4888,21 @@ export const GuardianAndGuestView: React.FC = () => {
               )
             )}
           </div>
+              </div>
+            </Accordion>
           )}
 
           {/* 🌟 ركن البهجة الإيمانية وبِرّ الوالدين والأسرة القرآنية (Dedicated to Student & Guardian's own family) */}
-          {guardianScreenTab === 'family_oasis' && (
-          <div className="space-y-6">
+          {(guardianScreenTab === 'family_oasis' ||
+            guardianScreenTab === 'competitions_quiz') && (
+            <Accordion
+              title="👑 واحة البهجة الإيمانية وبِرّ الوالدين وتاج الوقار"
+              subtitle="شجرة النور وثمرة السلوك وأوسمة العائلة وشهادة التقدير"
+              icon={<Crown className="w-4 h-4 text-[#c59b27]" />}
+              defaultOpen={guardianScreenTab === 'family_oasis'}
+            >
+              <div className="pt-3">
+                <div className="space-y-6">
             <div className="rounded-3xl bg-white dark:bg-[#112119] p-6 border border-neutral-200/90 dark:border-emerald-900/60 shadow-xs space-y-5">
             <div className="flex flex-wrap items-center justify-between gap-3 border-b border-neutral-100 dark:border-emerald-950 pb-3">
               <div>
@@ -5391,6 +5400,8 @@ export const GuardianAndGuestView: React.FC = () => {
             })()}
             </div>
           </div>
+              </div>
+            </Accordion>
           )}
         </div>
       )}

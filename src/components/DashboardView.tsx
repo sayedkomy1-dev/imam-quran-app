@@ -17,6 +17,8 @@ import {
 import { DailyWisdomCard } from './DailyWisdomCard';
 import { OwnerPublicWaqfImpactHub } from './PublicMushafWaqfPortalView';
 import { GamificationDashboard } from './GamificationDashboard';
+import { Accordion } from './ui/Accordion';
+import { MoreMenu } from './ui/MoreMenu';
 import {
   AlertCircle,
   Award,
@@ -1137,39 +1139,57 @@ export const DashboardView: React.FC = () => {
                   </div>
                 </div>
 
-                <div className="flex items-center gap-1.5 shrink-0 mr-2">
+                <div className="flex items-center gap-2 shrink-0 mr-2">
                   <button
-                    onClick={() => handleQuickAttendance(st.id, 'حضر')}
-                    title="تسجيل حضور سريع"
-                    className={`px-2.5 py-2 rounded-xl text-xs font-bold border transition-colors cursor-pointer ${
-                      todaySes?.status === 'حضر'
-                        ? 'bg-emerald-600 text-white border-emerald-600'
-                        : 'border-neutral-200 dark:border-emerald-900 bg-white dark:bg-[#12231a] hover:border-emerald-600'
-                    }`}
-                  >
-                    حضر
-                  </button>
-                  <button
-                    onClick={() => handleQuickAttendance(st.id, 'غاب')}
-                    title="تسجيل غياب وترحيل التكليف"
-                    className={`px-2.5 py-2 rounded-xl text-xs font-bold border transition-colors cursor-pointer ${
-                      todaySes?.status === 'غاب'
-                        ? 'bg-red-600 text-white border-red-600'
-                        : 'border-neutral-200 dark:border-emerald-900 bg-white dark:bg-[#12231a] hover:border-red-600'
-                    }`}
-                  >
-                    غاب
-                  </button>
-                  <button
+                    type="button"
                     onClick={() => {
                       setSelectedStudentId(st.id);
                       setActiveTab('session');
                     }}
-                    className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-[#145a3a] hover:bg-[#0f452c] text-white text-xs font-bold transition-colors cursor-pointer"
+                    className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-[#145a3a] hover:bg-[#0f452c] text-white text-xs font-black transition-colors cursor-pointer shadow-2xs"
                   >
                     <BookOpen className="w-3.5 h-3.5 text-[#dfbd69]" />
                     <span>بدء حصة</span>
                   </button>
+
+                  <MoreMenu
+                    ariaLabel={`خيارات إضافية للطالب ${st.name}`}
+                    items={[
+                      {
+                        label: 'تسجيل حضور سريع',
+                        icon: <CheckCircle2 className="w-4 h-4 text-emerald-600" />,
+                        onClick: () => handleQuickAttendance(st.id, 'حضر'),
+                      },
+                      {
+                        label: 'تسجيل غياب وترحيل التكليف',
+                        icon: <AlertCircle className="w-4 h-4 text-red-600" />,
+                        danger: true,
+                        onClick: () => handleQuickAttendance(st.id, 'غاب'),
+                      },
+                      {
+                        label: 'ملف الطالب والتكليفات',
+                        icon: <Users className="w-4 h-4 text-[#145a3a]" />,
+                        onClick: () => {
+                          setSelectedStudentId(st.id);
+                          setActiveTab('students');
+                        },
+                      },
+                      {
+                        label: 'بطاقة الطالب',
+                        icon: <IdCard className="w-4 h-4 text-[#c59b27]" />,
+                        onClick: () => setDashboardIdCardStudent(st),
+                      },
+                      {
+                        label: 'تذكير واتساب',
+                        icon: <MessageCircle className="w-4 h-4 text-[#25D366]" />,
+                        onClick: () => {
+                          const phone = (st.guardianPhone || '').replace(/\D/g, '');
+                          const text = `السلام عليكم ورحمة الله وبركاته، نذكركم بموعد حلقة القرآن الكريم للطالب (${st.name}) في ${settings.academyName}`;
+                          window.open(`https://wa.me/${phone}?text=${encodeURIComponent(text)}`, '_blank');
+                        },
+                      },
+                    ]}
+                  />
                 </div>
               </div>
             );
@@ -1177,8 +1197,16 @@ export const DashboardView: React.FC = () => {
         </div>
       </section>
 
-      {/* Middle Row: 7-Day Activity Chart + Weekly Goals */}
-      <section className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+      {/* Collapsible Analytical Insights & Growth Charts */}
+      <Accordion
+        title="📊 الإحصاءات والتحليلات البيانية المتقدمة (7 أيام و 6 أشهر)"
+        subtitle="تحليل بياني تفاعلي للحضور وإنجاز الحفظ الأسبوعي ونمو الصفحات التراكمي"
+        icon={<TrendingUp className="w-4 h-4 text-[#c59b27]" />}
+        defaultOpen={false}
+      >
+        <div className="space-y-6 pt-3">
+          {/* Middle Row: 7-Day Activity Chart + Weekly Goals */}
+          <section className="grid grid-cols-1 lg:grid-cols-12 gap-6">
         {/* 7-Day Activity Analysis & Interactive Bar Chart */}
         <div className="lg:col-span-7 rounded-2xl bg-white dark:bg-[#12231a] p-6 border border-neutral-200 dark:border-emerald-900/50 shadow-xs flex flex-col justify-between">
           <div>
@@ -1939,9 +1967,19 @@ export const DashboardView: React.FC = () => {
           </ResponsiveContainer>
         </div>
       </section>
+        </div>
+      </Accordion>
 
-      {/* Owner Control Panel for Managing Teachers & Supervisors in Firestore (لوحة تحكم المالك لإدارة المستخدمين في Firestore) */}
-      <section className="rounded-2xl bg-white dark:bg-[#12231a] p-6 border-2 border-[#dfbd69]/60 dark:border-emerald-800/70 shadow-xs space-y-5">
+      {/* Owner Staff Management (Collapsible) */}
+      <Accordion
+        title="👑 إدارة المحفظين والمشرفين (Firestore)"
+        subtitle="صلاحيات الكادر التعليمي، طلبات الانضمام المعلقة، وتأكيد الحسابات"
+        icon={<Users className="w-4 h-4 text-[#c59b27]" />}
+        badge={managedTeachers.filter((m) => m.status === 'pending').length || undefined}
+        defaultOpen={false}
+      >
+        <div className="pt-3">
+          <section className="rounded-2xl bg-white dark:bg-[#12231a] p-4 sm:p-6 border border-neutral-200 dark:border-emerald-900/50 shadow-xs space-y-5">
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 pb-4 border-b border-neutral-100 dark:border-emerald-950">
           <div>
             <div className="flex flex-wrap items-center gap-2">
@@ -2400,6 +2438,8 @@ export const DashboardView: React.FC = () => {
             })}
         </div>
       </section>
+        </div>
+      </Accordion>
 
       {/* New Section: Independent Per-Circle Statistics & Student Sub-group Distribution */}
       <section className="rounded-2xl bg-white dark:bg-[#12231a] p-6 border border-neutral-200 dark:border-emerald-900/50 shadow-xs space-y-5">

@@ -43,7 +43,10 @@ import { NewMemAudioPlayerAndWhatsAppTool } from './NewMemAudioPlayerAndWhatsApp
 import { QuranCoverageAndGoalEngine } from './QuranCoverageAndGoalEngine';
 import { MushafEngine } from './MushafEngine';
 import { ERROR_PEDAGOGICAL_COACHING_MAP } from '../data/pedagogicalAdvisorData';
+import { MoreMenu } from './ui/MoreMenu';
+import { Accordion } from './ui/Accordion';
 import {
+  AlertCircle,
   AlertTriangle,
   Award,
   BookOpen,
@@ -861,38 +864,25 @@ export const StudentsView: React.FC = () => {
                     <span>
                       توقف: سورة {st.currentStop.surahName} ({st.currentStop.ayah})
                     </span>
-                    <div className="flex items-center gap-1.5">
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setSelectedStudentId(st.id);
-                          setStudentIdCardOpen(true);
-                        }}
-                        className={`px-2 py-0.5 rounded-lg text-[10px] font-extrabold cursor-pointer ${
-                          isSelected
-                            ? 'bg-white/20 text-[#dfbd69]'
-                            : 'bg-[#145a3a]/10 text-[#145a3a] dark:text-[#dfbd69]'
-                        }`}
-                        title="عرض بطاقة الطالب الذكية"
-                      >
-                        🪪 البطاقة
-                      </button>
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          openReceiptForStudent(st);
-                        }}
-                        className={`px-2 py-0.5 rounded-lg text-[10px] font-extrabold cursor-pointer ${
-                          isSelected
-                            ? 'bg-[#c59b27] text-[#14281d]'
-                            : 'bg-amber-500/15 text-amber-800 dark:text-amber-300'
-                        }`}
-                        title="إصدار إيصال سداد"
-                      >
-                        🧾 إيصال
-                      </button>
+                    <div className="flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
+                      <MoreMenu
+                        ariaLabel={`إجراءات سريعة للطالب ${st.name}`}
+                        items={[
+                          {
+                            label: 'بطاقة الطالب (QR)',
+                            icon: <IdCard className="w-3.5 h-3.5 text-[#dfbd69]" />,
+                            onClick: () => {
+                              setSelectedStudentId(st.id);
+                              setStudentIdCardOpen(true);
+                            },
+                          },
+                          {
+                            label: 'إصدار إيصال سداد',
+                            icon: <FileText className="w-3.5 h-3.5 text-emerald-600" />,
+                            onClick: () => openReceiptForStudent(st),
+                          },
+                        ]}
+                      />
                     </div>
                   </div>
                 </div>
@@ -1056,123 +1046,98 @@ export const StudentsView: React.FC = () => {
                     </div>
                   </div>
 
-                  {/* Profile Action Buttons */}
-                  <div className="flex flex-wrap items-center gap-2">
+                  {/* Profile Action Buttons (Ultra-Clean Primary + MoreMenu) */}
+                  <div className="flex items-center gap-2.5">
                     <button
+                      type="button"
                       onClick={() => {
                         setSelectedStudentId(activeStudent.id);
                         setActiveTab('session');
                       }}
-                      className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-[#c59b27] hover:bg-[#b58c1e] text-[#14281d] text-xs font-bold cursor-pointer"
+                      className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-[#c59b27] hover:bg-[#b58c1e] text-[#14281d] text-xs font-black cursor-pointer shadow-md transition"
                     >
-                      <BookOpen className="w-3.5 h-3.5" />
+                      <BookOpen className="w-4 h-4" />
                       <span>بدء حصة</span>
                     </button>
 
-                    <button
-                      onClick={() => setStudentIdCardOpen(true)}
-                      className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-amber-400/20 hover:bg-amber-400/30 border border-[#dfbd69]/50 text-[#dfbd69] text-xs font-extrabold cursor-pointer"
-                      title="إصدار بطاقة الطالب الذكية ومشاركة QR أوفلاين"
-                    >
-                      <IdCard className="w-3.5 h-3.5 text-[#dfbd69]" />
-                      <span>بطاقة الطالب (QR)</span>
-                    </button>
-
-                    <button
-                      onClick={() => openReceiptForStudent(activeStudent)}
-                      className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-emerald-400/20 hover:bg-emerald-400/30 border border-emerald-300/40 text-white text-xs font-extrabold cursor-pointer"
-                      title="إصدار إيصال سداد رقمي للطالب"
-                    >
-                      <FileText className="w-3.5 h-3.5 text-[#dfbd69]" />
-                      <span>إيصال سداد</span>
-                    </button>
-
-                    <button
-                      onClick={() => setCertificateOpen(true)}
-                      className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-white/15 hover:bg-white/25 text-white text-xs font-bold cursor-pointer"
-                    >
-                      <Award className="w-3.5 h-3.5 text-[#dfbd69]" />
-                      <span>شهادة تقدير</span>
-                    </button>
-
-                    <button
-                      onClick={() => setBisharahModalOpen(true)}
-                      className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-[#c59b27] hover:bg-[#b58c1e] text-[#14281d] text-xs font-extrabold cursor-pointer shadow-xs"
-                      title="توليد بطاقة بشارة عائلية مصورة ومشاركتها عبر واتساب"
-                    >
-                      <Sparkles className="w-3.5 h-3.5" />
-                      <span>🎉 بطاقة بشارة</span>
-                    </button>
-
-                    <button
-                      onClick={() => openEditModal(activeStudent)}
-                      className="p-2 rounded-xl bg-white/15 hover:bg-white/25 text-white cursor-pointer"
-                      title="تعديل بيانات الطالب"
-                    >
-                      <Edit3 className="w-4 h-4" />
-                    </button>
-
-                    <a
-                      href={buildWhatsAppUrl(
-                        activeStudent.whatsappPhone,
-                        `${settings.whatsappHeader}\n\nولي أمر الطالب *${activeStudent.name}*، نود إطلاعكم بأن الطالب متوقف حالياً عند سورة ${activeStudent.currentStop.surahName} آية ${activeStudent.currentStop.ayah}.\n\n${settings.whatsappFooter}`
-                      )}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="p-2 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-white cursor-pointer"
-                      title="مراسلة ولي الأمر عبر واتساب"
-                    >
-                      <Phone className="w-4 h-4" />
-                    </a>
-
-                    <button
-                      onClick={() => loginAsGuardianDirect(activeStudent.id)}
-                      className="p-2 rounded-xl bg-white/15 hover:bg-white/25 text-white cursor-pointer"
-                      title="معاينة بوابة ولي الأمر لهذا الطالب"
-                    >
-                      <ExternalLink className="w-4 h-4" />
-                    </button>
-
-                    {(activeStudent.accountStatus || 'نشط') !== 'نشط' ? (
-                      <button
-                        onClick={() =>
-                          setStudentAccountStatus(activeStudent.id, 'نشط')
-                        }
-                        className="px-2.5 py-1.5 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-white text-[11px] font-extrabold cursor-pointer"
-                        title="إعادة تفعيل ملف الطالب في الحلقات النشطة مع كامل سجله"
-                      >
-                        إعادة تفعيل الملف
-                      </button>
-                    ) : (
-                      <>
-                        <button
-                          onClick={() =>
-                            setStudentAccountStatus(
-                              activeStudent.id,
-                              'متوقف',
-                              'إيقاف مؤقت مع حفظ السجل'
-                            )
-                          }
-                          className="px-2.5 py-1.5 rounded-xl bg-amber-500/30 hover:bg-amber-500/50 text-amber-100 text-[11px] font-bold cursor-pointer"
-                          title="تحويل الطالب إلى متوقف مؤقتاً دون فقدان أي بيانات"
-                        >
-                          إيقاف مؤقت
-                        </button>
-                        <button
-                          onClick={() =>
-                            setStudentAccountStatus(
-                              activeStudent.id,
-                              'مؤرشف',
-                              'أرشفة آمنة مع الاحتفاظ الكامل بالسجل'
-                            )
-                          }
-                          className="p-2 rounded-xl bg-red-500/30 hover:bg-red-500/60 text-red-100 cursor-pointer"
-                          title="أرشفة آمنة لملف الطالب (يحتفظ بكامل السجل التاريخي والأخطاء والمدفوعات)"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      </>
-                    )}
+                    <MoreMenu
+                      ariaLabel="خيارات إضافية لملف الطالب"
+                      items={[
+                        {
+                          label: 'بطاقة الطالب الذكية (QR)',
+                          icon: <IdCard className="w-4 h-4 text-[#dfbd69]" />,
+                          onClick: () => setStudentIdCardOpen(true),
+                        },
+                        {
+                          label: 'إصدار إيصال سداد رقمي',
+                          icon: <FileText className="w-4 h-4 text-emerald-600" />,
+                          onClick: () => openReceiptForStudent(activeStudent),
+                        },
+                        {
+                          label: 'شهادة تقدير وإتقان',
+                          icon: <Award className="w-4 h-4 text-[#dfbd69]" />,
+                          onClick: () => setCertificateOpen(true),
+                        },
+                        {
+                          label: 'بطاقة بشارة عائلية مصورة',
+                          icon: <Sparkles className="w-4 h-4 text-amber-500" />,
+                          onClick: () => setBisharahModalOpen(true),
+                        },
+                        {
+                          label: 'تعديل بيانات الطالب',
+                          icon: <Edit3 className="w-4 h-4 text-blue-500" />,
+                          onClick: () => openEditModal(activeStudent),
+                        },
+                        {
+                          label: 'مراسلة ولي الأمر عبر واتساب',
+                          icon: <Phone className="w-4 h-4 text-[#25D366]" />,
+                          onClick: () => {
+                            const url = buildWhatsAppUrl(
+                              activeStudent.whatsappPhone,
+                              `${settings.whatsappHeader}\n\nولي أمر الطالب *${activeStudent.name}*، نود إطلاعكم بأن الطالب متوقف حالياً عند سورة ${activeStudent.currentStop.surahName} آية ${activeStudent.currentStop.ayah}.\n\n${settings.whatsappFooter}`
+                            );
+                            window.open(url, '_blank');
+                          },
+                        },
+                        {
+                          label: 'معاينة بوابة ولي الأمر',
+                          icon: <ExternalLink className="w-4 h-4 text-neutral-500" />,
+                          onClick: () => loginAsGuardianDirect(activeStudent.id),
+                        },
+                        ...((activeStudent.accountStatus || 'نشط') !== 'نشط'
+                          ? [
+                              {
+                                label: 'إعادة تفعيل ملف الطالب',
+                                icon: <CheckCircle2 className="w-4 h-4 text-emerald-600" />,
+                                onClick: () =>
+                                  setStudentAccountStatus(activeStudent.id, 'نشط'),
+                              },
+                            ]
+                          : [
+                              {
+                                label: 'إيقاف مؤقت للملف',
+                                icon: <AlertCircle className="w-4 h-4 text-amber-500" />,
+                                onClick: () =>
+                                  setStudentAccountStatus(
+                                    activeStudent.id,
+                                    'متوقف',
+                                    'إيقاف مؤقت مع حفظ السجل'
+                                  ),
+                              },
+                              {
+                                label: 'أرشفة آمنة لملف الطالب',
+                                icon: <Trash2 className="w-4 h-4 text-red-500" />,
+                                danger: true,
+                                onClick: () =>
+                                  setStudentAccountStatus(
+                                    activeStudent.id,
+                                    'مؤرشف',
+                                    'أرشفة آمنة مع الاحتفاظ الكامل بالسجل'
+                                  ),
+                              },
+                            ]),
+                      ]}
+                    />
                   </div>
                 </div>
               </div>
