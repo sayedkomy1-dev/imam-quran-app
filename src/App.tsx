@@ -11,6 +11,8 @@ import {
   updatePortalManifest,
 } from './components/PWAComponents';
 import { useBackButtonGuard } from './hooks/useBackButtonGuard';
+import { useOverlayController } from './hooks/useOverlayController';
+import { Accordion } from './components/ui/Accordion';
 import { OFFICIAL_ACADEMY_WHATSAPP } from './data/hybridFoundationData';
 import { ACADEMY_BRAND_CONFIG } from './constants/brandConfig';
 import {
@@ -73,6 +75,9 @@ const PublicMushafWaqfPortalView = lazy(() =>
 );
 const OwnerControlPanelView = lazy(() =>
   import('./components/OwnerControlPanelView').then((m) => ({ default: m.OwnerControlPanelView }))
+);
+const AdminControlHubView = lazy(() =>
+  import('./components/AdminControlHubView').then((m) => ({ default: m.AdminControlHubView }))
 );
 const FaithOasisView = lazy(() =>
   import('./components/FaithOasisView').then((m) => ({ default: m.FaithOasisView }))
@@ -165,12 +170,14 @@ const MainShell: React.FC = () => {
   } = useAcademy();
 
   const [mobileMoreOpen, setMobileMoreOpen] = useState(false);
-  const [notifPopoverOpen, setNotifPopoverOpen] = useState(false);
   const [outboxModalOpen, setOutboxModalOpen] = useState(false);
   const [showAcademyPdfGuide, setShowAcademyPdfGuide] = useState(false);
   const [aiSuiteModalOpen, setAiSuiteModalOpen] = useState(false);
-  const [roleDropdownOpen, setRoleDropdownOpen] = useState(false);
-  const [quickActionsOpen, setQuickActionsOpen] = useState(false);
+
+  // Single active overlay controllers for Header Dropdowns
+  const portalRoleDropdown = useOverlayController('header-portal-role-dropdown');
+  const quickActionsDropdown = useOverlayController('header-quick-actions-dropdown');
+  const notifDropdown = useOverlayController('header-notif-dropdown');
 
   // Mobile Pull-to-Refresh state & touch handlers (Feature 7)
   const [pullStartY, setPullStartY] = useState<number | null>(null);
@@ -275,20 +282,24 @@ const MainShell: React.FC = () => {
       showAcademyPdfGuide ||
       outboxModalOpen ||
       mobileMoreOpen ||
-      notifPopoverOpen ||
-      quickActionsOpen ||
-      roleDropdownOpen ||
+      notifDropdown.isOpen ||
+      quickActionsDropdown.isOpen ||
+      portalRoleDropdown.isOpen ||
       publicMushafPortalOpen ||
       (isLoggedIn && userRole === 'teacher' && activeTab !== 'dashboard')
   );
 
   const handleInternalBack = () => {
-    if (quickActionsOpen) {
-      setQuickActionsOpen(false);
+    if (quickActionsDropdown.isOpen) {
+      quickActionsDropdown.close();
       return;
     }
-    if (roleDropdownOpen) {
-      setRoleDropdownOpen(false);
+    if (portalRoleDropdown.isOpen) {
+      portalRoleDropdown.close();
+      return;
+    }
+    if (notifDropdown.isOpen) {
+      notifDropdown.close();
       return;
     }
     if (aiSuiteModalOpen) {
@@ -305,10 +316,6 @@ const MainShell: React.FC = () => {
     }
     if (mobileMoreOpen) {
       setMobileMoreOpen(false);
-      return;
-    }
-    if (notifPopoverOpen) {
-      setNotifPopoverOpen(false);
       return;
     }
     if (publicMushafPortalOpen) {
@@ -441,9 +448,6 @@ const MainShell: React.FC = () => {
             {ACADEMY_BRAND_CONFIG.printAndBoardFooterText}
           </div>
         </div>
-        <QuickSupportFloatingButton
-          onOpenDeveloperModal={() => setIsDeveloperModalOpen(true)}
-        />
         <ExitConfirmationModal
           isOpen={showExitConfirm}
           onCancel={cancelExit}
@@ -494,8 +498,8 @@ const MainShell: React.FC = () => {
     if (currentStaffTier === 'owner' && activeRoleMode === 'owner_mode') {
       return true;
     }
-    if (tabId === 'owner_panel') {
-      return currentStaffTier === 'owner';
+    if (tabId === 'owner_panel' || tabId === 'admin') {
+      return currentStaffTier === 'owner' || currentStaffTier === 'supervisor' || isFinancialManager;
     }
 
     if (isFinancialManager) {
@@ -698,56 +702,148 @@ const MainShell: React.FC = () => {
             </div>
           </div>
 
-          {/* Grouped Navigation Links */}
-          <nav className="space-y-4">
-            {navGroups.map((group) => (
-              <div key={group.groupTitle} className="space-y-1">
-                <div className="px-3 text-[11px] font-extrabold text-neutral-400 dark:text-emerald-400/70">
-                  {group.groupTitle}
-                </div>
-                {group.items.map((item) => {
-                  const isActive = activeTab === item.id;
-                  const isGoldenOwnerTab = item.id === 'owner_panel';
-                  return (
-                    <button
-                      key={item.id}
-                      onClick={() => setActiveTab(item.id)}
-                      className={`w-full flex items-center justify-between gap-2 px-3.5 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
-                        isGoldenOwnerTab
-                          ? isActive
-                            ? 'bg-gradient-to-l from-[#c59b27] via-amber-400 to-yellow-400 text-[#14281d] font-black shadow-md ring-2 ring-[#c59b27]/50'
-                            : 'bg-amber-400/15 hover:bg-amber-400/25 text-[#14281d] dark:text-[#dfbd69] border border-[#c59b27]/60 font-extrabold'
-                          : isActive
-                          ? 'bg-[#145a3a] text-white shadow-xs'
-                          : 'text-neutral-600 dark:text-neutral-300 hover:bg-[#f6f7f2] dark:hover:bg-[#0b1711] hover:text-[#145a3a] dark:hover:text-[#dfbd69]'
-                      }`}
-                    >
-                      <span className="flex items-center gap-2.5 truncate">
-                        <span
-                          className={
-                            isGoldenOwnerTab
-                              ? 'text-[#14281d] dark:text-[#dfbd69]'
-                              : isActive
-                              ? 'text-[#dfbd69]'
-                              : ''
-                          }
-                        >
-                          {item.icon}
-                        </span>
-                        <span className="truncate">{item.label}</span>
-                      </span>
-                      {isGoldenOwnerTab &&
-                        pendingStaffCount + pendingAccessCodeRequests.length >
-                          0 && (
-                          <span className="px-1.5 py-0.5 rounded-full bg-red-600 text-white text-[10px] font-mono font-black">
-                            {pendingStaffCount + pendingAccessCodeRequests.length}
-                          </span>
-                        )}
-                    </button>
-                  );
-                })}
+          {/* 4 Primary Navigation Hubs + Specialist Modules Accordion */}
+          <nav className="space-y-3">
+            {/* Primary Hubs */}
+            <div className="space-y-1">
+              <div className="px-3 text-[11px] font-extrabold text-[#145a3a] dark:text-[#dfbd69] flex items-center justify-between">
+                <span>البوابات الرئيسية</span>
+                <span className="text-[10px] font-mono opacity-60">4 مراكز</span>
               </div>
-            ))}
+
+              {[
+                {
+                  id: 'dashboard' as const,
+                  label: 'الرئيسية والحلقات',
+                  icon: <LayoutDashboard className="w-4 h-4" />,
+                },
+                {
+                  id: 'session' as const,
+                  label: 'غرفة التسميع والسبورة',
+                  icon: <BookOpen className="w-4 h-4" />,
+                },
+                {
+                  id: 'students' as const,
+                  label: 'سجل الطلاب والأكواد',
+                  icon: <Users className="w-4 h-4" />,
+                  badge: pendingAccessCodeRequests.length > 0 ? pendingAccessCodeRequests.length : undefined,
+                },
+                {
+                  id: 'admin' as const,
+                  label: 'الإدارة والمنظومة الذكية',
+                  icon: <Settings className="w-4 h-4" />,
+                  badge: pendingStaffCount > 0 ? pendingStaffCount : undefined,
+                  isGolden: currentStaffTier === 'owner',
+                },
+              ].map((item) => {
+                const isActive =
+                  activeTab === item.id ||
+                  (item.id === 'admin' &&
+                    ['owner_panel', 'finance', 'settings', 'broadcast', 'tasks'].includes(
+                      activeTab
+                    ));
+                return (
+                  <button
+                    key={item.id}
+                    onClick={() => setActiveTab(item.id)}
+                    className={`w-full flex items-center justify-between gap-2 px-3.5 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
+                      item.isGolden
+                        ? isActive
+                          ? 'bg-gradient-to-l from-[#c59b27] via-amber-400 to-yellow-400 text-[#14281d] font-black shadow-md ring-2 ring-[#c59b27]/50'
+                          : 'bg-amber-400/15 hover:bg-amber-400/25 text-[#14281d] dark:text-[#dfbd69] border border-[#c59b27]/60 font-extrabold'
+                        : isActive
+                        ? 'bg-[#145a3a] text-white shadow-xs'
+                        : 'text-neutral-600 dark:text-neutral-300 hover:bg-[#f6f7f2] dark:hover:bg-[#0b1711] hover:text-[#145a3a] dark:hover:text-[#dfbd69]'
+                    }`}
+                  >
+                    <span className="flex items-center gap-2.5 truncate">
+                      <span className={isActive ? 'text-[#dfbd69]' : ''}>{item.icon}</span>
+                      <span className="truncate">{item.label}</span>
+                    </span>
+                    {item.badge !== undefined && (
+                      <span className="px-1.5 py-0.5 rounded-full bg-red-600 text-white text-[10px] font-mono font-black">
+                        {item.badge}
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Specialist Modules & Curricula Collapsible Section */}
+            <div className="pt-2 border-t border-neutral-100 dark:border-emerald-900/40">
+              <Accordion
+                title="المناهج والوحدات التخصصية"
+                defaultOpen={['faith_oasis', 'public_mushaf', 'foundation', 'tajweed', 'smartboard', 'circles', 'exams', 'resources'].includes(activeTab)}
+                className="bg-transparent border-0 shadow-none"
+                headerClassName="p-2 rounded-xl text-xs font-bold text-neutral-500 hover:text-[#145a3a] dark:hover:text-[#dfbd69]"
+              >
+                <div className="space-y-1 pt-1 pr-1">
+                  {[
+                    {
+                      id: 'faith_oasis' as const,
+                      label: 'واحة الإيمان والإنجاز',
+                      icon: <Sparkles className="w-3.5 h-3.5" />,
+                    },
+                    {
+                      id: 'public_mushaf' as const,
+                      label: 'مصحف المدينة والوقف',
+                      icon: <BookOpen className="w-3.5 h-3.5" />,
+                    },
+                    {
+                      id: 'foundation' as const,
+                      label: 'منهج الإمام للتأسيس',
+                      icon: <Layers className="w-3.5 h-3.5" />,
+                    },
+                    {
+                      id: 'tajweed' as const,
+                      label: 'مخارج الحروف والتجويد',
+                      icon: <Compass className="w-3.5 h-3.5" />,
+                    },
+                    {
+                      id: 'smartboard' as const,
+                      label: 'السبورة الذكية',
+                      icon: <Sparkles className="w-3.5 h-3.5" />,
+                    },
+                    {
+                      id: 'circles' as const,
+                      label: 'إدارة الحلقات والحضور',
+                      icon: <Users className="w-3.5 h-3.5" />,
+                    },
+                    {
+                      id: 'exams' as const,
+                      label: 'الاختبارات والإجازات',
+                      icon: <GraduationCap className="w-3.5 h-3.5" />,
+                    },
+                    {
+                      id: 'resources' as const,
+                      label: 'المواد والعمل أوفلاين',
+                      icon: <FolderDown className="w-3.5 h-3.5" />,
+                    },
+                  ]
+                    .filter((m) => isTabAllowedForCurrentStaff(m.id))
+                    .map((item) => {
+                      const isActive = activeTab === item.id;
+                      return (
+                        <button
+                          key={item.id}
+                          onClick={() => setActiveTab(item.id)}
+                          className={`w-full flex items-center justify-between gap-2 px-3 py-1.5 rounded-xl text-[11px] font-bold transition-all cursor-pointer whitespace-nowrap ${
+                            isActive
+                              ? 'bg-[#145a3a] text-white shadow-2xs'
+                              : 'text-neutral-500 dark:text-neutral-400 hover:bg-[#f6f7f2] dark:hover:bg-[#0b1711] hover:text-[#145a3a] dark:hover:text-[#dfbd69]'
+                          }`}
+                        >
+                          <span className="flex items-center gap-2 truncate">
+                            <span className={isActive ? 'text-[#dfbd69]' : ''}>{item.icon}</span>
+                            <span className="truncate">{item.label}</span>
+                          </span>
+                        </button>
+                      );
+                    })}
+                </div>
+              </Accordion>
+            </div>
           </nav>
         </div>
 
@@ -863,213 +959,304 @@ const MainShell: React.FC = () => {
               </div>
             </div>
 
-            {/* 2. CENTER: Single Minimalist Role Switcher Dropdown (Owner & Supervisor Only) */}
-            <div className="flex items-center justify-center">
-              {currentStaffTier === 'owner' ? (
-                <div className="relative">
-                  <button
-                    type="button"
-                    onClick={() => setRoleDropdownOpen((prev) => !prev)}
-                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-gradient-to-l from-amber-400/20 via-[#c59b27]/20 to-emerald-700/20 border border-[#c59b27]/60 text-[#14281d] dark:text-[#dfbd69] text-xs font-black shadow-2xs hover:bg-[#c59b27]/30 transition cursor-pointer"
-                    aria-label="تبديل وضع العمل"
-                  >
-                    <span>
-                      {activeRoleMode === 'owner_mode'
-                        ? '👑 وضع المالك'
-                        : activeRoleMode === 'supervisor_mode'
-                        ? '🛡️ وضع المشرف'
-                        : '📖 وضع المحفظ'}
-                    </span>
-                    <ChevronDown
-                      className={`w-3.5 h-3.5 transition-transform duration-150 ${
-                        roleDropdownOpen ? 'rotate-180' : ''
-                      }`}
-                    />
-                  </button>
-
-                  {roleDropdownOpen && (
-                    <div
-                      className="absolute top-full mt-2 left-1/2 -translate-x-1/2 w-48 rounded-2xl bg-white dark:bg-[#12231a] border border-neutral-200 dark:border-emerald-800 shadow-2xl p-1.5 z-50 space-y-1 animate-in fade-in zoom-in-95"
-                      onClick={() => setRoleDropdownOpen(false)}
-                    >
-                      <button
-                        type="button"
-                        onClick={() => setActiveRoleMode('owner_mode')}
-                        className={`w-full flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-black text-right transition cursor-pointer ${
-                          activeRoleMode === 'owner_mode'
-                            ? 'bg-gradient-to-l from-[#c59b27] to-amber-500 text-[#14281d]'
-                            : 'text-neutral-700 dark:text-neutral-200 hover:bg-neutral-100 dark:hover:bg-emerald-950'
-                        }`}
-                      >
-                        👑 وضع المالك
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setActiveRoleMode('supervisor_mode');
-                          if (activeTab === 'owner_panel') setActiveTab('dashboard');
-                        }}
-                        className={`w-full flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-black text-right transition cursor-pointer ${
-                          activeRoleMode === 'supervisor_mode'
-                            ? 'bg-[#145a3a] text-white'
-                            : 'text-neutral-700 dark:text-neutral-200 hover:bg-neutral-100 dark:hover:bg-emerald-950'
-                        }`}
-                      >
-                        🛡️ وضع المشرف
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setActiveRoleMode('teacher_mode');
-                          if (
-                            ![
-                              'dashboard',
-                              'students',
-                              'session',
-                              'smartboard',
-                              'circles',
-                              'foundation',
-                              'tajweed',
-                              'public_mushaf',
-                              'faith_oasis',
-                            ].includes(activeTab)
-                          ) {
-                            setActiveTab('session');
-                          }
-                        }}
-                        className={`w-full flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-black text-right transition cursor-pointer ${
-                          activeRoleMode === 'teacher_mode'
-                            ? 'bg-emerald-700 text-white'
-                            : 'text-neutral-700 dark:text-neutral-200 hover:bg-neutral-100 dark:hover:bg-emerald-950'
-                        }`}
-                      >
-                        📖 وضع المحفظ
-                      </button>
-                    </div>
-                  )}
-                </div>
-              ) : currentStaffTier === 'supervisor' ? (
-                <div className="relative">
-                  <button
-                    type="button"
-                    onClick={() => setRoleDropdownOpen((prev) => !prev)}
-                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-700/15 border border-emerald-700/50 text-[#145a3a] dark:text-[#dfbd69] text-xs font-black shadow-2xs hover:bg-emerald-700/25 transition cursor-pointer"
-                  >
-                    <span>
-                      {activeRoleMode === 'teacher_mode'
-                        ? '📖 وضع المحفظ'
-                        : '🛡️ وضع المشرف'}
-                    </span>
-                    <ChevronDown
-                      className={`w-3.5 h-3.5 transition-transform duration-150 ${
-                        roleDropdownOpen ? 'rotate-180' : ''
-                      }`}
-                    />
-                  </button>
-
-                  {roleDropdownOpen && (
-                    <div
-                      className="absolute top-full mt-2 left-1/2 -translate-x-1/2 w-48 rounded-2xl bg-white dark:bg-[#12231a] border border-neutral-200 dark:border-emerald-800 shadow-2xl p-1.5 z-50 space-y-1 animate-in fade-in zoom-in-95"
-                      onClick={() => setRoleDropdownOpen(false)}
-                    >
-                      <button
-                        type="button"
-                        onClick={() => setActiveRoleMode('supervisor_mode')}
-                        className={`w-full flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-black text-right transition cursor-pointer ${
-                          activeRoleMode !== 'teacher_mode'
-                            ? 'bg-[#145a3a] text-white'
-                            : 'text-neutral-700 dark:text-neutral-200 hover:bg-neutral-100 dark:hover:bg-emerald-950'
-                        }`}
-                      >
-                        🛡️ وضع المشرف
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setActiveRoleMode('teacher_mode');
-                          if (
-                            ![
-                              'dashboard',
-                              'students',
-                              'session',
-                              'smartboard',
-                              'circles',
-                              'foundation',
-                              'tajweed',
-                              'public_mushaf',
-                              'faith_oasis',
-                            ].includes(activeTab)
-                          ) {
-                            setActiveTab('session');
-                          }
-                        }}
-                        className={`w-full flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-black text-right transition cursor-pointer ${
-                          activeRoleMode === 'teacher_mode'
-                            ? 'bg-emerald-700 text-white'
-                            : 'text-neutral-700 dark:text-neutral-200 hover:bg-neutral-100 dark:hover:bg-emerald-950'
-                        }`}
-                      >
-                        📖 وضع المحفظ
-                      </button>
-                    </div>
-                  )}
-                </div>
-              ) : null}
-            </div>
-
-            {/* 3. LEFT: Single Sleek Quick Actions Dropdown */}
-            <div className="flex items-center gap-2 shrink-0 relative">
+            {/* 2. CENTER: Unified Portal & Staff Mode Dropdown */}
+            <div className="flex items-center justify-center relative">
               <button
                 type="button"
-                onClick={() => setQuickActionsOpen((prev) => !prev)}
-                className="relative inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-neutral-200/90 dark:border-emerald-900 bg-[#f6f7f2] dark:bg-[#0b1711] hover:border-[#145a3a] text-xs font-extrabold text-[#145a3a] dark:text-[#dfbd69] cursor-pointer shadow-2xs transition"
-                title="الإجراءات السريعة"
+                onClick={portalRoleDropdown.toggle}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-gradient-to-l from-amber-400/20 via-[#c59b27]/20 to-emerald-700/20 border border-[#c59b27]/60 text-[#14281d] dark:text-[#dfbd69] text-xs font-black shadow-2xs hover:bg-[#c59b27]/30 transition cursor-pointer"
+                aria-label="تبديل البوابة ووضع العمل"
               >
-                <Sparkles className="w-3.5 h-3.5 text-[#c59b27]" />
-                <span className="hidden sm:inline">إجراءات سريعة</span>
+                <Compass className="w-3.5 h-3.5 text-[#c59b27]" />
+                <span className="truncate max-w-[130px] sm:max-w-none">
+                  {activePortalRoute === 'owner'
+                    ? '👑 بوابة المالك'
+                    : activePortalRoute === 'guardian'
+                    ? '👨‍👩‍👧 بوابة ولي الأمر'
+                    : activePortalRoute === 'student'
+                    ? '🎒 بوابة الطالب'
+                    : activePortalRoute === 'almushaf'
+                    ? '📜 مصحف الوقف'
+                    : activePortalRoute === 'sadaqa'
+                    ? '🤲 رصيد الصدقة'
+                    : '📖 بوابة التحفيظ'}
+                </span>
+                <span className="text-[10px] opacity-70 hidden sm:inline">
+                  (
+                  {activeRoleMode === 'owner_mode'
+                    ? 'المالك'
+                    : activeRoleMode === 'supervisor_mode'
+                    ? 'المشرف'
+                    : 'المحفظ'}
+                  )
+                </span>
                 <ChevronDown
-                  className={`w-3 h-3 text-neutral-400 transition-transform duration-150 ${
-                    quickActionsOpen ? 'rotate-180' : ''
+                  className={`w-3.5 h-3.5 text-[#c59b27] transition-transform duration-150 ${
+                    portalRoleDropdown.isOpen ? 'rotate-180' : ''
                   }`}
                 />
+              </button>
+
+              {portalRoleDropdown.isOpen && (
+                <div
+                  className="absolute top-full mt-2 left-1/2 -translate-x-1/2 w-72 rounded-2xl bg-white dark:bg-[#12231a] border border-neutral-200 dark:border-emerald-800 shadow-2xl p-2.5 z-40 space-y-2 animate-in fade-in zoom-in-95"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <div>
+                    <div className="px-2.5 py-1 text-[10px] font-black text-neutral-400 dark:text-emerald-400/70">
+                      🧭 البوابات الست الرسمية
+                    </div>
+                    <div className="space-y-1">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setActivePortalRoute('owner');
+                          setActiveRoleMode('owner_mode');
+                          setActiveTab('admin');
+                          portalRoleDropdown.close();
+                        }}
+                        className={`w-full flex items-center justify-between px-3 py-1.5 rounded-xl text-xs font-extrabold text-right transition cursor-pointer ${
+                          activePortalRoute === 'owner' && activeRoleMode === 'owner_mode'
+                            ? 'bg-amber-400/20 text-[#14281d] dark:text-[#dfbd69] border border-[#c59b27]/60'
+                            : 'text-neutral-700 dark:text-neutral-200 hover:bg-neutral-100 dark:hover:bg-emerald-950'
+                        }`}
+                      >
+                        <span>👑 بوابة المالك العليا</span>
+                        <span className="text-[10px] text-neutral-400 font-mono">/owner</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setActivePortalRoute('general');
+                          setActiveRoleMode('teacher_mode');
+                          setActiveTab('dashboard');
+                          portalRoleDropdown.close();
+                        }}
+                        className={`w-full flex items-center justify-between px-3 py-1.5 rounded-xl text-xs font-extrabold text-right transition cursor-pointer ${
+                          activePortalRoute === 'general'
+                            ? 'bg-[#145a3a]/15 text-[#145a3a] dark:text-[#dfbd69] border border-[#145a3a]/40'
+                            : 'text-neutral-700 dark:text-neutral-200 hover:bg-neutral-100 dark:hover:bg-emerald-950'
+                        }`}
+                      >
+                        <span>📖 بوابة التحفيظ العامة</span>
+                        <span className="text-[10px] text-neutral-400 font-mono">/general</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          portalRoleDropdown.close();
+                          loginAsGuardianDirect(students[0]?.id || 'st-1');
+                          setActivePortalRoute('guardian');
+                        }}
+                        className="w-full flex items-center justify-between px-3 py-1.5 rounded-xl text-xs font-extrabold text-right text-neutral-700 dark:text-neutral-200 hover:bg-neutral-100 dark:hover:bg-emerald-950 transition cursor-pointer"
+                      >
+                        <span>👨‍👩‍👧 بوابة ولي الأمر</span>
+                        <span className="text-[10px] text-neutral-400 font-mono">/guardian</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          portalRoleDropdown.close();
+                          loginAsGuardianDirect(students[0]?.id || 'st-1');
+                          setActivePortalRoute('student');
+                        }}
+                        className="w-full flex items-center justify-between px-3 py-1.5 rounded-xl text-xs font-extrabold text-right text-neutral-700 dark:text-neutral-200 hover:bg-neutral-100 dark:hover:bg-emerald-950 transition cursor-pointer"
+                      >
+                        <span>🎒 بوابة الطالب القرآني</span>
+                        <span className="text-[10px] text-neutral-400 font-mono">/student</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          portalRoleDropdown.close();
+                          setPublicMushafPortalOpen(true);
+                          setActivePortalRoute('almushaf');
+                        }}
+                        className="w-full flex items-center justify-between px-3 py-1.5 rounded-xl text-xs font-extrabold text-right text-neutral-700 dark:text-neutral-200 hover:bg-neutral-100 dark:hover:bg-emerald-950 transition cursor-pointer"
+                      >
+                        <span>📜 مصحف المدينة العام والوقف</span>
+                        <span className="text-[10px] text-neutral-400 font-mono">/almushaf</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          portalRoleDropdown.close();
+                          setPublicMushafPortalOpen(true);
+                          setActivePortalRoute('sadaqa');
+                        }}
+                        className="w-full flex items-center justify-between px-3 py-1.5 rounded-xl text-xs font-extrabold text-right text-neutral-700 dark:text-neutral-200 hover:bg-neutral-100 dark:hover:bg-emerald-950 transition cursor-pointer"
+                      >
+                        <span>🤲 رصيد الصدقة الجارية</span>
+                        <span className="text-[10px] text-neutral-400 font-mono">/sadaqa</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Staff Sub-modes if Owner or Supervisor */}
+                  {(currentStaffTier === 'owner' || currentStaffTier === 'supervisor') && (
+                    <div className="pt-2 border-t border-neutral-100 dark:border-emerald-900/60">
+                      <div className="px-2.5 py-1 text-[10px] font-black text-amber-600 dark:text-amber-400">
+                        🎭 وضع العمل الميداني
+                      </div>
+                      <div className="space-y-1">
+                        {currentStaffTier === 'owner' && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setActiveRoleMode('owner_mode');
+                              portalRoleDropdown.close();
+                            }}
+                            className={`w-full flex items-center gap-2 px-3 py-1.5 rounded-xl text-xs font-black text-right transition cursor-pointer ${
+                              activeRoleMode === 'owner_mode'
+                                ? 'bg-gradient-to-l from-[#c59b27] to-amber-500 text-[#14281d]'
+                                : 'text-neutral-700 dark:text-neutral-200 hover:bg-neutral-100 dark:hover:bg-emerald-950'
+                            }`}
+                          >
+                            👑 وضع المالك (كامل الصلاحيات)
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setActiveRoleMode('supervisor_mode');
+                            portalRoleDropdown.close();
+                          }}
+                          className={`w-full flex items-center gap-2 px-3 py-1.5 rounded-xl text-xs font-black text-right transition cursor-pointer ${
+                            activeRoleMode === 'supervisor_mode'
+                              ? 'bg-[#145a3a] text-white'
+                              : 'text-neutral-700 dark:text-neutral-200 hover:bg-neutral-100 dark:hover:bg-emerald-950'
+                          }`}
+                        >
+                          🛡️ وضع المشرف (الإشراف والمتابعة)
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setActiveRoleMode('teacher_mode');
+                            portalRoleDropdown.close();
+                            if (['admin', 'owner_panel', 'finance', 'settings'].includes(activeTab)) {
+                              setActiveTab('session');
+                            }
+                          }}
+                          className={`w-full flex items-center gap-2 px-3 py-1.5 rounded-xl text-xs font-black text-right transition cursor-pointer ${
+                            activeRoleMode === 'teacher_mode'
+                              ? 'bg-emerald-700 text-white'
+                              : 'text-neutral-700 dark:text-neutral-200 hover:bg-neutral-100 dark:hover:bg-emerald-950'
+                          }`}
+                        >
+                          📖 وضع المحفظ (الحلقات والتسميع)
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* 3. LEFT: Streamlined Control Hub (Theme + Search + PWA + Quick Actions) */}
+            <div className="flex items-center gap-1.5 sm:gap-2 shrink-0 relative">
+              {/* Theme Fast Cycle */}
+              <button
+                type="button"
+                onClick={() => {
+                  const nextTheme =
+                    settings.theme === 'light'
+                      ? 'dark'
+                      : settings.theme === 'dark'
+                      ? 'sepia'
+                      : 'light';
+                  updateSettings({ theme: nextTheme });
+                }}
+                className="p-2 rounded-xl border border-neutral-200/90 dark:border-emerald-900 bg-[#f6f7f2] dark:bg-[#0b1711] text-xs font-black hover:border-[#145a3a] text-neutral-700 dark:text-neutral-200 cursor-pointer shadow-2xs transition"
+                title={`المظهر: ${
+                  settings.theme === 'light'
+                    ? 'نهاري ☀️'
+                    : settings.theme === 'dark'
+                    ? 'ليلي 🌙'
+                    : 'مصحف 📜'
+                }`}
+                aria-label="تبديل المظهر"
+              >
+                {settings.theme === 'dark' ? '🌙' : settings.theme === 'sepia' ? '📜' : '☀️'}
+              </button>
+
+              {/* Quick Search */}
+              <button
+                type="button"
+                onClick={() => setQuickSearchOpen(true)}
+                className="hidden sm:inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl border border-neutral-200/90 dark:border-emerald-900 bg-[#f6f7f2] dark:bg-[#0b1711] text-xs font-bold text-neutral-600 dark:text-neutral-300 hover:text-[#145a3a] cursor-pointer shadow-2xs transition"
+                title="بحث سريع (Ctrl+K)"
+              >
+                <Search className="w-3.5 h-3.5 text-[#c59b27]" />
+                <span className="hidden md:inline">بحث</span>
+                <kbd className="hidden lg:inline text-[9px] font-mono px-1 py-0.5 rounded bg-neutral-200/60 dark:bg-emerald-950 border border-neutral-300/60 dark:border-emerald-800">
+                  Ctrl+K
+                </kbd>
+              </button>
+
+              {/* PWA Install Button */}
+              <PWAInstallButton
+                route={currentStaffTier === 'owner' ? 'owner' : 'general'}
+              />
+
+              {/* Notification Bell with Badge */}
+              <button
+                type="button"
+                onClick={notifDropdown.toggle}
+                className="relative p-2 rounded-xl border border-neutral-200/90 dark:border-emerald-900 bg-[#f6f7f2] dark:bg-[#0b1711] text-neutral-600 dark:text-neutral-300 hover:text-[#145a3a] cursor-pointer shadow-2xs transition"
+                title="مركز التنبيهات والأكواد"
+              >
+                <Bell className="w-4 h-4 text-[#145a3a] dark:text-[#dfbd69]" />
                 {totalNotifBadgeCount > 0 && (
-                  <span className="absolute -top-1 -right-1 min-w-4 h-4 px-1 rounded-full bg-red-600 text-white text-[10px] font-mono font-bold flex items-center justify-center tabular-nums">
+                  <span className="absolute -top-1 -right-1 min-w-4 h-4 px-1 rounded-full bg-red-600 text-white text-[10px] font-mono font-black flex items-center justify-center tabular-nums">
                     {totalNotifBadgeCount}
                   </span>
                 )}
               </button>
 
-              {quickActionsOpen && (
-                <div
-                  className="absolute left-0 top-full mt-2 w-72 rounded-2xl bg-white dark:bg-[#12231a] border border-neutral-200 dark:border-emerald-800 shadow-2xl p-3 z-50 space-y-2.5 animate-in fade-in zoom-in-95"
+              {/* Quick Actions Dropdown */}
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={quickActionsDropdown.toggle}
+                  className="relative inline-flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-xl border border-neutral-200/90 dark:border-emerald-900 bg-[#f6f7f2] dark:bg-[#0b1711] hover:border-[#145a3a] text-xs font-extrabold text-[#145a3a] dark:text-[#dfbd69] cursor-pointer shadow-2xs transition"
+                  title="الإجراءات السريعة"
                 >
-                  {/* PWA & AI */}
-                  <div className="flex items-center justify-between gap-2 pb-2 border-b border-neutral-100 dark:border-emerald-900/60">
-                    <PWAInstallButton
-                      route={currentStaffTier === 'owner' ? 'owner' : 'general'}
-                    />
+                  <Sparkles className="w-3.5 h-3.5 text-[#c59b27]" />
+                  <span className="hidden sm:inline">الإجراءات</span>
+                  <ChevronDown
+                    className={`w-3 h-3 text-neutral-400 transition-transform duration-150 ${
+                      quickActionsDropdown.isOpen ? 'rotate-180' : ''
+                    }`}
+                  />
+                </button>
+
+                {quickActionsDropdown.isOpen && (
+                  <div
+                    className="absolute left-0 top-full mt-2 w-72 rounded-2xl bg-white dark:bg-[#12231a] border border-neutral-200 dark:border-emerald-800 shadow-2xl p-3 z-40 space-y-2.5 animate-in fade-in zoom-in-95"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    {/* Assistant AI */}
                     <button
                       type="button"
                       onClick={() => {
-                        setQuickActionsOpen(false);
+                        quickActionsDropdown.close();
                         setAiSuiteModalOpen(true);
                       }}
-                      className="flex-1 inline-flex items-center justify-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-gradient-to-l from-[#c59b27] to-amber-500 text-[#14281d] text-xs font-black cursor-pointer shadow-2xs"
+                      className="w-full inline-flex items-center justify-center gap-2 px-3 py-2 rounded-xl bg-gradient-to-l from-[#c59b27] to-amber-500 text-[#14281d] text-xs font-black cursor-pointer shadow-2xs"
                     >
-                      <Bot className="w-3.5 h-3.5" />
-                      <span>المساعد الذكي</span>
+                      <Bot className="w-4 h-4" />
+                      <span>المساعد الذكي (AI Suite)</span>
                     </button>
-                  </div>
 
-                  {/* Theme Switcher & Font scale */}
-                  <div className="space-y-1.5 pb-2 border-b border-neutral-100 dark:border-emerald-900/60">
-                    <div className="flex items-center justify-between text-[11px] font-bold text-neutral-500 dark:text-neutral-400">
-                      <span>المظهر والخط:</span>
-                      <div className="flex items-center rounded-lg border border-neutral-200 dark:border-emerald-900 bg-[#f6f7f2] dark:bg-[#0b1711] overflow-hidden">
+                    {/* Font scale adjustment */}
+                    <div className="flex items-center justify-between p-2 rounded-xl bg-neutral-50 dark:bg-emerald-950/40 border border-neutral-100 dark:border-emerald-900/60 text-xs font-bold text-neutral-600 dark:text-neutral-300">
+                      <span>حجم الخط:</span>
+                      <div className="flex items-center rounded-lg border border-neutral-200 dark:border-emerald-900 bg-white dark:bg-[#0b1711] overflow-hidden">
                         <button
                           type="button"
                           onClick={() => adjustFontSize(1)}
-                          className="px-2 py-0.5 text-xs font-black text-[#145a3a] dark:text-[#dfbd69] hover:bg-neutral-200/60 dark:hover:bg-emerald-950"
+                          className="px-2 py-0.5 text-xs font-black text-[#145a3a] dark:text-[#dfbd69] hover:bg-neutral-100 dark:hover:bg-emerald-950"
                           title="تكبير الخط"
                         >
                           أ+
@@ -1078,7 +1265,7 @@ const MainShell: React.FC = () => {
                         <button
                           type="button"
                           onClick={() => adjustFontSize(-1)}
-                          className="px-2 py-0.5 text-xs font-black text-neutral-600 dark:text-neutral-300 hover:bg-neutral-200/60 dark:hover:bg-emerald-950"
+                          className="px-2 py-0.5 text-xs font-black text-neutral-600 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-emerald-950"
                           title="تصغير الخط"
                         >
                           أ-
@@ -1086,119 +1273,61 @@ const MainShell: React.FC = () => {
                       </div>
                     </div>
 
-                    <div className="grid grid-cols-3 gap-1">
-                      {[
-                        { id: 'light' as const, label: '☀️ نهاري' },
-                        { id: 'dark' as const, label: '🌙 ليلي' },
-                        { id: 'sepia' as const, label: '📜 مصحف' },
-                      ].map((tMode) => (
-                        <button
-                          key={tMode.id}
-                          type="button"
-                          onClick={() => updateSettings({ theme: tMode.id })}
-                          className={`py-1 rounded-lg text-xs font-extrabold transition cursor-pointer text-center ${
-                            settings.theme === tMode.id
-                              ? 'bg-[#145a3a] text-[#dfbd69] shadow-2xs'
-                              : 'bg-neutral-100 dark:bg-[#0b1711] text-neutral-600 dark:text-neutral-300 hover:text-[#145a3a]'
-                          }`}
-                        >
-                          {tMode.label}
-                        </button>
-                      ))}
+                    {/* Offline WhatsApp queue if any */}
+                    {pendingOutboxMessages.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          quickActionsDropdown.close();
+                          setOutboxModalOpen(true);
+                        }}
+                        className="w-full flex items-center justify-between p-2 rounded-xl bg-amber-50 dark:bg-amber-950/40 border border-amber-300 dark:border-amber-800 text-xs font-bold text-amber-800 dark:text-amber-200 cursor-pointer"
+                      >
+                        <span className="flex items-center gap-2">
+                          <MessageCircle className="w-4 h-4 text-[#25D366]" />
+                          <span>طابور رسائل واتساب المعلقة</span>
+                        </span>
+                        <span className="px-1.5 py-0.5 rounded-full bg-emerald-700 text-white text-[10px] font-mono font-black">
+                          {pendingOutboxMessages.length}
+                        </span>
+                      </button>
+                    )}
+
+                    {/* PDF Guide & Support */}
+                    <div className="pt-2 border-t border-neutral-100 dark:border-emerald-900/60 flex items-center justify-between gap-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          quickActionsDropdown.close();
+                          setShowAcademyPdfGuide(true);
+                        }}
+                        className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl border border-neutral-200 dark:border-emerald-900 hover:bg-neutral-100 dark:hover:bg-emerald-950 text-neutral-700 dark:text-neutral-300 text-xs font-bold cursor-pointer"
+                      >
+                        <FileText className="w-3.5 h-3.5 text-[#dfbd69]" />
+                        <span>دليل الأكاديمية PDF</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          quickActionsDropdown.close();
+                          setIsDeveloperModalOpen(true);
+                        }}
+                        className="p-2 rounded-xl border border-neutral-200 dark:border-emerald-900 hover:bg-neutral-100 dark:hover:bg-emerald-950 text-neutral-700 dark:text-neutral-300 cursor-pointer"
+                        title="دعم المطور"
+                      >
+                        <Sparkles className="w-4 h-4 text-[#c59b27]" />
+                      </button>
                     </div>
                   </div>
-
-                  {/* Notifications trigger */}
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setQuickActionsOpen(false);
-                      setNotifPopoverOpen(true);
-                    }}
-                    className="w-full flex items-center justify-between p-2 rounded-xl hover:bg-neutral-100 dark:hover:bg-emerald-950/70 text-xs font-bold text-neutral-700 dark:text-neutral-200 cursor-pointer"
-                  >
-                    <span className="flex items-center gap-2">
-                      <Bell className="w-4 h-4 text-[#145a3a] dark:text-[#dfbd69]" />
-                      <span>مركز التنبيهات والأكواد</span>
-                    </span>
-                    {totalNotifBadgeCount > 0 ? (
-                      <span className="px-2 py-0.5 rounded-full bg-red-600 text-white text-[10px] font-mono font-black">
-                        {totalNotifBadgeCount}
-                      </span>
-                    ) : (
-                      <span className="text-[10px] text-neutral-400">0</span>
-                    )}
-                  </button>
-
-                  {/* Quick Search */}
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setQuickActionsOpen(false);
-                      setQuickSearchOpen(true);
-                    }}
-                    className="w-full flex items-center justify-between p-2 rounded-xl hover:bg-neutral-100 dark:hover:bg-emerald-950/70 text-xs font-bold text-neutral-700 dark:text-neutral-200 cursor-pointer"
-                  >
-                    <span className="flex items-center gap-2">
-                      <Search className="w-4 h-4 text-[#145a3a] dark:text-[#dfbd69]" />
-                      <span>بحث سريع في المنصة</span>
-                    </span>
-                    <kbd className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-neutral-100 dark:bg-emerald-900 border border-neutral-200 dark:border-emerald-800">
-                      Ctrl+K
-                    </kbd>
-                  </button>
-
-                  {/* Offline WhatsApp queue if any */}
-                  {pendingOutboxMessages.length > 0 && (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setQuickActionsOpen(false);
-                        setOutboxModalOpen(true);
-                      }}
-                      className="w-full flex items-center justify-between p-2 rounded-xl bg-amber-50 dark:bg-amber-950/40 border border-amber-300 dark:border-amber-800 text-xs font-bold text-amber-800 dark:text-amber-200 cursor-pointer"
-                    >
-                      <span className="flex items-center gap-2">
-                        <MessageCircle className="w-4 h-4 text-[#25D366]" />
-                        <span>طابور رسائل واتساب المعلقة</span>
-                      </span>
-                      <span className="px-1.5 py-0.5 rounded-full bg-emerald-700 text-white text-[10px] font-mono font-black">
-                        {pendingOutboxMessages.length}
-                      </span>
-                    </button>
-                  )}
-
-                  {/* PDF Guide & Support */}
-                  <div className="pt-2 border-t border-neutral-100 dark:border-emerald-900/60 flex items-center justify-between gap-2">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setQuickActionsOpen(false);
-                        setShowAcademyPdfGuide(true);
-                      }}
-                      className="flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-xl border border-neutral-200 dark:border-emerald-900 hover:bg-neutral-100 dark:hover:bg-emerald-950 text-neutral-700 dark:text-neutral-300 text-xs font-bold cursor-pointer"
-                    >
-                      <FileText className="w-3.5 h-3.5 text-[#dfbd69]" />
-                      <span>دليل الأكاديمية PDF</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setQuickActionsOpen(false);
-                        setIsDeveloperModalOpen(true);
-                      }}
-                      className="p-1.5 rounded-xl border border-neutral-200 dark:border-emerald-900 hover:bg-neutral-100 dark:hover:bg-emerald-950 text-neutral-700 dark:text-neutral-300 cursor-pointer"
-                      title="دعم المطور"
-                    >
-                      <Sparkles className="w-4 h-4 text-[#c59b27]" />
-                    </button>
-                  </div>
-                </div>
-              )}
+                )}
+              </div>
 
               {/* Notification Popover Panel */}
-              {notifPopoverOpen && (
-                <div className="absolute left-0 top-full mt-2 w-80 sm:w-96 rounded-2xl bg-white dark:bg-[#12231a] border border-neutral-200 dark:border-emerald-800 shadow-2xl p-4 z-50 space-y-3">
+              {notifDropdown.isOpen && (
+                <div
+                  className="absolute left-0 top-full mt-2 w-80 sm:w-96 rounded-2xl bg-white dark:bg-[#12231a] border border-neutral-200 dark:border-emerald-800 shadow-2xl p-4 z-40 space-y-3"
+                  onClick={(e) => e.stopPropagation()}
+                >
                   <div className="flex items-center justify-between pb-2 border-b border-neutral-100 dark:border-emerald-900">
                     <div>
                       <div className="text-xs font-extrabold text-[#145a3a] dark:text-[#dfbd69]">
@@ -1219,8 +1348,8 @@ const MainShell: React.FC = () => {
                       <button
                         type="button"
                         onClick={() => {
-                          setNotifPopoverOpen(false);
-                          setActiveTab('settings');
+                          notifDropdown.close();
+                          setActiveTab('admin');
                         }}
                         className="p-1 rounded-lg hover:bg-neutral-100 dark:hover:bg-emerald-950 text-neutral-500 cursor-pointer"
                         title="إعدادات التنبيهات"
@@ -1229,7 +1358,7 @@ const MainShell: React.FC = () => {
                       </button>
                       <button
                         type="button"
-                        onClick={() => setNotifPopoverOpen(false)}
+                        onClick={notifDropdown.close}
                         className="p-1 rounded-lg hover:bg-neutral-100 dark:hover:bg-emerald-950 text-neutral-500 cursor-pointer"
                         title="إغلاق"
                       >
@@ -1313,7 +1442,7 @@ const MainShell: React.FC = () => {
                           key={alert.id}
                           type="button"
                           onClick={() => {
-                            setNotifPopoverOpen(false);
+                            notifDropdown.close();
                             if (alert.category === 'overdue_task') {
                               setActiveTab('tasks');
                             } else {
@@ -1371,8 +1500,14 @@ const MainShell: React.FC = () => {
         >
           <Suspense fallback={<ViewLoadingFallback />}>
             {activeTab === 'dashboard' && <DashboardView />}
+            {activeTab === 'admin' && <AdminControlHubView />}
+            {activeTab === 'owner_panel' && <AdminControlHubView initialSection="staff" />}
+            {activeTab === 'finance' && <AdminControlHubView initialSection="finance" />}
+            {activeTab === 'tasks' && <AdminControlHubView initialSection="ai_tasks" />}
+            {(activeTab === 'settings' || activeTab === 'broadcast') && (
+              <AdminControlHubView initialSection="settings_broadcast" />
+            )}
             {activeTab === 'faith_oasis' && <FaithOasisView />}
-            {activeTab === 'owner_panel' && <OwnerControlPanelView />}
             {activeTab === 'students' && <StudentsView />}
             {activeTab === 'session' && <SessionEngineView />}
             {activeTab === 'smartboard' && <SmartBoardView />}
@@ -1383,16 +1518,12 @@ const MainShell: React.FC = () => {
             {activeTab === 'struggling' && (
               <StrugglingAndTasksView mode="struggling" />
             )}
-            {activeTab === 'tasks' && <StrugglingAndTasksView mode="tasks" />}
-            {activeTab === 'finance' && <FinanceView />}
             {activeTab === 'resources' && <OfflineResourceCenterView />}
             {activeTab === 'public_mushaf' && (
               <PublicMushafWaqfPortalView
                 onBackToAcademy={() => setActiveTab('dashboard')}
               />
             )}
-            {activeTab === 'broadcast' && <BroadcastCenterView />}
-            {activeTab === 'settings' && <SettingsView />}
           </Suspense>
 
           {/* Global Footer & Print Footer */}
@@ -1415,7 +1546,7 @@ const MainShell: React.FC = () => {
       {/* Mobile Bottom Navigation Bar (Ultra-Clean 4-Button Focus Bar) */}
       <nav
         aria-hidden={isFullScreenFocus}
-        className={`lg:hidden fixed bottom-0 left-0 right-0 z-40 bg-white/95 dark:bg-[#12231a]/95 backdrop-blur-md border-t border-neutral-200 dark:border-emerald-900/50 grid grid-cols-4 items-center h-16 px-1.5 no-print smart-focus-shell-transition ${
+        className={`lg:hidden fixed bottom-0 left-0 right-0 z-30 bg-white/95 dark:bg-[#12231a]/95 backdrop-blur-md border-t border-neutral-200 dark:border-emerald-900/50 grid grid-cols-4 items-center h-16 px-1.5 no-print smart-focus-shell-transition ${
           isFullScreenFocus
             ? 'translate-y-24 opacity-0 pointer-events-none select-none'
             : 'translate-y-0 opacity-100'
@@ -1471,9 +1602,12 @@ const MainShell: React.FC = () => {
 
         <button
           type="button"
-          onClick={() => setMobileMoreOpen(true)}
+          onClick={() => {
+            setActiveTab('admin');
+            setMobileMoreOpen(false);
+          }}
           className={`flex flex-col items-center justify-center gap-1 py-1.5 min-h-[44px] rounded-xl text-[11px] font-extrabold cursor-pointer transition ${
-            mobileMoreOpen ||
+            activeTab === 'admin' ||
             ['owner_panel', 'finance', 'settings', 'broadcast', 'tasks'].includes(
               activeTab
             )

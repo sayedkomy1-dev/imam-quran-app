@@ -1,5 +1,6 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useRef, useEffect, useState } from 'react';
 import { MoreVertical } from 'lucide-react';
+import { useOverlayController } from '../../hooks/useOverlayController';
 
 export interface MoreMenuItem {
   label: string;
@@ -16,6 +17,7 @@ interface MoreMenuProps {
   className?: string;
   align?: 'left' | 'right';
   ariaLabel?: string;
+  id?: string;
 }
 
 export const MoreMenu: React.FC<MoreMenuProps> = ({
@@ -24,14 +26,25 @@ export const MoreMenu: React.FC<MoreMenuProps> = ({
   className = '',
   align = 'left',
   ariaLabel = 'خيارات إضافية',
+  id,
 }) => {
-  const [isOpen, setIsOpen] = useState(false);
+  const { isOpen, toggle, close } = useOverlayController(id);
   const menuRef = useRef<HTMLDivElement>(null);
+  const [openUpward, setOpenUpward] = useState(false);
+
+  useEffect(() => {
+    if (isOpen && menuRef.current) {
+      const rect = menuRef.current.getBoundingClientRect();
+      const spaceBelow = window.innerHeight - rect.bottom;
+      // If less than 240px below, flip upward to prevent clipping
+      setOpenUpward(spaceBelow < 240 && rect.top > 240);
+    }
+  }, [isOpen]);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
-        setIsOpen(false);
+        close();
       }
     };
     if (isOpen) {
@@ -40,18 +53,18 @@ export const MoreMenu: React.FC<MoreMenuProps> = ({
     return () => {
       document.removeEventListener('mousedown', handleClickOutside);
     };
-  }, [isOpen]);
+  }, [isOpen, close]);
 
   return (
     <div className={`relative inline-block text-right ${className}`} ref={menuRef}>
       {trigger ? (
-        <div onClick={() => setIsOpen((prev) => !prev)} className="cursor-pointer">
+        <div onClick={toggle} className="cursor-pointer">
           {trigger}
         </div>
       ) : (
         <button
           type="button"
-          onClick={() => setIsOpen((prev) => !prev)}
+          onClick={toggle}
           className="p-1.5 rounded-xl border border-neutral-200 dark:border-emerald-900/60 bg-white/80 dark:bg-[#12231a] hover:bg-neutral-100 dark:hover:bg-emerald-950/80 text-neutral-600 dark:text-neutral-300 transition-colors shadow-2xs cursor-pointer flex items-center justify-center min-w-[32px] min-h-[32px]"
           aria-label={ariaLabel}
           title={ariaLabel}
@@ -62,7 +75,9 @@ export const MoreMenu: React.FC<MoreMenuProps> = ({
 
       {isOpen && (
         <div
-          className={`absolute ${align === 'left' ? 'left-0' : 'right-0'} mt-1.5 w-52 rounded-2xl bg-white dark:bg-[#12231a] border border-neutral-200 dark:border-emerald-800 shadow-xl py-1.5 z-50 animate-in fade-in zoom-in-95 duration-100 text-xs font-bold`}
+          className={`absolute ${align === 'left' ? 'left-0' : 'right-0'} ${
+            openUpward ? 'bottom-full mb-1.5' : 'top-full mt-1.5'
+          } w-52 rounded-2xl bg-white dark:bg-[#12231a] border border-neutral-200 dark:border-emerald-800 shadow-xl py-1.5 z-40 animate-in fade-in zoom-in-95 duration-100 text-xs font-bold`}
           role="menu"
         >
           {items.map((item, idx) => (
@@ -71,7 +86,7 @@ export const MoreMenu: React.FC<MoreMenuProps> = ({
               type="button"
               disabled={item.disabled}
               onClick={() => {
-                setIsOpen(false);
+                close();
                 item.onClick();
               }}
               className={`w-full flex items-center justify-between gap-2.5 px-3.5 py-2.5 text-right transition cursor-pointer ${

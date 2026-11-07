@@ -118,6 +118,7 @@ export interface OutboxMessage {
 
 export type ActiveTab =
   | 'dashboard'
+  | 'admin'
   | 'faith_oasis'
   | 'owner_panel'
   | 'students'

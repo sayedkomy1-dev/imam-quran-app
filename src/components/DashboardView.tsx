@@ -827,24 +827,8 @@ export const DashboardView: React.FC = () => {
             </p>
           </div>
 
-          {/* Primary Quick Action Buttons + Fast Print */}
-          <div className="flex flex-wrap items-center gap-2.5 no-print">
-            <button
-              onClick={() => setActiveTab('session')}
-              className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-[#c59b27] hover:bg-[#b58c1e] text-[#14281d] font-bold text-xs shadow-sm transition-colors cursor-pointer whitespace-nowrap"
-            >
-              <Play className="w-4 h-4 fill-current" />
-              <span>بدء حصة تسميع</span>
-            </button>
-
-            <button
-              onClick={() => setActiveTab('circles')}
-              className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-white/15 hover:bg-white/25 text-white font-bold text-xs transition-colors cursor-pointer whitespace-nowrap"
-            >
-              <CalendarCheck className="w-4 h-4 text-[#dfbd69]" />
-              <span>إدارة الحلقات والحضور</span>
-            </button>
-
+          {/* Fast Print Summary Action */}
+          <div className="flex items-center gap-2 no-print shrink-0">
             <button
               type="button"
               onClick={() =>
@@ -852,11 +836,11 @@ export const DashboardView: React.FC = () => {
                   `تقرير لوحة القيادة - ${settings.academyName} - ${todayStr}`
                 )
               }
-              className="flex items-center gap-1.5 px-3.5 py-2.5 rounded-xl bg-white/10 hover:bg-white/20 text-[#dfbd69] font-bold text-xs border border-[#dfbd69]/30 transition-colors cursor-pointer whitespace-nowrap"
+              className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-white/10 hover:bg-white/20 text-[#dfbd69] font-black text-xs border border-[#dfbd69]/30 transition-colors cursor-pointer whitespace-nowrap"
               title="طباعة فورية سريعة للوحة القيادة اليومية"
             >
               <Printer className="w-4 h-4" />
-              <span>طباعة سريعة</span>
+              <span>طباعة ملخص اليوم</span>
             </button>
           </div>
         </div>

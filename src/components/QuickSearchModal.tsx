@@ -126,7 +126,7 @@ export const QuickSearchModal: React.FC = () => {
 
   return (
     <div
-      className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-start justify-center pt-14 px-4"
+      className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-start justify-center pt-14 px-4 animate-in fade-in duration-150"
       onClick={() => setQuickSearchOpen(false)}
     >
       <div
